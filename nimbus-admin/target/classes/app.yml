@@ -1,0 +1,50 @@
+# Nimbus Admin 配置
+server:
+  port: 8088
+  contextPath: /nimbus-admin
+solon:
+  env: dev
+  app:
+    name: nimbus-admin
+    group: nimbus
+
+  serialization.json:
+    dateAsFormat: 'yyyy-MM-dd HH:mm:ss'
+    dateAsTimeZone: 'GMT+8'
+    dateAsTicks: false
+    longAsString: false
+    boolAsInt: false
+    nullStringAsEmpty: true
+    nullBoolAsFalse: true
+    nullNumberAsZero: true
+    nullArrayAsEmpty: true
+    nullAsWriteable: true
+    enumAsName: true
+
+# 模板引擎配置
+solon.view.enjoy:
+  devMode: false  # 生产环境设为false启用缓存
+  cache: true     # 启用模板缓存
+  cacheSize: 500  # 缓存模板数量
+
+# Nimbus 管理配置
+nimbus:
+  admin:
+    # 初始管理员账号
+    superAdmin:
+      username: admin
+      password: admin123
+      email: admin@nimbus.com
+
+    # 文件存储
+    storage:
+      baseDir: ./data/nimbus
+      backup:
+        enabled: true
+        maxDays: 30
+
+    # 安全配置
+    security:
+      jwt:
+        secret: nimbus-config-secret-key-2024
+        expire: 86400

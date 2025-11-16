@@ -1,0 +1,61 @@
+<div class="dashboard-content">
+    <el-row :gutter="20">
+        <el-col :span="6">
+            <el-card class="stat-card">
+                <div slot="header" class="stat-card-header">
+                    <span>配置项总数</span>
+                </div>
+                <div class="stat-card-body">
+                    <div class="stat-value" id="config-count"></div>
+                    <el-progress :percentage="100" status="success"></el-progress>
+                </div>
+            </el-card>
+        </el-col>
+        <el-col :span="6">
+            <el-card class="stat-card">
+                <div slot="header" class="stat-card-header">
+                    <span>项目数量</span>
+                </div>
+                <div class="stat-card-body">
+                    <div class="stat-value" id="project-count"></div>
+                    <el-progress :percentage="100" status="warning"></el-progress>
+                </div>
+            </el-card>
+        </el-col>
+        <el-col :span="6">
+            <el-card class="stat-card">
+                <div slot="header" class="stat-card-header">
+                    <span>活跃用户</span>
+                </div>
+                <div class="stat-card-body">
+                    <div class="stat-value" id="user-count"></div>
+                    <el-progress :percentage="100" status="info"></el-progress>
+                </div>
+            </el-card>
+        </el-col>
+        <el-col :span="6">
+            <el-card class="stat-card">
+                <div slot="header" class="stat-card-header">
+                    <span>今日变更</span>
+                </div>
+                <div class="stat-card-body">
+                    <div class="stat-value" id="change-count"></div>
+                    <el-progress :percentage="100" status="danger"></el-progress>
+                </div>
+            </el-card>
+        </el-col>
+    </el-row>
+
+    <el-card style="margin-top: 20px">
+        <div slot="header">
+            <span>最近变更</span>
+        </div>
+        <el-table :data="recentChanges" style="width: 100%">
+            <el-table-column prop="key" label="配置键"></el-table-column>
+            <el-table-column prop="project" label="项目"></el-table-column>
+            <el-table-column prop="environment" label="环境"></el-table-column>
+            <el-table-column prop="operator" label="操作人"></el-table-column>
+            <el-table-column prop="time" label="操作时间"></el-table-column>
+        </el-table>
+    </el-card>
+</div>

@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.nimbus</groupId>
+    <artifactId>nimbus-config</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>Nimbus Config</name>
+    <parent>
+        <groupId>org.noear</groupId>
+        <artifactId>solon-parent</artifactId>
+        <version>3.7.2-M2</version>
+    </parent>
+
+    <modules>
+        <module>nimbus-admin</module>
+        <module>nimbus-core</module>
+        <module>nimbus-client</module>
+    </modules>
+
+    <properties>
+        <easyquery.version>3.1.48</easyquery.version>
+        <hikaricp.version>4.0.3</hikaricp.version>
+        <mysql.version>8.4.0</mysql.version>
+        <protobuf.version>4.28.2</protobuf.version>
+        <socketd.version>2.5.20</socketd.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <java.version>1.8</java.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Solon Core -->
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-web</artifactId>
+                <version>${solon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>socketd</artifactId>
+                <version>${socketd.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-net</artifactId>
+                <version>${solon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-sessionstate-local</artifactId>
+                <version>${solon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-data</artifactId>
+                <version>${solon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-cache-jedis</artifactId>
+                <version>${solon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.hutool</groupId>
+                <artifactId>hutool-core</artifactId>
+                <version>5.8.32</version>
+            </dependency>
+            <!-- EasyQuery -->
+            <dependency>
+                <groupId>com.easy-query</groupId>
+                <artifactId>sql-solon-plugin</artifactId>
+                <version>${easyquery.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.easy-query</groupId>
+                <artifactId>sql-processor</artifactId>
+                <version>${easyquery.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-view-enjoy</artifactId>
+                <version>${solon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-openapi2-knife4j</artifactId>
+                <version>${solon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-logging-logback</artifactId>
+                <version>${solon.version}</version>
+            </dependency>
+            <!--HikariCP-->
+            <dependency>
+                <groupId>com.zaxxer</groupId>
+                <artifactId>HikariCP</artifactId>
+                <version>${hikaricp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.mysql</groupId>
+                <artifactId>mysql-connector-j</artifactId>
+                <version>${mysql.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>com.google.protobuf</groupId>
+                        <artifactId>protobuf-java</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>
