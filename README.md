@@ -1,4 +1,8 @@
-# Nimbus 配置中心系统架构设计
+# Nimbus Config
+
+![Nimbus Config Logo](assets/logo.svg)
+
+## 分布式配置中心系统架构设计
 
 ## 1. 整体架构
 ```mermaid

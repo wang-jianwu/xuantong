@@ -78,40 +78,41 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
             // 使用集合记录已经推送过的客户端IP，避免同一机器重复推送
             Set<String> pushedIps = new HashSet<>();
 
-                    targetSessions.forEach((sessionId, session) -> {
-                        try {
-                            if (session.isValid()) {
-                                // 获取客户端IP地址
-                                String clientIp = getClientIp(session);
+            targetSessions.forEach((sessionId, session) -> {
+                try {
+                    if (session.isValid()) {
+                        // 获取客户端IP地址
+                        String clientIp = getClientIp(session);
 
-                                // 检查是否已经给这个IP推送过
-                                if (clientIp != null && !pushedIps.contains(clientIp)) {
-                                    session.send("push", new StringEntity(changeJson));
-                                    pushedIps.add(clientIp);
-                                    log.debug("Config change pushed to client {} (IP: {}) for {}/{}",
-                                            sessionId, clientIp, event.getProject(), event.getEnvironment());
-                                } else {
-                                    log.debug("Skipping duplicate push for IP: {}", clientIp);
-                                }
-                            } else {
-                                // 移除无效的会话
-                                targetSessions.remove(sessionId);
-                                // 如果该分组为空，清理空分组
-                                if (targetSessions.isEmpty()) {
-                                    appEnvSessions.remove(appEnvKey);
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.error("Failed to push config change to client: {}", sessionId, e);
-                            targetSessions.remove(sessionId);
-                            // 如果该分组为空，清理空分组
-                            if (targetSessions.isEmpty()) {
-                                appEnvSessions.remove(appEnvKey);
-                            }
+                        // 检查是否已经给这个IP推送过
+                        if (clientIp != null && !pushedIps.contains(clientIp)) {
+                            session.send("push", new StringEntity(changeJson));
+                            pushedIps.add(clientIp);
+                            log.debug("Config change pushed to client {} (IP: {}) for {}/{}",
+                                    sessionId, clientIp, event.getProject(), event.getEnvironment());
+                        } else {
+                            log.debug("Skipping duplicate push for IP: {}", clientIp);
                         }
-                    });
+                    } else {
+                        // 移除无效的会话
+                        targetSessions.remove(sessionId);
+                        // 如果该分组为空，清理空分组
+                        if (targetSessions.isEmpty()) {
+                            appEnvSessions.remove(appEnvKey);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to push config change to client: {}", sessionId, e);
+                    targetSessions.remove(sessionId);
+                    // 如果该分组为空，清理空分组
+                    if (targetSessions.isEmpty()) {
+                        appEnvSessions.remove(appEnvKey);
+                    }
+                }
+            });
         }
     }
+
     /**
      * 获取客户端IP地址
      * 优先从Socket.D协议的X-Real-IP元信息中获取，如果没有则从远程地址解析
