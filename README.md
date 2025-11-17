@@ -1,6 +1,6 @@
 # Nimbus 配置中心系统架构设计
 
-## 1. 整体架构（Solon + Redis + DB）
+## 1. 整体架构
 ```mermaid
 flowchart TB
     subgraph ClientSide[Nimbus客户端]
@@ -12,7 +12,7 @@ flowchart TB
     end
 
     subgraph ServerSide[Solon服务端]
-        G[Solon WebSocket Gateway]
+        G[Solon SocketD]
         H[Redis Cache]
         I[Database]
 
@@ -21,7 +21,7 @@ flowchart TB
         I --> H
     end
 
-    C -->|WebSocket长连接| G
+    C -->|SocketD长连接| G
     B -->|缓存回源| H
 ```
 
@@ -62,7 +62,7 @@ classDiagram
 #### 推送模式（Push）
 ```mermaid
 sequenceDiagram
-    Server->>Client: WebSocket推送变更
+    Server->>Client: SocketD推送变更
     Client->>Cache: 更新内存缓存
     Client->>Listener: 触发变更事件
 ```
@@ -70,7 +70,7 @@ sequenceDiagram
 #### 拉取模式（Pull）
 ```mermaid
 sequenceDiagram
-    Client->>Server: 定时请求变更(fetchChanges)
+    Client->>Server: 定时请求变更数据
     Server-->>Client: 返回差异配置
     Client->>Cache: 增量更新
 ```
@@ -97,8 +97,7 @@ Map<String,String> changes = transport.fetchChanges();
 - 与Spring生态集成
 
 ### 4.2 Solon Plugin开发  
-- 原生Solon框架支持
-- 插件化架构设计
+- Solon框架插件开发
 
 ## 5. 客户端使用示例
 
@@ -152,7 +151,6 @@ client.addListener("payment.timeout", new ConfigListener() {
 |------|------|------|
 | Solon | 服务端框架 | [solon.noear.org](https://solon.noear.org) |
 | SocketD | 实时通信 | [socketd.noear.org](https://socketd.noear.org) |
-| Spring Boot | 企业级框架 | [spring.io](https://spring.io) |
 | Snack4 | JSON处理 | [github.com/noear/snack4](https://github.com/noear/snack4) |
 | EasyQuery | 动态SQL | [easy-query.com](https://easy-query.com) |
 
@@ -160,7 +158,7 @@ client.addListener("payment.timeout", new ConfigListener() {
 
 ### 7.1 客户端监控
 - 缓存命中率（L1/L2/L3）
-- WebSocket连接状态
+- SocketD连接状态
 - 配置拉取延迟
 - 熔断器状态
 
