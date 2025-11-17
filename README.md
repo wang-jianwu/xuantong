@@ -1,172 +1,78 @@
-# Nimbus Config
+# Nimbus 配置中心客户端
 
-![Nimbus Config Logo](assets/logo.svg)
+## 产品介绍
+Nimbus是一款高性能的分布式配置管理客户端，具有以下核心特性：
 
-## 分布式配置中心系统架构设计
+- ⚡ **实时推送**：基于WebSocket的配置变更通知
+- 🛡️ **多级容灾**：内存 → 本地文件 → Redis → 服务端
+- 📊 **完善监控**：内置指标采集和健康检查
+- 🔒 **安全可靠**：支持配置加密和权限控制
 
-## 1. 整体架构
-```mermaid
-flowchart TB
-    subgraph ClientSide[Nimbus客户端]
-        A[NimBus Client] --> B[ConfigCacheManager]
-        A --> C[SocketDTransport]
-        A --> D[LocalSnapshotManager]
-        A --> E[CircuitBreaker]
-        A --> F[ConfigListenerManager]
-    end
+## 快速开始
 
-    subgraph ServerSide[Solon服务端]
-        G[Solon SocketD]
-        H[Redis Cache]
-        I[Database]
-
-        G --> H
-        H --> I
-        I --> H
-    end
-
-    C -->|SocketD长连接| G
-    B -->|缓存回源| H
+### 1. 添加依赖
+```xml
+<dependency>
+    <groupId>com.nimbus</groupId>
+    <artifactId>nimbus-client</artifactId>
+    <version>1.0.0</version>
+</dependency>
 ```
 
-## 2. 客户端核心模块
-```mermaid
-classDiagram
-    class NimBusClient {
-        <<abstract>>
-        +get(key, defaultValue) String
-        +getObject(key, clazz) T
-        +addListener(key, listener)
-    }
-
-    class ConfigClientFactory {
-        +getClient(serverAddr, appName, env) NimBusClient
-        +init() void
-    }
-
-    class SocketDTransport {
-        +fetch(key) String
-        +fetchChanges() Map~String,String~
-    }
-
-    NimBusClient <|-- SimpleConfigClient
-    ConfigClientFactory --> SocketDTransport
-    ConfigClientFactory --> ConfigCacheManager
-```
-
-## 3. 客户端特性
-
-### 3.1 多级缓存设计
-- **L1 内存缓存**: ConcurrentHashMap，纳秒级响应
-- **L2 本地文件**: 持久化存储，进程重启不丢失
-- **L3 Redis缓存**: 分布式共享，集群环境一致
-- **降级策略**: 本地快照，网络异常时自动切换
-
-### 3.2 混合通信机制
-#### 推送模式（Push）
-```mermaid
-sequenceDiagram
-    Server->>Client: SocketD推送变更
-    Client->>Cache: 更新内存缓存
-    Client->>Listener: 触发变更事件
-```
-
-#### 拉取模式（Pull）
-```mermaid
-sequenceDiagram
-    Client->>Server: 定时请求变更数据
-    Server-->>Client: 返回差异配置
-    Client->>Cache: 增量更新
-```
-
-#### 代码示例
+### 2. 初始化客户端
 ```java
-// 推送监听配置
-transport.setPushListener(event -> {
-    // 处理服务端推送的变更
-});
-
-// 主动拉取变更
-Map<String,String> changes = transport.fetchChanges();
-```
-
-### 3.3 熔断保护
-- **错误率阈值**: 超过50%失败率触发熔断
-- **半开状态**: 定期尝试恢复连接
-- **自动恢复**: 错误率降低后自动关闭熔断
-## 4. 下一步开发计划
-
-### 4.1 Spring Boot Starter开发
-- 自动配置和Bean注入
-- 与Spring生态集成
-
-### 4.2 Solon Plugin开发  
-- Solon框架插件开发
-
-## 5. 客户端使用示例
-
-### 5.1 初始化配置客户端
-```java
-// 单服务器全局初始化
-ConfigClientFactory.init(
-    "ws://config-server:8080",
-    "your-app-name",
-    "prod"
-);
-
-// 多服务器集群全局初始化  
-ConfigClientFactory.init(
-    Arrays.asList("ws://node1:8080", "ws://node2:8080"),
-    "your-app-name",
-    "prod"
-);
-
-// 获取客户端实例
+// 生产环境初始化
 NimBusClient client = ConfigClientFactory.getClient(
-    "sd:ws://config-server:8080",
+    "sd:ws://config-center:8080",
     "your-app-name",
     "prod"
 );
 ```
 
-### 5.2 获取配置值
+### 3. 获取配置
 ```java
-// 获取字符串配置
-String timeout = NimBusClient.get("payment.timeout", "3000");
-
-// 获取对象配置
-PaymentConfig config = NimBusClient.getObject("payment.config", PaymentConfig.class);
+String timeout = NimBusClient.get("payment.timeout", "5000");
 ```
 
-### 5.3 监听配置变更
+### 4. 监听变更
 ```java
-client.addListener("payment.timeout", new ConfigListener() {
-    @Override
-    public void onChange(ConfigChangeEvent event) {
-        System.out.println("配置变更: " + event.getKey() + 
-                         " 旧值: " + event.getOldValue() +
-                         " 新值: " + event.getNewValue());
-    }
+client.addListener("payment.timeout", event -> {
+    System.out.println("配置变更: " + event.getNewValue());
 });
 ```
 
-## 6. 技术栈鸣谢
-| 技术 | 角色 | 官网 |
-|------|------|------|
-| Solon | 服务端框架 | [solon.noear.org](https://solon.noear.org) |
-| SocketD | 实时通信 | [socketd.noear.org](https://socketd.noear.org) |
-| Snack4 | JSON处理 | [github.com/noear/snack4](https://github.com/noear/snack4) |
-| EasyQuery | 动态SQL | [easy-query.com](https://easy-query.com) |
+## 开发进度
 
-## 7. 监控指标
+### 已实现功能
+✅ 核心客户端 (nimbus-client)  
+✅ 多级缓存架构  
+✅ 实时推送机制  
+✅ 熔断保护  
+✅ 本地快照  
 
-### 7.1 客户端监控
-- 缓存命中率（L1/L2/L3）
-- SocketD连接状态
-- 配置拉取延迟
-- 熔断器状态
+### 正在开发
+🔄 Spring Boot Starter (nimbus-spring-boot-starter)  
+🔄 Solon Cloud Plugin (nimbus-config-solon-cloud-plugin)  
 
-### 7.2 服务端监控
-- Solon服务QPS
-- Redis缓存命中率
-- 数据库查询延迟
+### 计划功能
+🔲 配置加密支持  
+🔲 权限控制体系  
+🔲 灰度发布功能  
+
+## 最佳实践
+
+### 推荐配置
+| 环境 | 建议配置 |
+|------|---------|
+| 开发环境 | 单节点连接 |
+| 生产环境 | 多节点集群 + Redis缓存 |
+
+### 性能调优
+- 适当增大连接池大小
+- 合理设置心跳间隔
+- 启用压缩传输
+
+## 技术支持
+- 文档：https://nimbus-config.io/docs
+- 社区：forum.nimbus-config.io
+- 商业支持：support@nimbus-config.io
