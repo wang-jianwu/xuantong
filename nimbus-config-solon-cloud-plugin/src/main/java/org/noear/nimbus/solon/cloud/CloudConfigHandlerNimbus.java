@@ -1,5 +1,6 @@
 package org.noear.nimbus.solon.cloud;
 
+import org.noear.solon.Solon;
 import org.noear.solon.cloud.CloudConfigHandler;
 import org.noear.solon.cloud.model.Config;
 
@@ -12,5 +13,6 @@ public class CloudConfigHandlerNimbus implements CloudConfigHandler {
     public void handle(Config config) {
         // 处理配置变更事件
         System.out.println("Nimbus config changed: " + config.key() + " = " + config.value());
+        Solon.cfg().put(config.key(), config.value());
     }
 }

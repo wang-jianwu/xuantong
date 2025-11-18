@@ -11,8 +11,13 @@ import com.nimbus.client.transport.SocketDTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -28,47 +33,27 @@ public class ConfigClientFactory {
     private final CircuitBreaker circuitBreaker;
     private final LocalSnapshotManager snapshotManager;
     private final ScheduledExecutorService scheduler;
-    private final String appName;
-    private final String env;
     private volatile boolean useSnapshotMode = false;
     private SimpleConfigClient activeClient; // 当前活动的客户端实例
     private final ConfigListenerManager listenerManager = new ConfigListenerManager();
 
     private ConfigClientFactory(List<String> serverAddrs, String appName, String env) {
-        this.appName = appName;
-        this.env = env;
         this.snapshotManager = new LocalSnapshotManager(appName, env);
         this.circuitBreaker = new CircuitBreaker(5, 30000, 3);
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
         this.transport = new SocketDTransport(serverAddrs, appName, env, this);
     }
 
-    /**
-     * 全局初始化所有配置客户端
-     */
-    public static void init(String serverAddr, String appName, String env) {
-        getInstance(Collections.singletonList(serverAddr), appName, env).init();
-    }
 
     /**
      * 全局初始化所有配置客户端（支持多个服务器地址）
+     *
+     * @return ConfigClientFactory实例，可用于链式调用
      */
-    public static void init(List<String> serverAddrs, String appName, String env) {
-        getInstance(serverAddrs, appName, env).init();
-    }
-
-    /**
-     * 获取配置客户端实例（用于框架集成）
-     */
-    public static NimBusClient getClient(String serverAddr, String appName, String env) {
-        return getInstance(Collections.singletonList(serverAddr), appName, env).createConfigClient();
-    }
-
-    /**
-     * 获取配置客户端实例（支持多个服务器地址，用于框架集成）
-     */
-    public static NimBusClient getClient(List<String> serverAddrs, String appName, String env) {
-        return getInstance(serverAddrs, appName, env).createConfigClient();
+    public static ConfigClientFactory init(List<String> serverAddrs, String appName, String env) {
+        ConfigClientFactory instance = getInstance(serverAddrs, appName, env);
+        instance.init();
+        return instance;
     }
 
     /**
@@ -94,6 +79,7 @@ public class ConfigClientFactory {
 
     private volatile boolean initializing = false;
     private volatile boolean initialized = false;
+    private final CountDownLatch initializationLatch = new CountDownLatch(1);
 
     private void init() {
         if (initializing || initialized) {
@@ -124,27 +110,30 @@ public class ConfigClientFactory {
                 initialized = true; // 即使失败也标记为完成
             } finally {
                 initializing = false;
+                initializationLatch.countDown(); // Signal completion here
             }
         });
     }
 
+
     /**
      * 等待初始化完成（可选阻塞调用）
+     *
      * @param timeoutMs 超时时间（毫秒）
      * @return 是否初始化成功
      */
-    public boolean waitForInitialization(long timeoutMs) {
-        long endTime = System.currentTimeMillis() + timeoutMs;
-        while (!initialized && System.currentTimeMillis() < endTime) {
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
+    private boolean waitForInitialization(long timeoutMs) {
+        try {
+            if (initialized) {
+                return !useSnapshotMode;
             }
+            return initializationLatch.await(timeoutMs, TimeUnit.MILLISECONDS) && !useSnapshotMode;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-        return initialized && !useSnapshotMode;
     }
+
 
     private void fallbackToSnapshot() {
         logger.warn("Falling back to local snapshot due to connection issues");
@@ -208,7 +197,7 @@ public class ConfigClientFactory {
                     realChanges.forEach((key, newValue) -> {
                         String oldValue = getActiveClientLocalCacheValue(key);
                         logger.debug("Config changed - Key: {}, Old: {}, New: {}",
-                            key, oldValue, newValue);
+                                key, oldValue, newValue);
                     });
                 }
 
@@ -234,6 +223,7 @@ public class ConfigClientFactory {
 
     /**
      * 更新本地快照
+     *
      * @param configs 最新的配置集合
      */
     public void updateSnapshot(Map<String, String> configs) {
@@ -247,6 +237,7 @@ public class ConfigClientFactory {
 
     /**
      * 处理配置推送更新
+     *
      * @param newConfigs 新的配置集合
      */
     public void handleConfigPush(Map<String, String> newConfigs) {
@@ -279,6 +270,7 @@ public class ConfigClientFactory {
 
     /**
      * 触发配置变更事件
+     *
      * @param changedConfigs 变更的配置集合
      */
     private void triggerConfigChangeEvents(Map<String, String> changedConfigs) {
@@ -292,13 +284,14 @@ public class ConfigClientFactory {
                 logger.info("Config added - Key: {}, Value: {}", key, newValue);
             } else {
                 logger.info("Config updated - Key: {}, Old: {}, New: {}",
-                    key, oldValue, newValue);
+                        key, oldValue, newValue);
             }
         });
     }
 
     /**
      * 获取活跃客户端本地缓存中的配置值
+     *
      * @param key 配置键
      * @return 配置值，如果不存在返回null
      */
@@ -311,13 +304,13 @@ public class ConfigClientFactory {
 
     /**
      * 添加配置变更监听器
-     * @param key 配置键
+     *
+     * @param key      配置键
      * @param listener 监听器实例
      */
     public void addConfigListener(String key, ConfigListener listener) {
         listenerManager.addListener(key, listener);
     }
-
     /**
      * 移除配置变更监听器
      * @param key 配置键
@@ -325,6 +318,23 @@ public class ConfigClientFactory {
      */
     public void removeConfigListener(String key, ConfigListener listener) {
         listenerManager.removeListener(key, listener);
+    }
+
+    /**
+     * 静态方法移除配置变更监听器
+     * @param appName 应用名
+     * @param env 环境
+     * @param key 配置键
+     * @param listener 监听器实例
+     * @throws IllegalStateException 如果客户端未初始化
+     */
+    public static void removeStaticConfigListener(String appName, String env, String key, ConfigListener listener) {
+        String instanceKey = appName + ":" + env;
+        ConfigClientFactory instance = instances.get(instanceKey);
+        if (instance == null) {
+            throw new IllegalStateException("ConfigClient not initialized for app: " + appName + ", env: " + env);
+        }
+        instance.removeConfigListener(key, listener);
     }
 
     /**
@@ -336,7 +346,42 @@ public class ConfigClientFactory {
     }
 
     /**
+     * 静态方法添加配置变更监听器
+     * @param appName 应用名
+     * @param env 环境
+     * @param key 配置键
+     * @param listener 监听器实例
+     * @throws IllegalStateException 如果客户端未初始化
+     */
+    public static void addStaticConfigListener(String appName, String env, String key, ConfigListener listener) {
+        String instanceKey = appName + ":" + env;
+        ConfigClientFactory instance = instances.get(instanceKey);
+        if (instance == null) {
+            throw new IllegalStateException("ConfigClient not initialized for app: " + appName + ", env: " + env);
+        }
+        instance.addConfigListener(key, listener);
+    }
+
+    /**
+     * 静态方法等待指定应用的配置客户端初始化完成
+     * @param appName 应用名
+     * @param env 环境
+     * @param timeoutMs 超时时间（毫秒）
+     * @return 是否初始化成功（非快照模式）
+     * @throws IllegalStateException 如果客户端未找到
+     */
+    public static boolean waitForStaticInitialization(String appName, String env, long timeoutMs) {
+        String instanceKey = appName + ":" + env;
+        ConfigClientFactory instance = instances.get(instanceKey);
+        if (instance == null) {
+            throw new IllegalStateException("ConfigClient not found for app: " + appName + ", env: " + env);
+        }
+        return instance.waitForInitialization(timeoutMs);
+    }
+
+    /**
      * 增量更新本地快照，只更新变更的配置
+     *
      * @param changedConfigs 变更的配置集合
      */
     public void updatePartialSnapshot(Map<String, String> changedConfigs) {

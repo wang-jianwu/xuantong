@@ -1,34 +1,28 @@
 {
   "properties": [
     {
-      "name": "solon.cloud.nacos.server",
+      "name": "solon.cloud.nimbus-conf.server",
       "type": "java.lang.String",
-      "description": "nimbus-config 服务地址"
+      "description": "服务地址 127.0.0.1:8080"
     },
     {
-      "name": "solon.cloud.nacos.username",
+      "name": "solon.cloud.nimbus-conf.username",
       "type": "java.lang.String",
       "description": "nimbus-config 服务连接用户名"
     },
     {
-      "name": "solon.cloud.nacos.password",
+      "name": "solon.cloud.nimbus-conf.password",
       "type": "java.lang.String",
       "description": "nimbus-config 服务连接密码"
     },
     {
-      "name": "solon.cloud.nacos.config.enable",
+      "name": "solon.cloud.nimbus-conf.config.enable",
       "type": "java.lang.Boolean",
       "defaultValue": true,
       "description": "nimbus-config 服务是否启用"
     },
     {
-      "name": "solon.cloud.nacos.config.server",
-      "type": "java.lang.String",
-      "defaultValue": "${solon.cloud.nacos.server}",
-      "description": "nimbus-config 服务地址"
-    },
-    {
-      "name": "solon.cloud.nacos.config.load",
+      "name": "solon.cloud.nimbus-conf.config.load",
       "type": "java.lang.String",
       "description": "nimbus-config 服务加载"
     }
