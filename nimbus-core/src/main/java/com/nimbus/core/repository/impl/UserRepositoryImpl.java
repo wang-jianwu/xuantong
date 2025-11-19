@@ -3,7 +3,6 @@ package com.nimbus.core.repository.impl;
 import com.easy.query.api.proxy.client.EasyEntityQuery;
 import com.easy.query.solon.annotation.Db;
 import com.nimbus.core.model.User;
-import com.nimbus.core.model.proxy.UserProxy;
 import com.nimbus.core.repository.UserRepository;
 import org.noear.solon.annotation.Component;
 

@@ -1,14 +1,12 @@
 package com.nimbus.client.serializer;
 
 import com.nimbus.client.metrics.ConfigMetrics;
-import org.noear.snack4.Feature;
 import org.noear.snack4.ONode;
 import org.noear.snack4.Options;
 import org.noear.snack4.codec.TypeRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**

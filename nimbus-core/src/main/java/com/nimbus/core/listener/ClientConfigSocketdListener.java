@@ -2,8 +2,6 @@ package com.nimbus.core.listener;
 
 import com.nimbus.core.listener.model.ConfigChangeEvent;
 import com.nimbus.core.model.ConfigItem;
-import com.nimbus.core.repository.ConfigLogRepository;
-import com.nimbus.core.repository.ConfigRepository;
 import com.nimbus.core.service.ConfigService;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.snack4.ONode;
