@@ -1,37 +1,38 @@
 package com.nimbus.client.transport;
 
-import com.nimbus.client.serializer.Serializer;
-
-import java.util.Map;
+import java.util.List;
 
 /**
  * 配置传输层接口
  */
 public interface ConfigTransport {
+
     /**
-     * 连接到配置服务器
+     * 配置变更监听器接口
      */
-    void connect();
+    interface ConfigChangeListener {
+        void onChanged(String configData);
+    }
+
+    /**
+     * 连接到配置服务器并注册变更监听器
+     */
+    void connect(List<String> serverAddress, String appName, String env, ConfigChangeListener listener);
 
     /**
      * 获取所有配置
      */
-    Map<String, String> fetchAll();
+    String fetchAll(String appName, String env);
 
     /**
      * 获取配置变更
      */
-    Map<String, String> fetchChanges();
+    String fetchChanges(String appName, String env);
 
     /**
      * 获取单个配置值
      */
-    String fetch(String key);
-
-    /**
-     * 获取序列化器
-     */
-    Serializer getSerializer();
+    String fetch(String appName, String env, String key);
 
     /**
      * 关闭连接

@@ -73,6 +73,8 @@ public class ConfigService {
                 log.setOperateTime(new Date());
                 log.setIpAddress(Context.current().realIp());
                 configLogRepository.save(log);
+                // 通知监听器
+                EventBus.publishAsync(new ConfigChangeEvent(config.getKey(), config.getValue(), config.getProject(), config.getEnvironment()));
             }
         } else {
             // 创建新配置项
@@ -96,8 +98,6 @@ public class ConfigService {
             String cacheKey = buildCacheKey(config.getKey(), config.getEnvironment(), config.getProject());
             cacheService.remove(cacheKey);
         }
-        // 通知监听器
-        EventBus.publishAsync(new ConfigChangeEvent(config.getKey(), config.getValue(), config.getProject(), config.getEnvironment()));
         return result;
     }
 
@@ -135,50 +135,47 @@ public class ConfigService {
         return configLogRepository.findByConfigId(configId);
     }
 
-    public boolean revertToVersion(Long configId, Integer version) {
-        ConfigItem targetVersion = configRepository.findByVersion(configId, version);
-        if (targetVersion == null) {
+    @Transaction
+    public boolean revertToVersion(Long logId) {
+        ConfigLog configLog = configLogRepository.findById(logId);
+        if (configLog == null) {
             return false;
         }
 
         // 获取当前版本号
-        ConfigItem current = configRepository.findById(configId);
+        ConfigItem current = configRepository.findById(configLog.getConfigId());
         if (current == null) {
             return false;
         }
 
+        String newValue = configLog.getNewValue();
+        String oldValue = current.getValue();
         // 更新配置项为目标版本
-        ConfigItem revertedConfig = new ConfigItem();
-        revertedConfig.setId(configId);
-        revertedConfig.setKey(targetVersion.getKey());
-        revertedConfig.setValue(targetVersion.getValue());
-        revertedConfig.setDescription(targetVersion.getDescription());
-        revertedConfig.setEnvironment(targetVersion.getEnvironment());
-        revertedConfig.setProject(targetVersion.getProject());
-        revertedConfig.setVersion(current.getVersion() + 1);
-        revertedConfig.setUpdatedAt(new Date());
+        current.setValue(newValue);
+        current.setVersion(current.getVersion() + 1);
+        current.setUpdatedAt(new Date());
 
-        boolean result = configRepository.update(revertedConfig) > 0;
+        boolean result = configRepository.update(current) > 0;
         if (result) {
             // 记录REVERT日志
             ConfigLog log = new ConfigLog();
-            log.setConfigId(configId);
+            log.setConfigId(current.getId());
             log.setOperation("REVERT");
-            log.setOldValue(current.getValue());
-            log.setNewValue(targetVersion.getValue());
+            log.setOldValue(oldValue);
+            log.setNewValue(newValue);
             log.setOperator(getCurrentUser());
             log.setOperateTime(new Date());
             log.setIpAddress(Context.current().realIp());
             configLogRepository.save(log);
 
             // 清除缓存
-            String cacheKey = buildCacheKey(revertedConfig.getKey(),
-                    revertedConfig.getEnvironment(),
-                    revertedConfig.getProject());
+            String cacheKey = buildCacheKey(current.getKey(),
+                    current.getEnvironment(),
+                    current.getProject());
             cacheService.remove(cacheKey);
 
             // 通知监听器
-            EventBus.publishAsync(new ConfigChangeEvent(revertedConfig.getKey(), revertedConfig.getValue(), revertedConfig.getProject(), revertedConfig.getEnvironment()));
+            EventBus.publishAsync(new ConfigChangeEvent(current.getKey(), current.getValue(), current.getProject(), current.getEnvironment()));
         }
         return result;
     }

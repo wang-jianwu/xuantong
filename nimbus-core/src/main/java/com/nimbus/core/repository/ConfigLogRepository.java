@@ -15,4 +15,6 @@ public interface ConfigLogRepository {
     List<ConfigLog> findByOperator(String operator);
     List<ConfigLog> findByTimeRange(Date startTime, Date endTime);
     Map<String, String> findChangesSince(String project, String environment, Date since);
+
+    ConfigLog findById(Long logId);
 }

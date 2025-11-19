@@ -1,11 +1,13 @@
 package com.nimbus.client.cache;
 
-import com.nimbus.client.metrics.ConfigMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 多级缓存管理器（支持缓存同步、过期策略和监控）
@@ -58,7 +60,7 @@ public class ConfigCacheManager {
     }
 
     // 获取配置（支持默认值）
-    public String get(String key, String defaultValue) {
+    public String get(String key) {
         // 1. 检查内存缓存
         String value = memoryCache.get(key);
         if (value != null) {
@@ -73,14 +75,8 @@ public class ConfigCacheManager {
             memoryCache.put(key, value);
             return value;
         }
-
-        // 3. 使用默认值（远程获取由上层ConfigClient处理）
-        return defaultValue;
-    }
-
-    // 获取配置（无默认值）
-    public String get(String key) {
-        return get(key, null);
+        // 3. 远程获取由上层处理
+        return null;
     }
 
     // 批量更新（支持事务性保证）

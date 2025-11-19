@@ -6,6 +6,16 @@
       "description": "服务地址 127.0.0.1:8080"
     },
     {
+      "name": "solon.cloud.nimbus-conf.namespace",
+      "type": "java.lang.String",
+      "description": "项目名"
+    },
+    {
+      "name": "solon.cloud.nimbus-conf.group",
+      "type": "java.lang.String",
+      "description": "环境名"
+    },
+    {
       "name": "solon.cloud.nimbus-conf.username",
       "type": "java.lang.String",
       "description": "nimbus-config 服务连接用户名"
