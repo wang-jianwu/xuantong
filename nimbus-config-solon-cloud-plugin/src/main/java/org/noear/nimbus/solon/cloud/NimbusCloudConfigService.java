@@ -18,9 +18,9 @@ public class NimbusCloudConfigService implements CloudConfigService {
 
     public NimbusCloudConfigService(CloudProps cloudProps) {
         String namespace = cloudProps.getNamespace();
-        String[] s = namespace.split("_");
-        String appName = s[0];
-        String env = s[1];
+        String[] name_env = namespace.split(":");
+        String appName = name_env[0];
+        String env = name_env[1];
         // 创建配置客户端实例
         this.client = new NimBusClient(
             Arrays.asList(cloudProps.getServer().split(",")),

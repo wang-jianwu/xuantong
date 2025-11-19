@@ -1,11 +1,11 @@
 package org.noear.nimbus.solon.cloud;
 
-import com.nimbus.client.NimBusClient;
 import com.nimbus.client.NimbusConfig;
 import org.noear.solon.Utils;
 import org.noear.solon.cloud.CloudClient;
 import org.noear.solon.cloud.CloudManager;
 import org.noear.solon.cloud.CloudProps;
+import org.noear.solon.cloud.exception.CloudException;
 import org.noear.solon.core.AppContext;
 import org.noear.solon.core.Plugin;
 
@@ -22,9 +22,8 @@ public class NimbusCloudAutoConfiguration implements Plugin {
             return;
         }
         if (Utils.isEmpty(cloudProps.getNamespace())){
-            throw new RuntimeException("nimbus-conf.namespace 和 env 必须配置");
+            throw new CloudException("nimbus-conf.namespace必须配置，格式为 name:env");
         }
-        //1.登记配置服务
         if (cloudProps.getConfigEnable()) {
             // 注册配置服务
             CloudManager.register(new NimbusCloudConfigService(cloudProps));

@@ -1,11 +1,8 @@
 package com.nimbus.core.model.proxy;
 
-import com.easy.query.core.expression.parser.core.available.TableAvailable;
 import com.easy.query.core.proxy.AbstractProxyEntity;
-import com.easy.query.core.proxy.SQLColumn;
 import com.easy.query.core.proxy.SQLSelectAsExpression;
 import com.easy.query.core.proxy.fetcher.AbstractFetcher;
-import com.easy.query.core.proxy.core.EntitySQLContext;
 import com.nimbus.core.model.ConfigLog;
 import com.easy.query.core.proxy.columns.types.SQLLongTypeColumn;
 import com.easy.query.core.proxy.columns.types.SQLStringTypeColumn;
