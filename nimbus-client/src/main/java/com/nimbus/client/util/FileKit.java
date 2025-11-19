@@ -10,10 +10,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
 /**
- * 文件操作工具类 (兼容JDK 1.8)
+ * 文件操作工具类
  */
-public class FileUtil {
-    private static final Logger logger = LoggerFactory.getLogger(FileUtil.class);
+public class FileKit {
+    private static final Logger logger = LoggerFactory.getLogger(FileKit.class);
 
     public static String readFile(Path path) {
         try {

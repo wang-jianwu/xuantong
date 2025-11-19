@@ -74,4 +74,9 @@ public class ConfigLogRepositoryImpl implements ConfigLogRepository {
         });
         return result;
     }
+
+    @Override
+    public ConfigLog findById(Long logId) {
+        return easyQuery.queryable(ConfigLog.class).whereById(logId).firstOrNull();
+    }
 }

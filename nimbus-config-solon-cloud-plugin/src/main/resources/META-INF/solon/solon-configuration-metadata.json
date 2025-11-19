@@ -1,0 +1,40 @@
+{
+  "properties": [
+    {
+      "name": "solon.cloud.nimbus-conf.server",
+      "type": "java.lang.String",
+      "description": "服务地址 127.0.0.1:8080"
+    },
+    {
+      "name": "solon.cloud.nimbus-conf.namespace",
+      "type": "java.lang.String",
+      "description": "项目名"
+    },
+    {
+      "name": "solon.cloud.nimbus-conf.group",
+      "type": "java.lang.String",
+      "description": "环境名"
+    },
+    {
+      "name": "solon.cloud.nimbus-conf.username",
+      "type": "java.lang.String",
+      "description": "nimbus-config 服务连接用户名"
+    },
+    {
+      "name": "solon.cloud.nimbus-conf.password",
+      "type": "java.lang.String",
+      "description": "nimbus-config 服务连接密码"
+    },
+    {
+      "name": "solon.cloud.nimbus-conf.config.enable",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "nimbus-config 服务是否启用"
+    },
+    {
+      "name": "solon.cloud.nimbus-conf.config.load",
+      "type": "java.lang.String",
+      "description": "nimbus-config 服务加载"
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 package com.nimbus.client;
 
-
+import com.nimbus.client.core.ConfigCore;
+import com.nimbus.client.listener.ConfigListener;
+import com.nimbus.client.transport.impl.SocketDTransport;
 import org.noear.snack4.ONode;
 import org.noear.snack4.codec.TypeRef;
 
@@ -10,39 +12,56 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 配置客户端接口 - 纯配置获取功能
+ * 配置客户端接口 - 实例化客户端（用于依赖注入）
  */
-public abstract class NimBusClient implements AutoCloseable {
+public class NimBusClient implements AutoCloseable {
 
-    private static volatile NimBusClient defaultInstance;
+    private final ConfigCore configCore;
+    private static NimBusClient defaultInstance = null;
 
     /**
-     * 设置默认配置客户端实例
+     * 构造函数 - 自动注册为默认实例（如果还没有默认实例）
      */
-    static void setDefaultInstance(NimBusClient instance) {
-        defaultInstance = instance;
+    public NimBusClient(List<String> serverAddrs, String appName, String env) {
+        this.configCore = new ConfigCore(serverAddrs, appName, env, new SocketDTransport());
+        registerAsDefault();
+    }
+
+    /**
+     * 注册当前实例为默认实例
+     */
+    private synchronized void registerAsDefault() {
+        if (defaultInstance == null) {
+            defaultInstance = this;
+            NimbusConfig.setClient(this);
+        }
+    }
+
+    /**
+     * 获取默认实例（如果存在）
+     */
+    public static NimBusClient getDefault() {
+        return defaultInstance;
     }
 
     /**
      * 获取字符串配置值
      */
-    public static String get(String key, String defaultValue) {
-        if (defaultInstance == null) {
-            throw new IllegalStateException("ConfigClient not initialized. Please call ConfigClientFactory.init() first.");
-        }
-        // 直接访问本地缓存
-        return defaultInstance.getDirect(key, defaultValue);
+    public String get(String key) {
+        return configCore.get(key, null);
     }
 
     /**
-     * 直接从本地缓存获取配置值（避免递归）
+     * 获取字符串配置值（带默认值）
      */
-    protected abstract String getDirect(String key, String defaultValue);
+    public String get(String key, String defaultValue) {
+        return configCore.get(key, defaultValue);
+    }
 
     /**
      * 获取对象配置值
      */
-    public static <T> T getObject(String key, Class<T> clazz) {
+    public <T> T getObject(String key, Class<T> clazz) {
         String json = get(key, null);
         return json != null ? ONode.deserialize(json, clazz) : null;
     }
@@ -50,14 +69,12 @@ public abstract class NimBusClient implements AutoCloseable {
     /**
      * 获取对象列表配置值
      */
-    public static <T> List<T> getObjectList(String key, Class<T> clazz) {
+    public <T> List<T> getObjectList(String key, Class<T> clazz) {
         String json = get(key, null);
         return json != null ? ONode.deserialize(json, new TypeRef<List<T>>() {
             @Override
             public Type getType() {
                 return new ParameterizedType() {
-
-
                     @Override
                     public Type[] getActualTypeArguments() {
                         return new Type[]{clazz};
@@ -75,5 +92,27 @@ public abstract class NimBusClient implements AutoCloseable {
                 };
             }
         }) : Collections.emptyList();
+    }
+
+    /**
+     * 添加配置变更监听器
+     */
+    public void addListener(String key, ConfigListener listener) {
+        configCore.addConfigListener(key, listener);
+    }
+
+    /**
+     * 移除配置变更监听器
+     */
+    public void removeListener(String key, ConfigListener listener) {
+        configCore.removeConfigListener(key, listener);
+    }
+
+    /**
+     * 关闭客户端
+     */
+    @Override
+    public void close() {
+        configCore.close();
     }
 }

@@ -50,6 +50,11 @@ public class JsonSerializer implements Serializer {
     }
 
     @Override
+    public <T> T toBean(Object object, Class<T> clazz) {
+        return ONode.ofBean(object, options).toBean(clazz);
+    }
+
+    @Override
     public <K, V> Map<K, V> deserializeMap(String str) {
         long startTime = System.currentTimeMillis();
         try {

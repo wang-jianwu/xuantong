@@ -86,7 +86,7 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
 
                         // 检查是否已经给这个IP推送过
                         if (clientIp != null && !pushedIps.contains(clientIp)) {
-                            session.send("push", new StringEntity(changeJson));
+                            session.send("/push", new StringEntity(changeJson));
                             pushedIps.add(clientIp);
                             log.debug("Config change pushed to client {} (IP: {}) for {}/{}",
                                     sessionId, clientIp, event.getProject(), event.getEnvironment());
@@ -115,22 +115,15 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
 
     /**
      * 获取客户端IP地址
-     * 优先从Socket.D协议的X-Real-IP元信息中获取，如果没有则从远程地址解析
+     * 优先从Socket.D协议的X-IP元信息中获取，如果没有则从远程地址解析
      */
     private String getClientIp(Session session) {
         try {
             // 优先从协议元信息中获取X-Real-IP
-            String realIp = session.attrOrDefault("X-Real-IP", "");
+            String realIp = session.attrOrDefault("X-IP", "");
             if (realIp != null && !realIp.trim().isEmpty()) {
                 return realIp.trim();
             }
-
-            // 如果没有X-Real-IP，从session参数中获取
-            String paramIp = session.param("_remote_ip");
-            if (paramIp != null && !paramIp.trim().isEmpty()) {
-                return paramIp.trim();
-            }
-
             // 最后从Session的远程地址解析IP
             String remoteAddress = session.remoteAddress().toString();
             if (remoteAddress.contains("/")) {
@@ -163,7 +156,7 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                         log.warn("Client connected without app and env parameters: {}", path);
                     }
                 })
-                .doOn("init", (s, m) -> {
+                .doOn("/all", (s, m) -> {
                     Entity entity = m.entity();
                     String app = entity.meta("app");
                     String env = entity.meta("env");
@@ -181,7 +174,7 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                         s.replyEnd(m, new StringEntity("ok"));
                     }
                 })
-                .doOn("get", (s, m) -> {
+                .doOn("/get", (s, m) -> {
                     Entity entity = m.entity();
                     String app = entity.meta("app");
                     String env = entity.meta("env");
@@ -192,7 +185,7 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                         s.reply(m, new StringEntity(value));
                     }
                 })
-                .doOn("changes", (s, m) -> {
+                .doOn("/changes", (s, m) -> {
                     // 客户端请求获取最近的配置变更
                     Entity entity = m.entity();
                     String app = entity.meta("app");

@@ -1073,7 +1073,7 @@
                             <td>${log.operator || '-'}</td>
                             <td>
                                 ${!isCurrent ? `
-                                <button class="btn btn-sm btn-outline-warning" onclick="revertToVersion(${configId}, ${log.id})">
+                                <button class="btn btn-sm btn-outline-warning" onclick="revertToVersion(${log.id})">
                                     回退
                                 </button>
                                 ` : '<span class="text-muted">当前版本</span>'}
@@ -1124,11 +1124,11 @@
         }
 
         // 回退版本
-        async function revertToVersion(configId, versionId) {
+        async function revertToVersion(logId) {
             if (!confirm('确定要回退到此版本吗？')) return;
 
             try {
-                const response = await fetch(`/api/config/revert/${configId}/${versionId}`, {
+                const response = await fetch(`/api/config/revert/${logId}`, {
                     method: 'PUT'
                 });
 
@@ -1159,8 +1159,6 @@
                 }
             }
         }
-
-        // 移除复制功能
     </script>
 </body>
 </html>

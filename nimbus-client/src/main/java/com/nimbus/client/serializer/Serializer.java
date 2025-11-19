@@ -16,6 +16,7 @@ public interface Serializer {
      */
     <T> T deserialize(String str, Class<T> clazz);
 
+    <T> T toBean(Object object, Class<T> clazz);
     /**
      * 反序列化为Map
      */

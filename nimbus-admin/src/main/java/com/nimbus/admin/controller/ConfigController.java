@@ -89,11 +89,10 @@ public class ConfigController {
 
     @ApiOperation(value = "回退到指定版本")
     @Put
-    @Mapping("/revert/{configId}/{version}")
+    @Mapping("/revert/{logId}")
     public Result<String> revertToVersion(
-            @ApiParam(value = "配置ID") @Path Long configId,
-            @ApiParam(value = "目标版本号") @Path Integer version) {
-        boolean success = configService.revertToVersion(configId, version);
+            @ApiParam(value = "配置ID") @Path Long logId) {
+        boolean success = configService.revertToVersion(logId);
         return success ? Result.succeed("回退成功") : Result.failure("回退失败");
     }
 

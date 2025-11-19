@@ -1,6 +1,6 @@
 package com.nimbus.client.cache;
 
-import com.nimbus.client.util.FileUtil;
+import com.nimbus.client.util.FileKit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,7 +14,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
- * 本地文件缓存实现 (优化版，使用key=value格式存储)
+ * 本地文件缓存实现 (key=value格式存储)
  */
 public class LocalFileCache implements ConfigCache {
     private static final Logger logger = LoggerFactory.getLogger(LocalFileCache.class);
@@ -33,7 +33,7 @@ public class LocalFileCache implements ConfigCache {
         File file = cachePath.toFile();
         if (!file.exists()) {
             file.getParentFile().mkdirs();
-            FileUtil.writeFile(cachePath, "");
+            FileKit.writeFile(cachePath, "");
         }
     }
 
@@ -61,7 +61,7 @@ public class LocalFileCache implements ConfigCache {
     public void clear() {
         lock.lock();
         try {
-            FileUtil.writeFile(cachePath, "");
+            FileKit.writeFile(cachePath, "");
         } finally {
             lock.unlock();
         }
@@ -89,8 +89,8 @@ public class LocalFileCache implements ConfigCache {
 
     private Map<String, String> loadCache() {
         try {
-            String content = FileUtil.readFile(cachePath);
-            if (content == null || content.trim().isEmpty()) {
+            String content = FileKit.readFile(cachePath);
+            if (content.trim().isEmpty()) {
                 return new HashMap<>();
             }
 
@@ -121,7 +121,7 @@ public class LocalFileCache implements ConfigCache {
                 content.setLength(content.length() - 1);
             }
 
-            FileUtil.writeFile(cachePath, content.toString());
+            FileKit.writeFile(cachePath, content.toString());
         } catch (Exception e) {
             logger.error("Save cache failed", e);
         }

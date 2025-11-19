@@ -26,7 +26,7 @@ public class LocalSnapshotManager {
         this.appName = appName;
         this.env = env;
         this.serializer = Serializer.defaultSerializer();
-        this.snapshotDir = Paths.get(System.getProperty("user.dir"), "nimbus", "snapshots", appName, env);
+        this.snapshotDir = Paths.get(System.getProperty("user.dir"), ".nimbus-cache", appName, env, "snapshots");
         createSnapshotDir();
     }
 

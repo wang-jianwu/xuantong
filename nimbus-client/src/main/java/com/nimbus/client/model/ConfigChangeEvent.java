@@ -1,44 +1,31 @@
 package com.nimbus.client.model;
 
-import java.util.Date;
-
 /**
  * 配置变更事件
  */
 public class ConfigChangeEvent {
     private final String key;
-    private final String newValue;
-    private final String oldValue;
-    private final Date changeTime;
-    private final String operator;
+    private final String value;
 
-    public ConfigChangeEvent(String key, String newValue) {
-        this(key, newValue, null, new Date(), "system");
-    }
-
-    public ConfigChangeEvent(String key, String newValue, String oldValue, Date changeTime, String operator) {
+    public ConfigChangeEvent(String key, String value) {
         this.key = key;
-        this.newValue = newValue;
-        this.oldValue = oldValue;
-        this.changeTime = changeTime;
-        this.operator = operator;
+        this.value = value;
     }
 
     // Getters
-    public String getKey() { return key; }
-    public String getNewValue() { return newValue; }
-    public String getOldValue() { return oldValue; }
-    public Date getChangeTime() { return changeTime; }
-    public String getOperator() { return operator; }
+    public String getKey() {
+        return key;
+    }
+
+    public String getNewValue() {
+        return value;
+    }
 
     @Override
     public String toString() {
         return "ConfigChangeEvent{" +
                 "key='" + key + '\'' +
-                ", newValue='" + newValue + '\'' +
-                ", oldValue='" + oldValue + '\'' +
-                ", changeTime=" + changeTime +
-                ", operator='" + operator + '\'' +
+                ", value='" + value + '\'' +
                 '}';
     }
 }
