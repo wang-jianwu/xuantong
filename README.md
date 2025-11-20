@@ -84,7 +84,7 @@ client.addListener("payment.timeout", event -> {
 #### 1. 添加依赖
 ```xml
 <dependency>
-    <groupId>com.nimbus</groupId>
+    <groupId>org.noear</groupId>
     <artifactId>nimbus-config-solon-cloud-plugin</artifactId>
     <version>${solon.version}</version>
 </dependency>
