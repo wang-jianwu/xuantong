@@ -96,7 +96,7 @@ client.addListener("payment.timeout", event -> {
 solon:
   cloud:
     nimbus-conf:
-      server: sd:ws://config-center:8080
+      server: config-center:8080
       namespace: your-app-name:prod
       config:
         enable: true
