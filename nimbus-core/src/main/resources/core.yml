@@ -3,15 +3,15 @@ solon:
   dataSources:
     nimbus:
       class: "com.zaxxer.hikari.HikariDataSource"
+      jdbcUrl: jdbc:mysql://localhost:3306/nimbus_config?useCursorFetch=true&rewriteBatchedStatements=true&useSSL=false&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useServerPrepStmts=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
       driverClassName: com.mysql.cj.jdbc.Driver
-      jdbcUrl: jdbc:mysql://223.109.140.78:3306/nimbus_config?useCursorFetch=true&rewriteBatchedStatements=true&useSSL=false&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useServerPrepStmts=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048&allowPublicKeyRetrieval=true
       username: root
-      password: Mimi@1201
+      password: xxx
       maxPoolSize: 20
       minIdle: 5
       connectionTimeout: 30000
       idleTimeout: 600000
-      maxLifetime: 600000
+      maxLifetime: 1800000
       connectionTestQuery: SELECT 1
   #缓存
 cache:
@@ -19,9 +19,9 @@ cache:
     driverType: "redis"
     defSeconds: 3600  # 延长缓存时间到1小时
     maxWaitMillis: 5000
-    server: "223.109.140.78:6688"
+    server: "localhost:10086"
     db: 0
-    password: "Mimi@1201"
+    password: "xxx"
     maxTotal: 100
     maxIdle: 20
     minIdle: 5
@@ -38,7 +38,7 @@ easy-query:
     delete-throw: true
     insert-strategy: only_not_null_columns
     # 更新列策略 all_columns only_not_null_columns only_null_columns
-    update-strategy: all_columns
+    update-strategy: only_not_null_columns
 
 # 记录器级别的配置示例
 solon.logging.logger:
