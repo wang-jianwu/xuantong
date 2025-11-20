@@ -1,0 +1,14 @@
+server.port: 8080
+solon.app:
+  name: 'demo-app'
+  group: 'demo'
+
+solon.logging:
+  appender:
+    console:
+      level: INFO
+    file:
+      level: INFO
+solon.cloud.nimbus-conf:
+  server: 'localhost:8088'
+  namespace: demo:dev
