@@ -1,0 +1,5 @@
+nimbus:
+  config:
+    server-addresses: ["localhost:8088"]
+    app-name: "demo"
+    environment: "dev"

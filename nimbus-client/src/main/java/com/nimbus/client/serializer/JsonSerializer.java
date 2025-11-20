@@ -18,6 +18,9 @@ public class JsonSerializer implements Serializer {
 
     @Override
     public String serialize(Object obj) {
+        if (obj == null) {
+            return null;
+        }
         long startTime = System.currentTimeMillis();
         try {
             String result = ONode.ofBean(obj, options).toJson();
@@ -33,6 +36,9 @@ public class JsonSerializer implements Serializer {
 
     @Override
     public <T> T deserialize(String str, Class<T> clazz) {
+        if (str == null || str.trim().isEmpty()) {
+            return null;
+        }
         long startTime = System.currentTimeMillis();
         try {
             // Snack4正确反序列化方式
@@ -49,11 +55,17 @@ public class JsonSerializer implements Serializer {
 
     @Override
     public <T> T toBean(Object object, Class<T> clazz) {
+        if (object == null) {
+            return null;
+        }
         return ONode.ofBean(object, options).toBean(clazz);
     }
 
     @Override
     public <K, V> Map<K, V> deserializeMap(String str) {
+        if (str == null || str.trim().isEmpty()) {
+            return null;
+        }
         long startTime = System.currentTimeMillis();
         try {
             // 处理可能的双引号转义JSON字符串
