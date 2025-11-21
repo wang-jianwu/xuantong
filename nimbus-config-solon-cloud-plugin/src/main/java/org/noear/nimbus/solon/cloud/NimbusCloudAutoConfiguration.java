@@ -28,7 +28,9 @@ public class NimbusCloudAutoConfiguration implements Plugin {
             // 注册配置服务
             CloudManager.register(new NimbusCloudConfigService(cloudProps));
             //加载配置
-            CloudClient.configLoad(cloudProps.getConfigLoad());
+            //String configLoad = cloudProps.getConfigLoad();
+            String configLoad = context.cfg().get("solon.cloud.nimbus-conf.load");
+            CloudClient.configLoad(configLoad);
         }
     }
     @Override

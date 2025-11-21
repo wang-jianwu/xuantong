@@ -1,6 +1,7 @@
 package com.example.nimconf.controller;
 
 import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Mapping;
 import org.noear.solon.cloud.annotation.CloudConfig;
 import org.noear.solon.core.handle.Result;
@@ -15,6 +16,8 @@ public class TestController {
     @CloudConfig(value = "demo.nimbus.aaa", autoRefreshed = true)
     private String test;
 
+    @Inject("${solon.cloud.xxx.server}")
+    private String test2;
     @Mapping("/")
     public Result<String> test() {
         return Result.succeed(this.test);
