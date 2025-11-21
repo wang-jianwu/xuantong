@@ -1,5 +1,6 @@
 package com.nimbus.client.serializer;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -15,6 +16,7 @@ public interface Serializer {
      * 反序列化字符串为对象
      */
     <T> T deserialize(String str, Class<T> clazz);
+    <T> List<T> deserializeTolist(String str, Class<T> clazz);
 
     <T> T toBean(Object object, Class<T> clazz);
     /**

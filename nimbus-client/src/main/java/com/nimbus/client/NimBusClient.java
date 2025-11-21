@@ -2,6 +2,7 @@ package com.nimbus.client;
 
 import com.nimbus.client.core.ConfigCore;
 import com.nimbus.client.listener.ConfigListener;
+import com.nimbus.client.serializer.Serializer;
 import com.nimbus.client.transport.impl.SocketDTransport;
 import org.noear.snack4.ONode;
 import org.noear.snack4.codec.TypeRef;
@@ -63,7 +64,7 @@ public class NimBusClient implements AutoCloseable {
      */
     public <T> T getObject(String key, Class<T> clazz) {
         String json = get(key, null);
-        return json != null ? ONode.deserialize(json, clazz) : null;
+        return Serializer.defaultSerializer().deserialize(json, clazz);
     }
 
     /**
@@ -71,28 +72,8 @@ public class NimBusClient implements AutoCloseable {
      */
     public <T> List<T> getObjectList(String key, Class<T> clazz) {
         String json = get(key, null);
-        return json != null ? ONode.deserialize(json, new TypeRef<List<T>>() {
-            @Override
-            public Type getType() {
-                return new ParameterizedType() {
-                    @Override
-                    public Type[] getActualTypeArguments() {
-                        return new Type[]{clazz};
-                    }
-
-                    @Override
-                    public Type getRawType() {
-                        return List.class;
-                    }
-
-                    @Override
-                    public Type getOwnerType() {
-                        return null;
-                    }
-                };
-            }
-        }) : Collections.emptyList();
-    }
+        return Serializer.defaultSerializer().deserializeTolist(json, clazz);
+        }
 
     /**
      * 添加配置变更监听器
