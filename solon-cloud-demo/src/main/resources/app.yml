@@ -12,3 +12,5 @@ solon.logging:
 solon.cloud.nimbus-conf:
   server: 'localhost:8088'
   namespace: demo:dev
+  config:
+    load: demo.aaa.yml
