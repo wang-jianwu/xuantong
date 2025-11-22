@@ -1,0 +1,394 @@
+#set(activeMenu = "env")
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>#(pageTitle)</title>
+    <link href="/lib/bootstrap/5.3.0/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/lib/fontawesome/6.4.0/all.min.css">
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --sidebar-width: 250px;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+        }
+
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background: linear-gradient(180deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            position: fixed;
+            height: 100vh;
+            left: 0;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .nav-menu {
+            padding: 20px 0;
+        }
+
+        .nav-item {
+            padding: 12px 20px;
+            color: white;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.3s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-item:hover, .nav-item.active {
+            background: rgba(255,255,255,0.1);
+            border-left-color: var(--primary-color);
+        }
+
+        .main-content {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            min-height: 100vh;
+        }
+
+        .header {
+            height: 60px;
+            background: white;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 25px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .logout-btn {
+            background: var(--primary-color);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            border: none;
+        }
+
+        .table th {
+            background: #f8f9fa;
+        }
+
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-secondary {
+            background: #e9ecef;
+            color: #495057;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">玄同配置中心</div>
+            </div>
+            #include("_menu.shtm")
+        </aside>
+
+        <!-- 主内容区域 -->
+        <div class="main-content">
+            <header class="header">
+                <h1 style="font-size: 1.5rem; font-weight: 600; margin: 0;">环境管理</h1>
+                <div>
+                    <span id="user-name" style="margin-right: 15px;">#(user.realName)</span>
+                    <button class="logout-btn" onclick="logout()">
+                        <i class="fas fa-sign-out-alt"></i> 退出
+                    </button>
+                </div>
+            </header>
+
+            <div class="content">
+                <!-- 操作区域 -->
+                <div class="card">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="input-group">
+                                <input type="text" id="search-input" class="form-control" placeholder="搜索环境名称或编码">
+                                <button class="btn btn-primary" onclick="searchEnvironments()">
+                                    <i class="fas fa-search"></i> 搜索
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <button class="btn btn-primary" onclick="showAddEnvModal()">
+                                <i class="fas fa-plus"></i> 添加环境
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 环境列表 -->
+                <div class="card">
+                    <h5 class="card-title">环境列表</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>环境编码</th>
+                                    <th>环境名称</th>
+                                    <th>描述</th>
+                                    <th>默认环境</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="env-table-body">
+                                <!-- 环境数据将通过JavaScript动态填充 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑环境模态框 -->
+    <div class="modal fade" id="envModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">添加环境</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="envForm">
+                        <div class="mb-3">
+                            <label class="form-label">环境编码</label>
+                            <input type="text" class="form-control" id="code" name="code" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">环境名称</label>
+                            <input type="text" class="form-control" id="name" name="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">描述</label>
+                            <textarea class="form-control" id="description" name="description" rows="3"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="saveEnvironment()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/lib/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script>
+        let envList = [];
+        const envModal = new bootstrap.Modal(document.getElementById('envModal'));
+
+        async function loadEnvironmentList() {
+            try {
+                const response = await fetch('/api/env');
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.code === 200) {
+                        envList = result.data;
+                        renderEnvTable();
+                    }
+                }
+            } catch (error) {
+                console.error('加载环境列表失败:', error);
+                alert('加载环境列表失败');
+            }
+        }
+
+        function renderEnvTable() {
+            const tbody = document.getElementById('env-table-body');
+            tbody.innerHTML = '';
+
+            envList.forEach(env => {
+                const row = document.createElement('tr');
+
+                row.innerHTML = `
+                    <td>${env.code}</td>
+                    <td>${env.name}</td>
+                    <td>${env.description || '-'}</td>
+                    <td>
+                        <span class="badge ${env.isDefault ? 'badge-success' : 'badge-secondary'}">
+                            ${env.isDefault ? '是' : '否'}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="setDefaultEnvironment('${env.code}')"
+                                ${env.isDefault ? 'disabled' : ''}>
+                            <i class="fas fa-star"></i> 设为默认
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteEnvironment('${env.code}')">
+                            <i class="fas fa-trash"></i> 删除
+                        </button>
+                    </td>
+                `;
+
+                tbody.appendChild(row);
+            });
+
+            if (envList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center">暂无环境数据</td></tr>';
+            }
+        }
+
+        function showAddEnvModal() {
+            document.getElementById('modalTitle').textContent = '添加环境';
+            document.getElementById('envForm').reset();
+            envModal.show();
+        }
+
+        async function saveEnvironment() {
+            const form = document.getElementById('envForm');
+            const formData = new FormData(form);
+            const envData = Object.fromEntries(formData.entries());
+
+            try {
+                const response = await fetch('/api/env', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(envData)
+                });
+
+                const result = await response.json();
+
+                if (result.code === 200) {
+                    envModal.hide();
+                    await loadEnvironmentList();
+                    alert('保存成功');
+                } else {
+                    alert('保存失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('保存环境失败:', error);
+                alert('保存失败');
+            }
+        }
+
+        async function setDefaultEnvironment(code) {
+            if (confirm('确定要设为默认环境吗？')) {
+                try {
+                const response = await fetch(`/api/env/default/${code}`, {
+                    method: 'PUT'
+                });
+
+                    const result = await response.json();
+                    if (result.code === 200) {
+                        await loadEnvironmentList();
+                        alert('设置成功');
+                    } else {
+                        alert('设置失败: ' + result.message);
+                    }
+                } catch (error) {
+                    console.error('设置默认环境失败:', error);
+                    alert('设置失败');
+                }
+            }
+        }
+
+        async function deleteEnvironment(code) {
+            if (confirm('确定要删除这个环境吗？此操作不可恢复！')) {
+                try {
+                    // 注意：这里需要根据实际API调整删除接口
+                    const response = await fetch(`/api/env/${code}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (response.ok) {
+                        await loadEnvironmentList();
+                        alert('删除成功');
+                    } else {
+                        alert('删除失败');
+                    }
+                } catch (error) {
+                    console.error('删除环境失败:', error);
+                    alert('删除失败');
+                }
+            }
+        }
+
+        function searchEnvironments() {
+            const keyword = document.getElementById('search-input').value.toLowerCase();
+            const filteredEnvs = envList.filter(env =>
+                env.code.toLowerCase().includes(keyword) ||
+                env.name.toLowerCase().includes(keyword) ||
+                (env.description && env.description.toLowerCase().includes(keyword))
+            );
+
+            envList = filteredEnvs;
+            renderEnvTable();
+
+            // 恢复完整列表
+            if (!keyword) {
+                loadEnvironmentList();
+            }
+        }
+
+        async function logout() {
+            if (confirm('确定要退出登录吗？')) {
+                try {
+                    await fetch('/api/auth/logout');
+                    window.location.href = '/login';
+                } catch (error) {
+                    console.error('退出失败:', error);
+                    alert('退出失败');
+                }
+            }
+        }
+
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            loadEnvironmentList();
+        });
+    </script>
+</body>
+</html>

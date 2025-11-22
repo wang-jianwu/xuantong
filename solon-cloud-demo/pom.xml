@@ -40,7 +40,7 @@
 <!--        </dependency>-->
         <dependency>
             <groupId>org.noear</groupId>
-            <artifactId>nimbus-config-solon-cloud-plugin</artifactId>
+            <artifactId>xuantong-config-solon-cloud-plugin</artifactId>
             <version>${solon.version}</version>
         </dependency>
         <dependency>

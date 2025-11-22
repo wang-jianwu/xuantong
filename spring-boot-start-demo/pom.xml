@@ -35,8 +35,8 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.nimbus</groupId>
-            <artifactId>nimbus-config-spring-boot-starter</artifactId>
+            <groupId>com.xuantong</groupId>
+            <artifactId>xuantong-config-spring-boot-starter</artifactId>
             <version>1.0.0</version>
         </dependency>
         <dependency>

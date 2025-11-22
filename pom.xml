@@ -4,11 +4,11 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.nimbus</groupId>
-    <artifactId>nimbus-config</artifactId>
+    <groupId>com.xuantong</groupId>
+    <artifactId>xuantong-config</artifactId>
     <version>1.0.0</version>
     <packaging>pom</packaging>
-    <name>Nimbus Config</name>
+    <name>Xuantong Config</name>
     <parent>
         <groupId>org.noear</groupId>
         <artifactId>solon-parent</artifactId>
@@ -16,9 +16,9 @@
     </parent>
 
     <modules>
-        <module>nimbus-admin</module>
-        <module>nimbus-core</module>
-        <module>nimbus-client</module>
+        <module>xuantong-admin</module>
+        <module>xuantong-core</module>
+        <module>xuantong-client</module>
     </modules>
 
     <properties>

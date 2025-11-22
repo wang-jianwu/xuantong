@@ -1,0 +1,442 @@
+#set(activeMenu = "user")
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>#(pageTitle)</title>
+    <link href="/lib/bootstrap/5.3.0/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/lib/fontawesome/6.4.0/all.min.css">
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --sidebar-width: 250px;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+        }
+
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background: linear-gradient(180deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            position: fixed;
+            height: 100vh;
+            left: 0;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .nav-menu {
+            padding: 20px 0;
+        }
+
+        .nav-item {
+            padding: 12px 20px;
+            color: white;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.3s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-item:hover, .nav-item.active {
+            background: rgba(255,255,255,0.1);
+            border-left-color: var(--primary-color);
+        }
+
+        .main-content {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            min-height: 100vh;
+        }
+
+        .header {
+            height: 60px;
+            background: white;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 25px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .logout-btn {
+            background: var(--primary-color);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            border: none;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .table th {
+            background: #f8f9fa;
+        }
+
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-danger {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">玄同配置中心</div>
+            </div>
+
+            #include("_menu.shtm")
+        </aside>
+
+        <!-- 主内容区域 -->
+        <div class="main-content">
+            <header class="header">
+                <h1 style="font-size: 1.5rem; font-weight: 600; margin: 0;">用户管理</h1>
+                <div>
+                    <span id="user-name" style="margin-right: 15px;">#(user.realName)</span>
+                    <button class="logout-btn" onclick="logout()">
+                        <i class="fas fa-sign-out-alt"></i> 退出
+                    </button>
+                </div>
+            </header>
+
+            <div class="content">
+                <!-- 搜索和操作区域 -->
+                <div class="card">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="input-group">
+                                <input type="text" id="search-input" class="form-control" placeholder="搜索用户名或姓名">
+                                <button class="btn btn-primary" onclick="searchUsers()">
+                                    <i class="fas fa-search"></i> 搜索
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <button class="btn btn-primary" onclick="showAddUserModal()">
+                                <i class="fas fa-plus"></i> 添加用户
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 用户列表 -->
+                <div class="card">
+                    <h5 class="card-title">用户列表</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>用户名</th>
+                                    <th>姓名</th>
+                                    <th>邮箱</th>
+                                    <th>角色</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="user-table-body">
+                                <!-- 用户数据将通过JavaScript动态填充 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑用户模态框 -->
+    <div class="modal fade" id="userModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">添加用户</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="userForm">
+                        <input type="hidden" id="userId">
+                        <div class="mb-3">
+                            <label class="form-label">用户名</label>
+                            <input type="text" class="form-control" id="username" name="username" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">姓名</label>
+                            <input type="text" class="form-control" id="realName" name="realName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">邮箱</label>
+                            <input type="email" class="form-control" id="email" name="email" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">密码</label>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">角色</label>
+                            <select class="form-control" id="role" name="role">
+                                <option value="user">普通用户</option>
+                                <option value="admin">管理员</option>
+                            </select>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="saveUser()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/lib/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script>
+        let userList = [];
+        const userModal = new bootstrap.Modal(document.getElementById('userModal'));
+
+        async function loadUserList() {
+            try {
+                const response = await fetch('/api/user');
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.code === 200) {
+                        userList = result.data;
+                        renderUserTable();
+                    }
+                }
+            } catch (error) {
+                console.error('加载用户列表失败:', error);
+                alert('加载用户列表失败');
+            }
+        }
+
+        function renderUserTable() {
+            const tbody = document.getElementById('user-table-body');
+            tbody.innerHTML = '';
+
+            userList.forEach(user => {
+                const row = document.createElement('tr');
+
+                row.innerHTML = `
+                    <td>${user.username}</td>
+                    <td>${user.name || user.realName || '-'}</td>
+                    <td>${user.email || '-'}</td>
+                    <td>${user.role === 'admin' ? '管理员' : '普通用户'}</td>
+                    <td>
+                        <span class="badge ${user.isActive ? 'badge-success' : 'badge-danger'}">
+                            ${user.isActive ? '激活' : '停用'}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editUser(${user.id})">
+                            <i class="fas fa-edit"></i> 编辑
+                        </button>
+                        <button class="btn btn-sm btn-outline-${user.isActive ? 'danger' : 'success'}"
+                                onclick="toggleUserStatus(${user.id}, ${user.isActive})">
+                            <i class="fas fa-${user.isActive ? 'ban' : 'check'}"></i> ${user.isActive ? '停用' : '启用'}
+                        </button>
+                    </td>
+                `;
+
+                tbody.appendChild(row);
+            });
+
+            if (userList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center">暂无用户数据</td></tr>';
+            }
+        }
+
+        function showAddUserModal() {
+            document.getElementById('modalTitle').textContent = '添加用户';
+            document.getElementById('userForm').reset();
+            document.getElementById('userId').value = '';
+            userModal.show();
+        }
+
+        function editUser(userId) {
+            const user = userList.find(u => u.id === userId);
+            if (user) {
+                document.getElementById('modalTitle').textContent = '编辑用户';
+                document.getElementById('userId').value = user.id;
+                document.getElementById('username').value = user.username;
+                document.getElementById('realName').value = user.name || user.realName || '';
+                document.getElementById('email').value = user.email || '';
+                document.getElementById('role').value = user.role || 'user';
+                document.getElementById('password').required = false;
+
+                userModal.show();
+            }
+        }
+
+        async function saveUser() {
+            const form = document.getElementById('userForm');
+            const username = document.getElementById('username').value.trim();
+            const realName = document.getElementById('realName').value.trim();
+
+            // 前端验证
+            if (!username) {
+                alert('用户名不能为空');
+                document.getElementById('username').focus();
+                return;
+            }
+
+            if (!realName) {
+                alert('姓名不能为空');
+                document.getElementById('realName').focus();
+                return;
+            }
+
+            const formData = new FormData(form);
+            const userData = Object.fromEntries(formData.entries());
+            const userId = document.getElementById('userId').value;
+
+            try {
+                const url = userId ? '/api/user' : '/api/user';
+                const method = userId ? 'PUT' : 'POST';
+
+                // 如果是编辑且密码为空，移除密码字段
+                if (userId && !userData.password) {
+                    delete userData.password;
+                }
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(userData)
+                });
+
+                const result = await response.json();
+
+                if (result.code === 200) {
+                    userModal.hide();
+                    await loadUserList();
+                    alert('保存成功');
+                } else {
+                    alert('保存失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('保存用户失败:', error);
+                alert('保存失败');
+            }
+        }
+
+        async function toggleUserStatus(userId, currentStatus) {
+            const newStatus = !currentStatus;
+            if (confirm(`确定要${newStatus ? '启用' : '停用'}这个用户吗？`)) {
+                try {
+                    const response = await fetch(`/api/user/active/${userId}/${newStatus}`, {
+                        method: 'PUT'
+                    });
+
+                    const result = await response.json();
+                    if (result.code === 200) {
+                        await loadUserList();
+                        alert('操作成功');
+                    } else {
+                        alert('操作失败: ' + result.message);
+                    }
+                } catch (error) {
+                    console.error('操作用户状态失败:', error);
+                    alert('操作失败');
+                }
+            }
+        }
+
+        function searchUsers() {
+            const keyword = document.getElementById('search-input').value.toLowerCase();
+            const filteredUsers = userList.filter(user => {
+                // 检查所有可能的字段
+                const fieldsToSearch = [
+                    user.username,
+                    user.name,
+                    user.realName,
+                    user.email
+                ];
+
+                return fieldsToSearch.some(field =>
+                    field && field.toLowerCase().includes(keyword)
+                );
+            });
+
+            userList = filteredUsers;
+            renderUserTable();
+
+            // 恢复完整列表
+            if (!keyword) {
+                loadUserList();
+            }
+        }
+
+        async function logout() {
+            if (confirm('确定要退出登录吗？')) {
+                try {
+                    await fetch('/api/auth/logout');
+                    window.location.href = '/login';
+                } catch (error) {
+                    console.error('退出失败:', error);
+                    alert('退出失败');
+                }
+            }
+        }
+
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUserList();
+        });
+    </script>
+</body>
+</html>

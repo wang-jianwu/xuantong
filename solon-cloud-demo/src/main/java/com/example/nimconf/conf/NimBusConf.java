@@ -15,7 +15,7 @@
 // * date 2025/11/16 21:11
 // */
 //@Configuration
-//public class NimBusConf {
+//public class XuantongConf {
 //
 //
 //    @Init
@@ -28,7 +28,7 @@
 //                throw new RuntimeException(e);
 //            }
 //            try {
-//                Map s = NimBusClient.getObject("demo.aaa", Map.class);
+//                Map s = XuantongClient.getObject("demo.aaa", Map.class);
 //                System.out.println("xxxxxxxxxx=" + s);
 //            }catch (Exception ex){
 //                ex.printStackTrace();
