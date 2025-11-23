@@ -1,6 +1,7 @@
 package com.xuantong.client.transport.impl;
 
 import com.xuantong.client.exception.XuantongException;
+import com.xuantong.client.serializer.Serializer;
 import com.xuantong.client.transport.ConfigTransport;
 import com.xuantong.client.transport.ResizableBlockingQueue;
 import org.noear.socketd.SocketD;
@@ -11,9 +12,7 @@ import org.noear.socketd.transport.core.listener.EventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -58,11 +57,11 @@ public class SocketDTransport implements ConfigTransport {
         try {
             this.configChangeListener = listener;
             this.serverUrls = new ArrayList<>(serverAddress.size());
-            serverAddress.forEach(address -> serverUrls.add("sd:ws://" + address + "/config?app=" + appNames + "&env=" + env));
+            serverAddress.forEach(address -> serverUrls.add("sd:ws://" + address + "/config?env=" + env + "&appNames=" + String.join("_", appNames)));
 
             // 初始化连接池
             for (int i = 0; i < INITIAL_POOL_SIZE; i++) {
-                createAndAddConnection();
+                initConnection();
             }
 
             // 检查是否至少有一个有效连接
@@ -75,11 +74,36 @@ public class SocketDTransport implements ConfigTransport {
             startLeakDetector();
 
             if (configChangeListener != null) {
-                logger.info("Config change listener registered for {}/{}", appName, env);
+                logger.info("Config change listener registered for {}/{}", appNames, env);
             }
         } catch (Exception e) {
             logger.error("Failed to initialize connection pool. Server URLs: {}", serverAddress, e);
             throw new XuantongException("Connection pool initialization failed", e);
+        }
+    }
+
+    /**
+     * 创建SocketD连接
+     */
+    private ClientSession createConnection(String url) {
+        try {
+            //使用非集群方式 去中心化，自己维护连接 负载
+            ClientSession session = SocketD.createClient(url).config(c ->
+                            c.heartbeatInterval(HEARTBEAT_INTERVAL)
+                                    .connectTimeout(CONNECTION_TIMEOUT)
+                                    .autoReconnect(true))
+                    .listen(new EventListener()
+                            .doOn("/push", (s, m) -> {
+                                if (configChangeListener != null && m != null) {
+                                    configChangeListener.onChanged(m.dataAsString());
+                                }
+                            })).openOrThow();
+
+            logger.info("Created new Socket.D connection to {}", url);
+            return session;
+        } catch (Throwable e) {
+            logger.error("Failed to create Socket.D connection to {}", url, e);
+            return null;
         }
     }
 
@@ -112,6 +136,7 @@ public class SocketDTransport implements ConfigTransport {
         }
     }
 
+    @Deprecated
     @Override
     public String fetchChanges(String appName, String env) {
         ClientSession session = null;
@@ -138,15 +163,13 @@ public class SocketDTransport implements ConfigTransport {
     }
 
     @Override
-    public String fetch(String key, String appName, String env) {
+    public String fetch(String key, String env) {
         ClientSession session = null;
         try {
             session = getConnection();
             Entity request = new StringEntity("{\"action\":\"get\",\"key\":\"" + key + "\"}")
-                    .metaPut("app", appName)
                     .metaPut("env", env)
                     .metaPut("key", key);
-
             // 单个key获取
             Entity response = session.sendAndRequest("/get", request).await();
             return response.dataAsString();
@@ -250,7 +273,21 @@ public class SocketDTransport implements ConfigTransport {
      */
     private void createAdditionalConnections(int count) {
         for (int i = 0; i < count; i++) {
-            createAndAddConnection();
+            try {
+                String serverUrl = getNextServerUrl();
+                if (serverUrl == null) {
+                    logger.warn("No available server url");
+                    break;
+                }
+                ClientSession session = createConnection(serverUrl);
+                if (session != null && connectionPool.offer(session)) {
+                    logger.debug("New connection added to pool from {}", serverUrl);
+                } else if (session != null) {
+                    session.close();
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to create connection to pool", e);
+            }
         }
     }
 
@@ -275,22 +312,128 @@ public class SocketDTransport implements ConfigTransport {
         });
     }
 
+
     /**
-     * 获取下一个服务器URL（轮询负载均衡）
+     * 基于综合负载的智能均衡策略
      */
     private String getNextServerUrl() {
         if (serverUrls == null || serverUrls.isEmpty()) {
             return null;
         }
-        int index = currentServerIndex.getAndUpdate(i -> (i + 1) % serverUrls.size());
-        return serverUrls.get(index);
+
+        if (serverUrls.size() == 1) {
+            return serverUrls.get(0);
+        }
+
+        // 收集所有服务器的负载信息
+        Map<String, ServerLoadInfo> serverLoads = new HashMap<>();
+        for (String url : serverUrls) {
+            ServerLoadInfo loadInfo = pingServer(url);
+            if (loadInfo != null) {
+                serverLoads.put(url, loadInfo);
+            }
+        }
+
+        if (serverLoads.isEmpty()) {
+            // 所有服务器都不可用，降级到随机选择
+            return serverUrls.get(new Random().nextInt(serverUrls.size()));
+        }
+
+        // 基于综合指标选择最佳服务器
+        return selectBestServerByLoad(serverLoads);
     }
 
     /**
-     * 创建并添加到连接池
+     * 基于综合负载选择最佳服务器
      */
-    private void createAndAddConnection() {
-        String url = getNextServerUrl();
+    private String selectBestServerByLoad(Map<String, ServerLoadInfo> serverLoads) {
+        // 计算总权重
+        double totalWeight = 0;
+        Map<String, Double> weights = new HashMap<>();
+
+        for (Map.Entry<String, ServerLoadInfo> entry : serverLoads.entrySet()) {
+            ServerLoadInfo load = entry.getValue();
+
+            // 权重计算（响应时间权重 + 负载权重）
+            double responseWeight = 1000.0 / (load.responseTime + 1); // +1避免除零
+            double loadWeight = 100.0 * (1 - load.getLoadFactor()); // 负载越低权重越高
+
+            // 综合权重（60%响应时间 + 40%负载）
+            double weight = responseWeight * 0.6 + loadWeight * 0.4;
+
+            weights.put(entry.getKey(), weight);
+            totalWeight += weight;
+        }
+
+        // 加权随机选择
+        double randomValue = new Random().nextDouble() * totalWeight;
+        double cumulativeWeight = 0;
+
+        for (Map.Entry<String, Double> entry : weights.entrySet()) {
+            cumulativeWeight += entry.getValue();
+            if (randomValue < cumulativeWeight) {
+                return entry.getKey();
+            }
+        }
+
+        return serverLoads.keySet().iterator().next();
+    }
+
+    /**
+     * 向服务器发送ping请求并获取负载信息 结束自动关闭session
+     */
+    private ServerLoadInfo pingServer(String url) {
+        long startTime = System.currentTimeMillis();
+        try (ClientSession session = SocketD.createClient(url)
+                .config(c -> c.connectTimeout(3000)) // 3秒连接超时
+                .open()) {
+
+            Entity response = session.sendAndRequest("/ping", new StringEntity("ping"))
+                    .await();
+
+            // 解析响应数据，格式为："responseTime,currentConnections,maxConnections"
+            Map<String, Object> map = Serializer.defaultSerializer().deserializeMap(response.dataAsString());
+            response.dataAsString();
+            long responseTime = System.currentTimeMillis() - startTime;
+            long currentConnections = Long.parseLong(map.get("total_sessions").toString());
+            long maxConnections = Long.parseLong(map.get("max_sessions").toString());
+
+            logger.debug("Server {} load: {}/{} connections, response: {}ms",
+                    url, currentConnections, maxConnections, responseTime);
+
+            return new ServerLoadInfo(responseTime, currentConnections, maxConnections);
+
+        } catch (Exception e) {
+            logger.warn("Server {} ping failed: {}", url, e.getMessage());
+            return null; // 表示服务器不可用
+        }
+    }
+
+    /**
+     * 服务器负载信息类
+     */
+    private static class ServerLoadInfo {
+        final long responseTime;
+        final long currentConnections;
+        final long maxConnections;
+
+        ServerLoadInfo(long responseTime, long currentConnections, long maxConnections) {
+            this.responseTime = responseTime;
+            this.currentConnections = currentConnections;
+            this.maxConnections = maxConnections;
+        }
+
+        double getLoadFactor() {
+            return (double) currentConnections / maxConnections;
+        }
+    }
+
+
+    /**
+     * // 使用轮询选择，平均分配
+     */
+    private void initConnection() {
+        String url = selectPollServerUrl();
         if (url != null) {
             try {
                 ClientSession session = createConnection(url);
@@ -306,24 +449,14 @@ public class SocketDTransport implements ConfigTransport {
     }
 
     /**
-     * 创建SocketD连接
+     * 轮询选择服务器（用于连接池初始化，实现平均分配）
      */
-    private ClientSession createConnection(String url) {
-        try {
-            ClientSession session = SocketD.createClient(url).config(c ->
-                            c.heartbeatInterval(HEARTBEAT_INTERVAL))
-                    .listen(new EventListener().doOnMessage((s, m) -> {
-                if (configChangeListener != null && m != null) {
-                    configChangeListener.onChanged(m.dataAsString());
-                }
-            })).openOrThow();
-
-            logger.info("Created new Socket.D connection to {}", url);
-            return session;
-        } catch (Throwable e) {
-            logger.error("Failed to create Socket.D connection to {}", url, e);
+    private String selectPollServerUrl() {
+        if (serverUrls == null || serverUrls.isEmpty()) {
             return null;
         }
+        int index = currentServerIndex.getAndUpdate(i -> (i + 1) % serverUrls.size());
+        return serverUrls.get(index);
     }
 
     @Override

@@ -1,28 +1,30 @@
 package com.xuantong.core.service;
 
 import com.easy.query.core.api.pagination.EasyPageResult;
+import com.xuantong.core.cluster.ConfigClusterBroadcaster;
 import com.xuantong.core.listener.model.ConfigChangeEvent;
 import com.xuantong.core.model.ConfigItem;
 import com.xuantong.core.model.ConfigLog;
 import com.xuantong.core.model.User;
 import com.xuantong.core.repository.ConfigLogRepository;
 import com.xuantong.core.repository.ConfigRepository;
-import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
-import org.noear.solon.core.event.EventBus;
 import org.noear.solon.core.handle.Context;
 import org.noear.solon.data.annotation.Transaction;
 import org.noear.solon.data.cache.CacheService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
-@Slf4j
 @Component
 public class ConfigService {
+
+    private static final Logger logger = LoggerFactory.getLogger(ConfigService.class);
     @Inject
     private ConfigRepository configRepository;
 
@@ -51,6 +53,9 @@ public class ConfigService {
         return configRepository.findByProject(project, environment, keyWords, pn, size);
     }
 
+    @Inject
+    private ConfigClusterBroadcaster clusterBroadcaster;
+
     @Transaction
     public boolean saveConfig(ConfigItem config) {
         ConfigItem existing = configRepository.findByKey(config.getKey(),
@@ -74,8 +79,18 @@ public class ConfigService {
                 log.setOperateTime(new Date());
                 log.setIpAddress(Context.current().realIp());
                 configLogRepository.save(log);
-                // 通知监听器
-                EventBus.publishAsync(new ConfigChangeEvent(config.getKey(), config.getValue(), config.getProject(), config.getEnvironment()));
+
+                // 创建变更事件
+                ConfigChangeEvent event = new ConfigChangeEvent(
+                        config.getKey(), config.getValue(),
+                        config.getProject(), config.getEnvironment()
+                );
+                // 集群广播
+                try {
+                    clusterBroadcaster.broadcastConfigChange(event);
+                } catch (Exception e) {
+                    logger.error("集群广播失败，但配置已保存", e);
+                }
             }
         } else {
             // 创建新配置项
@@ -175,8 +190,17 @@ public class ConfigService {
                     current.getProject());
             cacheService.remove(cacheKey);
 
-            // 通知监听器
-            EventBus.publishAsync(new ConfigChangeEvent(current.getKey(), current.getValue(), current.getProject(), current.getEnvironment()));
+            // 创建变更事件
+            ConfigChangeEvent event = new ConfigChangeEvent(
+                    current.getKey(), newValue,
+                    current.getProject(), current.getEnvironment()
+            );
+            // 集群广播
+            try {
+                clusterBroadcaster.broadcastConfigChange(event);
+            } catch (Exception e) {
+                logger.error("集群广播失败，但配置已回滚", e);
+            }
         }
         return result;
     }

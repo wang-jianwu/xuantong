@@ -173,20 +173,33 @@ public class FileKit {
     }
 
     /**
-     * 原子写入文件（通过临时文件确保一致性）
+     * 原子写入文件（智能降级策略）
      */
     public static void atomicWrite(Path path, String content) throws IOException {
+        // 确保父目录存在
+        Path parentDir = path.getParent();
+        if (!Files.exists(parentDir)) {
+            Files.createDirectories(parentDir);
+        }
+
         Path tempFile = path.resolveSibling(path.getFileName() + ".tmp");
         try {
             writeFile(tempFile, content);
-            move(tempFile, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+
+            // 优先使用原子移动（高效）
+            try {
+                move(tempFile, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException e) {
+                // 原子移动失败时降级到复制策略（兼容性更好）
+                logger.debug("Atomic move failed, fallback to copy strategy: {}", e.getMessage());
+                Files.copy(tempFile, path, StandardCopyOption.REPLACE_EXISTING);
+            }
         } finally {
             deleteFile(tempFile);
         }
     }
-
     /**
-     * 原子写入多行内容
+     * 原子写入多行内容（智能降级策略）
      */
     public static void atomicWriteLines(Path path, List<String> lines) throws IOException {
         Path tempFile = path.resolveSibling(path.getFileName() + ".tmp");
@@ -197,7 +210,15 @@ public class FileKit {
                     writer.newLine();
                 }
             }
-            move(tempFile, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+
+            // 优先使用原子移动（高效）
+            try {
+                move(tempFile, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException e) {
+                // 原子移动失败时降级到复制策略（兼容性更好）
+                logger.debug("Atomic move failed, fallback to copy strategy: {}", e.getMessage());
+                Files.copy(tempFile, path, StandardCopyOption.REPLACE_EXISTING);
+            }
         } finally {
             deleteFile(tempFile);
         }

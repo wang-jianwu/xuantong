@@ -11,10 +11,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 /**
  * 多级缓存管理器（支持缓存同步、过期策略和监控）
@@ -33,7 +30,8 @@ public class ConfigCacheManager {
     // 清理调度器（定时任务使用单线程）
     private final ScheduledExecutorService cleanupScheduler;
     // 文件操作执行器（并发文件操作使用多线程）
-    private final java.util.concurrent.ExecutorService fileOpsExecutor;
+    private final ExecutorService fileOpsExecutor;
+    private static final String DEFAULT_APP = "default";
 
     public ConfigCacheManager(String env) {
         this.cacheDir = Paths.get(System.getProperty("user.dir"), ".xuantong-cache", env);
@@ -225,6 +223,10 @@ public class ConfigCacheManager {
 
     private String getFromCacheFile(String key) {
         String appName = extractAppName(key);
+        if (DEFAULT_APP.equals(appName)) {
+            logger.error("Failed to load cache file for key: {}", key);
+            return null;
+        }
         Path cacheFile = getCachePath(appName);
         try {
             Map<String, String> cache = loadAppCache(cacheFile);
@@ -240,6 +242,11 @@ public class ConfigCacheManager {
         Map<String, Map<String, String>> appConfigs = new ConcurrentHashMap<>();
         configs.forEach((key, value) -> {
             String app = extractAppName(key);
+            String appName = extractAppName(key);
+            if (DEFAULT_APP.equals(appName)) {
+                logger.error("Failed to load cache file for key: {}", key);
+                return;
+            }
             appConfigs.computeIfAbsent(app, k -> new ConcurrentHashMap<>())
                     .put(key, value);
         });
@@ -267,6 +274,10 @@ public class ConfigCacheManager {
 
     private void removeFromCacheFile(String key) {
         String appName = extractAppName(key);
+        if (DEFAULT_APP.equals(appName)) {
+            logger.error("Failed to load cache file for key: {}", key);
+            return;
+        }
         Path cacheFile = getCachePath(appName);
         try {
             // 加载现有配置并移除指定key

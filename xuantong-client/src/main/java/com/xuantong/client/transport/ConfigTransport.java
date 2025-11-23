@@ -27,7 +27,7 @@ public interface ConfigTransport {
     /**
      * 获取单个配置值
      */
-    String fetch(String appName, String env, String key);
+    String fetch(String key, String env);
 
     /**
      * 批量获取多个应用的配置

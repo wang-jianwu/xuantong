@@ -102,9 +102,9 @@ public class ConfigCore implements AutoCloseable {
             return value;
         }
 
-        // 2. 远程获取（从主应用）
+        // 2. 远程获取
         try {
-            value = transport.fetch(primaryAppName, env, key);
+            value = transport.fetch(key, env);
             if (value != null) {
                 cacheManager.batchUpdate(Collections.singletonMap(key, value));
                 return value;
@@ -112,20 +112,6 @@ public class ConfigCore implements AutoCloseable {
         } catch (Exception e) {
             logger.warn("Failed to fetch config '{}' from primary app {}", key, primaryAppName, e);
         }
-
-        // 3. 从订阅应用中查找
-        for (String appName : subscribedApps) {
-            try {
-                value = transport.fetch(appName, env, key);
-                if (value != null) {
-                    cacheManager.batchUpdate(Collections.singletonMap(key, value));
-                    return value;
-                }
-            } catch (Exception e) {
-                logger.debug("Failed to fetch config '{}' from subscribed app {}", key, appName, e);
-            }
-        }
-
         return defaultValue;
     }
 

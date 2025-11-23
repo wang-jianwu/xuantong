@@ -1,7 +1,6 @@
 package com.xuantong.client.serializer;
 
 import com.xuantong.client.exception.XuantongException;
-import com.xuantong.client.metrics.ConfigMetrics;
 import org.noear.snack4.ONode;
 import org.noear.snack4.Options;
 import org.noear.snack4.codec.TypeRef;
@@ -26,15 +25,10 @@ public class JsonSerializer implements Serializer {
         if (obj == null) {
             return null;
         }
-        long startTime = System.currentTimeMillis();
         try {
-            String result = ONode.ofBean(obj, options).toJson();
-            long duration = System.currentTimeMillis() - startTime;
-            ConfigMetrics.getInstance().recordResponseTime("serialize", duration);
-            return result;
+            return ONode.ofBean(obj, options).toJson();
         } catch (Exception e) {
             logger.error("Serialize failed", e);
-            ConfigMetrics.getInstance().recordParseError();
             throw new XuantongException("Serialize failed", e);
         }
     }
@@ -44,16 +38,10 @@ public class JsonSerializer implements Serializer {
         if (str == null || str.trim().isEmpty()) {
             return null;
         }
-        long startTime = System.currentTimeMillis();
         try {
-            // Snack4正确反序列化方式
-            T result = ONode.ofJson(str, options).toBean(clazz);
-            long duration = System.currentTimeMillis() - startTime;
-            ConfigMetrics.getInstance().recordResponseTime("deserialize", duration);
-            return result;
+            return ONode.ofJson(str, options).toBean(clazz);
         } catch (Exception e) {
             logger.error("Deserialize failed, str: {}", str, e);
-            ConfigMetrics.getInstance().recordParseError();
             throw new XuantongException("Deserialize failed", e);
         }
     }
@@ -108,14 +96,9 @@ public class JsonSerializer implements Serializer {
             // 使用TypeRef确保正确的泛型类型反序列化
             TypeRef<Map<K, V>> typeRef = new TypeRef<Map<K, V>>() {
             };
-            Map<K, V> result = ONode.deserialize(jsonStr, typeRef);
-
-            long duration = System.currentTimeMillis() - startTime;
-            ConfigMetrics.getInstance().recordResponseTime("deserializeMap", duration);
-            return result;
+            return ONode.deserialize(jsonStr, typeRef);
         } catch (Exception e) {
             logger.error("Deserialize map failed, str: \"{}\"", str, e);
-            ConfigMetrics.getInstance().recordParseError();
             throw new XuantongException("Deserialize map failed", e);
         }
     }
