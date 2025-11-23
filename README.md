@@ -53,7 +53,7 @@ XuantongClient client = new XuantongClient(
 public void init() {
     XuantongConfig.init(
             Arrays.asList("config-center:8080"),
-            "your-app-name",
+            Arrays.asList("your-app-name"),
             "dev");
 }
 //solon
@@ -61,7 +61,7 @@ public void init() {
 public void init() {
     XuantongConfig.init(
             Arrays.asList("config-center:8080"),
-            "your-app-name",
+            Arrays.asList("your-app-name"),
             "dev");
 }
 @stop
@@ -107,7 +107,7 @@ solon:
   cloud:
     xuantong-config:
       server: config-center:8080,config-center:8081
-      namespace: appname1:prod;appname2,appname3
+      namespace: prod:app1,appname2,appname3
       config:
         enable: true
         load: db.yml,redis.yml # 指定加载的配置key 可@Inject 注入
@@ -159,7 +159,7 @@ public class AppConfig {
 xuantong:
   config:
     server-addresses: ["config-server:8080"] # 配置中心地址
-    app-name: "your-application-name"        # 应用名称
+    app-name: ["your-application-name"]        # 应用名称
     environment: "prod"                      # 环境标识
 ```
 
@@ -277,8 +277,8 @@ System.out.println("配置获取次数: " + metrics.getConfigFetchCount());
 System.out.println("实时推送次数: " + metrics.getPushNotificationCount());
 ```
 
-## 最佳实践
-
+## 管理页面
+![img.png](img.png)
 ### 去中心化集群架构
 ```mermaid
 graph TB
