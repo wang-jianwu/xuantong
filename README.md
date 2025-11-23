@@ -4,7 +4,7 @@
 
 ## 🏷️ 产品介绍
 
-玄同-Config是一款轻量级高性能的分布式配置管理平台，提供完整的配置管理解决方案。
+Xuantong-Config是一款轻量级高性能的分布式配置管理平台，提供完整的配置管理解决方案。
 
 ### 🚀 核心特性
 
@@ -106,8 +106,8 @@ client.addListener("payment.timeout", event -> {
 solon:
   cloud:
     xuantong-config:
-      server: config-center:8080
-      namespace: your-app-name:prod
+      server: config-center:8080,config-center:8081
+      namespace: appname1:prod;appname2,appname3
       config:
         enable: true
         load: db.yml,redis.yml # 指定加载的配置key 可@Inject 注入
@@ -238,6 +238,8 @@ public class DatabaseService {
 ✅ **熔断保护** - 自动降级和故障转移
 ✅ **本地快照** - 离线模式下自动恢复配置
 ✅ **Solon Cloud插件** - 与Solon Cloud生态完美集成
+✅ **集群支持** - 多节点集群部署和自动发现
+✅ **消息去重** - 防止重复处理
 
 ### 计划功能
 🔲 可视化监控仪表盘
@@ -277,47 +279,46 @@ System.out.println("实时推送次数: " + metrics.getPushNotificationCount());
 
 ## 最佳实践
 
-### 部署架构建议
-| 环境 | 架构方案 | 容灾策略 |
-|------|---------|---------|
-| 开发环境 | 单节点 + 本地快照 | 本地文件备份 |
-| 测试环境 | 双节点集群 + Redis | Redis缓存 + 本地快照 |
-| 生产环境 | 多节点集群 + Redis哨兵 | 多级缓存 + 自动故障转移 |
+### 去中心化集群架构
+```mermaid
+graph TB
+    subgraph 客户端层
+        C1[应用1] -->|/config| SN1[服务节点1]
+        C2[应用2] -->|/config| SN2[服务节点2]
+        C3[应用3] -->|/config| SN3[服务节点3]
+    end
+    subgraph 服务节点对等网络
+        SN1 -->|/cluster| SN2
+        SN2 -->|/cluster| SN3
+        SN3 -->|/cluster| SN1
+    end
+```
 
-### 性能调优指南
-1. **连接池配置**：
-   ```yaml
-   xuantong:
-     client:
-       pool-size: 20
-       connection-timeout: 5000
-       heartbeat-interval: 30000
-   ```
+### 核心特性
+1. **无单点故障**：所有节点对等，无中心节点
+2. **自动发现**：节点间通过心跳自动发现和通信
+3. **客户端亲和性**：客户端自动扩缩容自动选择最优节点
 
-2. **缓存策略**：
-   ```yaml
-   xuantong:
-     client:
-       memory-cache-size: 1000
-       local-snapshot-enabled: true
-       redis-ttl: 3600
-   ```
+### 部署建议
+| 环境 | 节点数 | 数据同步方式 | 容灾策略 |
+|------|--------|-------------|---------|
+| 开发 | 1      | 本地文件     | 文件备份 |
+| 测试 | 3      | 内存广播     | 多节点备份 |
+| 生产 | 5+     | 混合同步     | 跨机房部署 |
 
-3. **网络优化**：
-   ```yaml
-   xuantong:
-     client:
-       compression-enabled: true
-       buffer-size: 8192
-   ```
-
+服务端配置
+config:
+  maxSessions: 1000
+  center:
+    cluster:
+      nodes:
+       - 127.0.0.1:1001
+       - 127.0.0.1:1002
 ## 故障排查
 
 ### 常见问题
 1. **连接失败**：检查配置中心地址和网络连通性
-2. **配置不生效**：确认namespace和应用名配置正确
-3. **推送延迟**：调整心跳间隔和超时时间
-
+2. **配置不生效**：确认配置正确
 ### 日志分析
 启用DEBUG日志查看详细运行信息：
 ```yaml
