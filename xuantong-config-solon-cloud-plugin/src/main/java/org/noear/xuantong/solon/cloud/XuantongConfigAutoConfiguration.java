@@ -15,7 +15,7 @@ import org.noear.solon.core.Plugin;
 public class XuantongConfigAutoConfiguration implements Plugin {
 
     private static final String CLOUD_CONFIG = "xuantong";
-    private static final String ERROR_MESSAGE = "xuantong.namespace必须配置，格式为 name:env 或 name:env;app1,app2,app3";
+    private static final String ERROR_MESSAGE = "xuantong.namespace必须配置[格式为 env:subscribedApp1,subscribedApp2...]";
 
     @Override
     public void start(AppContext context) throws Throwable{

@@ -15,7 +15,7 @@ public class XuantongConfigProperties {
     /**
      * 应用名称
      */
-    private String appName;
+    private List<String> appName;
 
     /**
      * 环境名称（如：dev, test, prod）
@@ -32,11 +32,11 @@ public class XuantongConfigProperties {
         this.serverAddresses = serverAddresses;
     }
 
-    public String getAppName() {
+    public List<String> getAppName() {
         return appName;
     }
 
-    public void setAppName(String appName) {
+    public void setAppName(List<String> appName) {
         this.appName = appName;
     }
 

@@ -14,30 +14,16 @@ public final class XuantongConfig {
     }
 
     /**
-     * 初始化配置客户端（静态方式）- 单例门面（单应用模式）
-     */
-    public static synchronized void init(List<String> serverAddrs, String appName, String env) {
-        if (initialized) {
-            throw new IllegalStateException("NimbusConfig already initialized. Use close() before reinitializing.");
-        }
-        if (defaultClient != null) {
-            throw new IllegalStateException("NimbusConfig singleton instance already exists");
-        }
-        defaultClient = new XuantongClient(serverAddrs, appName, env);
-        initialized = true;
-    }
-
-    /**
      * 初始化配置客户端（静态方式）- 支持多应用订阅
      */
-    public static synchronized void init(List<String> serverAddrs, String primaryAppName, List<String> subscribedApps, String env) {
+    public static synchronized void init(List<String> serverAddrs, List<String> subscribedApps, String env) {
         if (initialized) {
             throw new IllegalStateException("NimbusConfig already initialized. Use close() before reinitializing.");
         }
         if (defaultClient != null) {
             throw new IllegalStateException("NimbusConfig singleton instance already exists");
         }
-        defaultClient = new XuantongClient(serverAddrs, primaryAppName, subscribedApps, env);
+        defaultClient = new XuantongClient(serverAddrs, subscribedApps, env);
         initialized = true;
     }
 

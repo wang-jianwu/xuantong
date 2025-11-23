@@ -3,6 +3,7 @@ package org.noear.xuantong.solon.cloud;
 import com.xuantong.client.XuantongClient;
 import org.noear.solon.cloud.CloudConfigHandler;
 import org.noear.solon.cloud.CloudProps;
+import org.noear.solon.cloud.exception.CloudException;
 import org.noear.solon.cloud.model.Config;
 import org.noear.solon.cloud.service.CloudConfigObserverEntity;
 import org.noear.solon.cloud.service.CloudConfigService;
@@ -10,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
-import java.util.List;
 
 /**
  * Nimbus 配置服务实现
@@ -22,33 +22,21 @@ public class XuantongCloudConfigService implements CloudConfigService {
 
     public XuantongCloudConfigService(CloudProps cloudProps) {
         String namespace = cloudProps.getNamespace();
-
-        // 解析配置格式：支持两种格式
-        // 1. 单应用模式：appName:env
-        // 2. 多应用模式：appName:env;app1,app2,app3
-        String appName;
-        String env;
-        List<String> subscribedApps = java.util.Collections.emptyList();
-
-        if (namespace.contains(";")) {
-            // 多应用模式
-            String[] parts = namespace.split(";");
-            String[] name_env = parts[0].split(":");
-            appName = name_env[0];
-            env = name_env[1];
-            subscribedApps = Arrays.asList(parts[1].split(","));
-        } else {
-            // 单应用模式
-            String[] name_env = namespace.split(":");
-            appName = name_env[0];
-            env = name_env[1];
+        // 解析配置格式：env:appName,app1,app2
+        // 多应用模式
+        String[] env_name = namespace.split(":");
+        if (env_name.length != 2) {
+            throw new CloudException("配置格式错误，应为 env:appName,app2");
         }
-
+        String env = env_name[0];
+        String appNames = env_name[1];
+        if (env == null || env.trim().isEmpty() || appNames == null || appNames.trim().isEmpty()) {
+            throw new CloudException("环境不能为空");
+        }
         // 创建配置客户端实例
         this.client = new XuantongClient(
-                Arrays.asList(cloudProps.getServer().split(",")),
-                appName,
-                subscribedApps,
+                Arrays.asList(cloudProps.getServer().trim().split(",")),
+                Arrays.asList(appNames.trim().split(",")),
                 env
         );
     }

@@ -10,7 +10,6 @@ import com.xuantong.client.transport.ConfigTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +21,6 @@ public class ConfigCore implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(ConfigCore.class);
 
     private final List<String> serverAddress;
-    private final String primaryAppName;  // 主应用名称
     private final List<String> subscribedApps;  // 订阅的应用列表
     private final String env;
     private final ConfigTransport transport;
@@ -32,18 +30,10 @@ public class ConfigCore implements AutoCloseable {
     private volatile boolean initialized = false;
 
     /**
-     * 构造函数 - 单应用模式
-     */
-    public ConfigCore(List<String> serverAddress, String appName, String env, ConfigTransport transport) {
-        this(serverAddress, appName, Collections.emptyList(), env, transport);
-    }
-
-    /**
      * 构造函数 - 支持多应用订阅
      */
-    public ConfigCore(List<String> serverAddress, String primaryAppName, List<String> subscribedApps, String env, ConfigTransport transport) {
+    public ConfigCore(List<String> serverAddress, List<String> subscribedApps, String env, ConfigTransport transport) {
         this.serverAddress = serverAddress;
-        this.primaryAppName = primaryAppName;
         this.subscribedApps = subscribedApps != null ? subscribedApps : Collections.emptyList();
         this.env = env;
         this.cacheManager = new ConfigCacheManager(env);
@@ -62,12 +52,11 @@ public class ConfigCore implements AutoCloseable {
         }
 
         try {
-            logger.info("Initializing ConfigCore for {}/{} with subscribed apps: {}", primaryAppName, env, subscribedApps);
+            logger.info("Initializing ConfigCore for{} with subscribed apps: {}", env, subscribedApps);
 
             // 注册配置变更监听器到传输层（监听主应用）
-            List<String> allAppNames = getAllAppNames();
-            transport.connect(serverAddress, allAppNames, env, configData -> {
-                logger.info("监听到配置变更 {}/{}/{}", allAppNames, env, configData);
+            transport.connect(serverAddress, subscribedApps, env, configData -> {
+                logger.info("监听到配置变更 {}/{}/{}", subscribedApps, env, configData);
                 // 处理配置变更通知
                 Map<String, String> newConfigs = serializer.deserializeMap(configData);
                 if (newConfigs != null && !newConfigs.isEmpty()) {
@@ -81,7 +70,7 @@ public class ConfigCore implements AutoCloseable {
 
             initialized = true;
             logger.info("ConfigCore initialized successfully for {} apps: {}",
-                    subscribedApps.size() + 1, getAllAppNames());
+                    subscribedApps.size() + 1, subscribedApps);
         } catch (Exception e) {
             logger.error("ConfigCore initialization failed", e);
             throw new XuantongException("Failed to initialize ConfigCore", e);
@@ -110,7 +99,7 @@ public class ConfigCore implements AutoCloseable {
                 return value;
             }
         } catch (Exception e) {
-            logger.warn("Failed to fetch config '{}' from primary app {}", key, primaryAppName, e);
+            logger.warn("Failed to fetch config '{}' from env {}", key, env, e);
         }
         return defaultValue;
     }
@@ -125,14 +114,13 @@ public class ConfigCore implements AutoCloseable {
 
         while (retryCount <= maxRetries) {
             try {
-                List<String> allApps = getAllAppNames();
                 // 多应用订阅模式 - 批量获取所有应用的配置
-                String data = transport.fetchAllForApps(allApps, env);
+                String data = transport.fetchAllForApps(subscribedApps, env);
                 if (data != null) {
                     Map<String, String> allConfigs = serializer.deserializeMap(data);
                     cacheManager.batchUpdate(allConfigs);
                     logger.info("Loaded {} initial configs from {} apps: {}",
-                            allConfigs.size(), allApps.size(), allApps);
+                            allConfigs.size(), subscribedApps.size(), subscribedApps);
                     return;
                 }
                 // 配置为空但仍然成功获取到响应
@@ -215,15 +203,5 @@ public class ConfigCore implements AutoCloseable {
      */
     public ConfigTransport getTransport() {
         return transport;
-    }
-
-    /**
-     * 获取所有应用名称（主应用+订阅应用）
-     */
-    private List<String> getAllAppNames() {
-        List<String> allApps = new ArrayList<>();
-        allApps.add(primaryAppName);
-        allApps.addAll(subscribedApps);
-        return allApps;
     }
 }
