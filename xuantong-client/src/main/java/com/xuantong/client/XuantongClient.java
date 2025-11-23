@@ -5,21 +5,33 @@ import com.xuantong.client.listener.ConfigListener;
 import com.xuantong.client.serializer.Serializer;
 import com.xuantong.client.transport.impl.SocketDTransport;
 
+import java.util.Collections;
 import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 配置客户端接口 - 实例化客户端（用于依赖注入）
  */
 public class XuantongClient implements AutoCloseable {
+    private static final Logger logger = LoggerFactory.getLogger(XuantongClient.class);
 
     private final ConfigCore configCore;
     private static XuantongClient defaultInstance = null;
 
     /**
-     * 构造函数 - 自动注册为默认实例（如果还没有默认实例）
+     * 构造函数 - 单应用模式
      */
-    public XuantongClient(List<String> serverAddrs, String appName, String env) {
-        this.configCore = new ConfigCore(serverAddrs, appName, env, new SocketDTransport());
+    public XuantongClient(List<String> serverAddress, String appName, String env) {
+        this(serverAddress, appName, Collections.emptyList(), env);
+    }
+
+    /**
+     * 构造函数 - 支持多应用订阅
+     */
+    public XuantongClient(List<String> serverAddress, String primaryAppName, List<String> subscribedApps, String env) {
+        this.configCore = new ConfigCore(serverAddress, primaryAppName, subscribedApps, env, new SocketDTransport());
         registerAsDefault();
     }
 

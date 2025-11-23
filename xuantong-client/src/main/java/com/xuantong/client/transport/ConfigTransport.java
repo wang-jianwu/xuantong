@@ -17,12 +17,7 @@ public interface ConfigTransport {
     /**
      * 连接到配置服务器并注册变更监听器
      */
-    void connect(List<String> serverAddress, String appName, String env, ConfigChangeListener listener);
-
-    /**
-     * 获取所有配置
-     */
-    String fetchAll(String appName, String env);
+    void connect(List<String> serverAddress, List<String> appNames, String env, ConfigChangeListener listener);
 
     /**
      * 获取配置变更
@@ -33,6 +28,11 @@ public interface ConfigTransport {
      * 获取单个配置值
      */
     String fetch(String appName, String env, String key);
+
+    /**
+     * 批量获取多个应用的配置
+     */
+    String fetchAllForApps(List<String> appNames, String env);
 
     /**
      * 关闭连接

@@ -1,5 +1,6 @@
 package com.xuantong.client.serializer;
 
+import com.xuantong.client.exception.XuantongException;
 import com.xuantong.client.metrics.ConfigMetrics;
 import org.noear.snack4.ONode;
 import org.noear.snack4.Options;
@@ -34,7 +35,7 @@ public class JsonSerializer implements Serializer {
         } catch (Exception e) {
             logger.error("Serialize failed", e);
             ConfigMetrics.getInstance().recordParseError();
-            throw new RuntimeException("Serialize failed", e);
+            throw new XuantongException("Serialize failed", e);
         }
     }
 
@@ -53,7 +54,7 @@ public class JsonSerializer implements Serializer {
         } catch (Exception e) {
             logger.error("Deserialize failed, str: {}", str, e);
             ConfigMetrics.getInstance().recordParseError();
-            throw new RuntimeException("Deserialize failed", e);
+            throw new XuantongException("Deserialize failed", e);
         }
     }
 
@@ -115,7 +116,7 @@ public class JsonSerializer implements Serializer {
         } catch (Exception e) {
             logger.error("Deserialize map failed, str: \"{}\"", str, e);
             ConfigMetrics.getInstance().recordParseError();
-            throw new RuntimeException("Deserialize map failed", e);
+            throw new XuantongException("Deserialize map failed", e);
         }
     }
 

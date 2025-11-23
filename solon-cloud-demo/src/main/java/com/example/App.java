@@ -1,4 +1,4 @@
-package com.example.nimconf;
+package com.example;
 
 import org.noear.solon.Solon;
 import org.noear.solon.annotation.SolonMain;

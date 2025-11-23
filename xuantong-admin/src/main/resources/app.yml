@@ -46,5 +46,5 @@ xuantong:
     # 安全配置
     security:
       jwt:
-        secret: nimbus-config-secret-key-2024
+        secret: xuantong-config-secret-key-2024
         expire: 86400

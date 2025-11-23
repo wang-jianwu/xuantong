@@ -15,6 +15,7 @@ import org.noear.solon.core.handle.Context;
 import org.noear.solon.data.annotation.Transaction;
 import org.noear.solon.data.cache.CacheService;
 
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -182,6 +183,21 @@ public class ConfigService {
 
     public Map<String, String> findByProjectAndEnvironment(String project, String environment) {
         return configRepository.findByProjectAndEnvironment(project, environment);
+    }
+
+    /**
+     * 批量查询多个项目的配置（支持多应用订阅）
+     */
+    public Map<String, String> findByProjectsAndEnvironment(List<String> projects, String environment) {
+        if (projects == null || projects.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        if (projects.size() == 1) {
+            return findByProjectAndEnvironment(projects.get(0), environment);
+        }
+
+        return configRepository.findByProjectsAndEnvironment(projects, environment);
     }
 
     public Map<String, String> findChangesSince(String app, String env, Date date) {

@@ -1,4 +1,4 @@
-package com.example.nimconf.controller;
+package com.example.controller;
 
 import org.noear.solon.annotation.Controller;
 import org.noear.solon.annotation.Inject;
@@ -14,9 +14,9 @@ import org.noear.solon.core.handle.Result;
 public class TestController {
 
     @CloudConfig(value = "demo.nimbus.aaa", autoRefreshed = true)
-    private String test;
+    private String test = "default-value";
 
-    @Inject("${solon.cloud.xxx.server}")
+    @Inject("${solon.cloud.xxx.server:default-server}")
     private String test2;
     @Mapping("/")
     public Result<String> test() {

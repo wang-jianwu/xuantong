@@ -40,7 +40,7 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
     public void init() {
         setListener(buildListener());
 
-        // 订阅配置变更事件
+        // 订阅本地配置变更事件
         EventBus.subscribe(ConfigChangeEvent.class, event -> {
             log.info("Received config change event: {}={} for {}/{}",
                     event.getKey(), event.getValue(), event.getProject(), event.getEnvironment());
@@ -134,6 +134,13 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
         }
     }
 
+    /**
+     * 通知订阅变更（功能已禁用）
+     */
+    private void notifySubscriptionChange(Map<String, Session> sessions, String changeType, String targetApp) {
+        log.warn("Subscription change notifications are disabled");
+    }
+
     private Listener buildListener() {
         return new EventListener()
                 .doOnOpen(session -> {
@@ -170,6 +177,30 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                         // 订阅配置变更 todo
 
                         s.replyEnd(m, new StringEntity("ok"));
+                    }
+                })
+                .doOn("/batch_all", (s, m) -> {
+                    Entity entity = m.entity();
+                    String appsStr = entity.meta("apps");
+                    String env = entity.meta("env");
+
+                    if (appsStr == null || appsStr.isEmpty()) {
+                        s.reply(m, new StringEntity("{}"));
+                        return;
+                    }
+
+                    List<String> apps = Arrays.asList(appsStr.split(","));
+                    Map<String, String> map = configService.findByProjectsAndEnvironment(apps, env);
+                    String data = ONode.serialize(map);
+
+                    if (m.isRequest()) {
+                        s.reply(m, new StringEntity(data));
+                    }
+                })
+                .doOn("/subscription_change", (s, m) -> {
+                    // 订阅变更功能已禁用
+                    if (m.isRequest()) {
+                        s.reply(m, new StringEntity("{\"status\":\"disabled\"}"));
                     }
                 })
                 .doOn("/get", (s, m) -> {

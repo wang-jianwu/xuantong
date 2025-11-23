@@ -84,6 +84,7 @@ public class ConfigListenerManager {
         long startTime = System.nanoTime();
         totalExecutions.incrementAndGet();
         try {
+            logger.info("Executing listener for key: {}", event);
             listener.onConfigChange(event);
             long duration = (System.nanoTime() - startTime) / 1_000_000; // ms
             listenerExecutionTimes.merge(listener.getClass().getSimpleName(), duration, Long::sum);

@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.xuantong.core.repository.impl.ConfigRepositoryImpl.getStringMap;
+
 @Component
 public class ConfigLogRepositoryImpl implements ConfigLogRepository {
     @Db
@@ -66,13 +68,7 @@ public class ConfigLogRepositoryImpl implements ConfigLogRepository {
                                 .put("value", c2.value())
                 )
                 .toList();
-        Map<String, String> result = new HashMap<>();
-        list.forEach(map ->{
-            String key = (String) map.get("key");
-            String value = (String) map.get("value");
-            result.put(key, value);
-        });
-        return result;
+        return getStringMap(list);
     }
 
     @Override

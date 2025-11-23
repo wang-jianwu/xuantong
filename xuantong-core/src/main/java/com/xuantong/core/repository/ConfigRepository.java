@@ -23,4 +23,9 @@ public interface ConfigRepository {
     long countTodayChanges();
 
     Map<String, String> findByProjectAndEnvironment(String project, String env);
+
+    /**
+     * 批量查询多个项目的配置
+     */
+    Map<String, String> findByProjectsAndEnvironment(List<String> projects, String env);
 }

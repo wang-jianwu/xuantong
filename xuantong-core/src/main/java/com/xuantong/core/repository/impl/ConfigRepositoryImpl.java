@@ -7,6 +7,7 @@ import com.easy.query.core.api.pagination.EasyPageResult;
 import com.easy.query.solon.annotation.Db;
 import com.xuantong.core.model.ConfigItem;
 import com.xuantong.core.repository.ConfigRepository;
+import org.jetbrains.annotations.NotNull;
 import org.noear.solon.annotation.Component;
 
 import java.util.*;
@@ -144,12 +145,38 @@ public class ConfigRepositoryImpl implements ConfigRepository {
                 )
                 .toList();
 
+        return getStringMap(list);
+    }
+
+    @Override
+    public Map<String, String> findByProjectsAndEnvironment(List<String> projects, String env) {
+        if (projects == null || projects.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+
+        List<java.util.Map<String, Object>> list = easyQuery.queryable(ConfigItem.class)
+                .where(o -> {
+                    o.project().in(projects);
+                    o.environment().eq(env);
+                })
+                .select(c -> new MapProxy()
+                        .put("key", c.key())
+                        .put("value", c.value())
+                        .put("project", c.project())
+                )
+                .toList();
+        return getStringMap(list);
+    }
+
+    @NotNull
+    static Map<String, String> getStringMap(List<Map<String, Object>> list) {
         Map<String, String> result = new HashMap<>();
         list.forEach(map -> {
             String key = (String) map.get("key");
             String value = (String) map.get("value");
             result.put(key, value);
         });
+
         return result;
     }
 }

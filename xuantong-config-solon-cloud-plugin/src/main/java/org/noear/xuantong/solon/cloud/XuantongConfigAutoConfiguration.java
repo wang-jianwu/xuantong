@@ -14,15 +14,17 @@ import org.noear.solon.core.Plugin;
  */
 public class XuantongConfigAutoConfiguration implements Plugin {
 
+    private static final String CLOUD_CONFIG = "xuantong";
+    private static final String ERROR_MESSAGE = "xuantong.namespace必须配置，格式为 name:env 或 name:env;app1,app2,app3";
 
     @Override
     public void start(AppContext context) throws Throwable{
-        CloudProps cloudProps = new CloudProps(context, "nimbus-conf");
+        CloudProps cloudProps = new CloudProps(context, CLOUD_CONFIG);
         if (Utils.isEmpty(cloudProps.getServer())) {
             return;
         }
         if (Utils.isEmpty(cloudProps.getNamespace())){
-            throw new CloudException("nimbus-conf.namespace必须配置，格式为 name:env");
+            throw new CloudException(ERROR_MESSAGE);
         }
         if (cloudProps.getConfigEnable()) {
             // 注册配置服务
