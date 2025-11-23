@@ -11,7 +11,13 @@ solon.logging:
       level: INFO
 solon.cloud:
   xuantong:
-    server: '223.109.140.78:8088'
-    namespace: social:prod;demo,advert
+    server: '127.0.0.1:8088'
+    namespace: social:dev;demo,advert
     config:
       load: demo.aaa.yml
+solon:
+  logging:
+    appender:
+      console:
+        enable: true
+        level: DEBUG

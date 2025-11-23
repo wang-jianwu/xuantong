@@ -261,24 +261,27 @@ public class SocketDTransport implements ConfigTransport {
      * 基于负载动态调整连接池大小
      */
     private void adjustPoolSizeBasedOnLoad() {
-        int currentSize = connectionPool.size();
-        int maxSize = connectionPool.remainingCapacity() + currentSize;
-        double utilization = (double) currentSize / maxSize;
+        int currentMaxSize = connectionPool.size() + connectionPool.remainingCapacity();
+        // 活跃连接数 = 已借出的连接数（从borrowedConnections获取）
+        int activeConnections = borrowedConnections.size();
+        double utilization = currentMaxSize > 0 ? (double) activeConnections / currentMaxSize : 0.0;
 
-        if (utilization >= HIGH_LOAD_THRESHOLD && maxSize < MAX_POOL_SIZE) {
+        if (utilization >= HIGH_LOAD_THRESHOLD && currentMaxSize < MAX_POOL_SIZE) {
             // 高负载，扩容
-            int newSize = Math.min(maxSize + 2, MAX_POOL_SIZE);
+            int newSize = Math.min(currentMaxSize + 2, MAX_POOL_SIZE);
             connectionPool.resize(newSize);
-            logger.info("Pool expanded from {} to {} due to high load ({}% utilization)", maxSize, newSize, (int) (utilization * 100));
+            logger.info("Pool expanded from {} to {} due to high load ({} active/{} max, {}% utilization)",
+                    currentMaxSize, newSize, activeConnections, currentMaxSize, (int) (utilization * 100));
 
             // 创建新连接
-            createAdditionalConnections(newSize - maxSize);
+            createAdditionalConnections(newSize - currentMaxSize);
 
-        } else if (utilization <= LOW_LOAD_THRESHOLD && maxSize > MIN_POOL_SIZE) {
+        } else if (utilization <= LOW_LOAD_THRESHOLD && currentMaxSize > MIN_POOL_SIZE) {
             // 低负载，缩容
-            int newSize = Math.max(maxSize - 1, MIN_POOL_SIZE);
+            int newSize = Math.max(currentMaxSize - 1, MIN_POOL_SIZE);
             connectionPool.resize(newSize);
-            logger.info("Pool shrunk from {} to {} due to low load ({}% utilization)", maxSize, newSize, (int) (utilization * 100));
+            logger.info("Pool shrunk from {} to {} due to low load ({} active/{} max, {}% utilization)",
+                    currentMaxSize, newSize, activeConnections, currentMaxSize, (int) (utilization * 100));
         }
     }
 

@@ -1,17 +1,24 @@
+config:
+  maxSessions: 1000
+  center:
+    cluster:
+      nodes:
+        - sd:ws://127.0.0.1:8088
+        - sd:ws://127.0.0.1:8089
 # 数据源配置
 solon:
   dataSources:
     xuantong:
       class: "com.zaxxer.hikari.HikariDataSource"
-      jdbcUrl: jdbc:mysql://http://223.109.140.78:3306/nimbus_config?useCursorFetch=true&rewriteBatchedStatements=true&useSSL=false&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useServerPrepStmts=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
+      jdbcUrl: jdbc:mysql://127.0.0.1:3306/nimbus_config?useCursorFetch=true&rewriteBatchedStatements=true&useSSL=false&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useServerPrepStmts=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
       driverClassName: com.mysql.cj.jdbc.Driver
-      username: nimbus
-      password: Mimi@1201
+      username: xxx
+      password: xxx
       maxPoolSize: 20
       minIdle: 5
       connectionTimeout: 30000
-      idleTimeout: 600000
-      maxLifetime: 1800000
+      idleTimeout: 300000
+      maxLifetime: 600000
       connectionTestQuery: SELECT 1
   #缓存
 cache:
@@ -19,10 +26,10 @@ cache:
     driverType: "redis"
     defSeconds: 3600  # 延长缓存时间到1小时
     maxWaitMillis: 5000
-    server: "223.109.140.78:6688"
+    server: "127.0.0.1:6379"
     db: 0
-    password: "Mimi@1201"
-    maxTotal: 100
+    password: "xxx"
+    maxTotal: 10
     maxIdle: 20
     minIdle: 5
     testOnBorrow: true
@@ -48,5 +55,5 @@ solon.logging.logger:
     level: WARN
   "org.noear.solon":
     level: INFO
-  "com.nimbus":
+  "com.xuantong":
     level: DEBUG

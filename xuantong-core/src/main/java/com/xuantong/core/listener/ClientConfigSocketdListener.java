@@ -72,14 +72,21 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
         // 只推送给匹配的app和env的客户端
         Map<String, Session> targetSessions = appEnvSessions.get(appEnvKey);
         if (targetSessions != null) {
+            Set<String> pushedIps = new HashSet<>();
             // 使用副本遍历以避免并发修改异常
             Map<String, Session> sessionsCopy = new HashMap<>(targetSessions);
             sessionsCopy.forEach((sessionId, session) -> {
                 try {
                     if (session.isValid()) {
-                        session.send("/push", new StringEntity(changeJson));
-                        log.debug("Config change pushed to client {} for {}/{}",
-                                sessionId, event.getProject(), event.getEnvironment());
+                        // 获取客户端IP地址
+                        String clientIp = getClientIp(session);
+                        // 检查是否已经给这个IP推送过
+                        if (clientIp != null && !pushedIps.contains(clientIp)) {
+                            session.send("/push", new StringEntity(changeJson));
+                            log.debug("Config change pushed to client {} for {}/{}",
+                                    sessionId, event.getProject(), event.getEnvironment());
+                            pushedIps.add(clientIp);
+                        }
                     } else {
                         // 移除无效的会话
                         targetSessions.remove(sessionId);
@@ -117,7 +124,6 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                             // 注册会话到对应的app-env分组（确保不会覆盖）
                             appEnvSessions.computeIfAbsent(appEnvKey, k -> new ConcurrentHashMap<>())
                                     .put(session.sessionId(), session);
-                            log.info("Session registered for app={}, env={}", app, env);
                         }
                     } else {
                         log.warn("Client connected without app and env parameters");
@@ -136,7 +142,10 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                     List<String> apps = Arrays.asList(appsStr.split(","));
                     Map<String, String> map = configService.findByProjectsAndEnvironment(apps, env);
                     String data = ONode.serialize(map);
-
+                    long totalSessions = appEnvSessions.values().stream()
+                            .mapToLong(Map::size)
+                            .sum() / appEnvSessions.size();
+                    log.info("Total sessions: {}", totalSessions);
                     if (m.isRequest()) {
                         s.reply(m, new StringEntity(data));
                     }
@@ -169,7 +178,7 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                         // 计算当前维护的会话总数
                         long totalSessions = appEnvSessions.values().stream()
                                 .mapToLong(Map::size)
-                                .sum();
+                                .sum() / appEnvSessions.size();
                         s.reply(m, new StringEntity("{" +
                                 "\"status\":\"ok\"," +
                                 "\"total_sessions\":" + totalSessions + "," +
@@ -198,5 +207,28 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                         }
                     });
                 });
+    }
+
+    /**
+     * 获取客户端IP地址
+     * 优先从Socket.D协议的X-IP元信息中获取，如果没有则从远程地址解析
+     */
+    private String getClientIp(Session session) {
+        try {
+            // 优先从协议元信息中获取X-Real-IP
+            String realIp = session.attrOrDefault("X-IP", "");
+            if (realIp != null && !realIp.trim().isEmpty()) {
+                return realIp.trim();
+            }
+            // 最后从Session的远程地址解析IP
+            String remoteAddress = session.remoteAddress().toString();
+            if (remoteAddress.contains("/")) {
+                return remoteAddress.split("/")[1].split(":")[0];
+            }
+            return remoteAddress;
+        } catch (Exception e) {
+            log.warn("Failed to get client IP for session: {}", session.sessionId(), e);
+            return null;
+        }
     }
 }
