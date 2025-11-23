@@ -12,6 +12,7 @@ import org.noear.socketd.transport.core.listener.EventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -35,6 +36,7 @@ public class SocketDTransport implements ConfigTransport {
     private static final long CONNECTION_TIMEOUT = 30_000; // 30秒连接超时
     private static final double HIGH_LOAD_THRESHOLD = 0.7; // 70%使用率算高负载
     private static final double LOW_LOAD_THRESHOLD = 0.2; // 20%使用率算低负载
+    private static final long DEDUP_WINDOW_MS = 5000; // 5秒去重窗口
 
     private final ResizableBlockingQueue<ClientSession> connectionPool;
     private ConfigTransport.ConfigChangeListener configChangeListener;
@@ -42,6 +44,8 @@ public class SocketDTransport implements ConfigTransport {
 
     // 连接泄漏检测
     private final Map<ClientSession, Long> borrowedConnections = new ConcurrentHashMap<>();
+    // 消息去重缓存（防止集群重复消息）
+    private final Map<String, Long> messageDeduplicationCache = new ConcurrentHashMap<>();
     private final ScheduledExecutorService poolMonitor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "connection-pool-monitor");
         thread.setDaemon(true);
@@ -95,7 +99,17 @@ public class SocketDTransport implements ConfigTransport {
                     .listen(new EventListener()
                             .doOn("/push", (s, m) -> {
                                 if (configChangeListener != null && m != null) {
-                                    configChangeListener.onChanged(m.dataAsString());
+                                    String message = m.dataAsString();
+                                    // 使用消息内容的MD5作为去重标识
+                                    String messageHash = generateMessageHash(message);
+                                    long now = System.currentTimeMillis();
+                                    Long lastSeen = messageDeduplicationCache.get(messageHash);
+                                    if (lastSeen == null || now - lastSeen > DEDUP_WINDOW_MS) {
+                                        messageDeduplicationCache.put(messageHash, now);
+                                        configChangeListener.onChanged(message);
+                                    } else {
+                                        logger.debug("Duplicate config change message ignored (hash: {})", messageHash.substring(0, 8));
+                                    }
                                 }
                             })).openOrThow();
 
@@ -459,6 +473,24 @@ public class SocketDTransport implements ConfigTransport {
         return serverUrls.get(index);
     }
 
+    /**
+     * 生成消息内容的哈希值（用于去重）
+     */
+    private String generateMessageHash(String message) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] hashBytes = md.digest(message.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hashBytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            logger.warn("Failed to generate message hash, using full message as key", e);
+            return message; // 降级方案
+        }
+    }
+
     @Override
     public void close() {
         // 停止监控任务
@@ -475,6 +507,7 @@ public class SocketDTransport implements ConfigTransport {
         List<ClientSession> sessions = new ArrayList<>();
         connectionPool.drainTo(sessions);
         borrowedConnections.clear();
+        messageDeduplicationCache.clear();
 
         sessions.forEach(session -> {
             try {
