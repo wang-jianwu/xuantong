@@ -20,9 +20,3 @@ solon:
     nullArrayAsEmpty: true
     nullAsWriteable: true
     enumAsName: true
-
-# 模板引擎配置
-solon.view.enjoy:
-  devMode: false  # 生产环境设为false启用缓存
-  cache: true     # 启用模板缓存
-  cacheSize: 500  # 缓存模板数量
