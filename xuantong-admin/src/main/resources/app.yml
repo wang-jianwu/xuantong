@@ -26,25 +26,3 @@ solon.view.enjoy:
   devMode: false  # 生产环境设为false启用缓存
   cache: true     # 启用模板缓存
   cacheSize: 500  # 缓存模板数量
-
-# Nimbus 管理配置
-xuantong:
-  admin:
-    # 初始管理员账号
-    superAdmin:
-      username: admin
-      password: admin123
-      email: admin@xuantong.com
-
-    # 文件存储
-    storage:
-      baseDir: ./data/xuantong
-      backup:
-        enabled: true
-        maxDays: 30
-
-    # 安全配置
-    security:
-      jwt:
-        secret: xuantong-config-secret-key-2024
-        expire: 86400
