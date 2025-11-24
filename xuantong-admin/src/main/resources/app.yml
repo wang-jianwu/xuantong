@@ -3,7 +3,6 @@ server:
   port: 8088
   contextPath: /xuantong-admin
 solon:
-  env: dev
   app:
     name: xuantong-admin
     group: xuantong

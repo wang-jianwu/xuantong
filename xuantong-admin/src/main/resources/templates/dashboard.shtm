@@ -327,6 +327,8 @@
 
         function renderChangesTable() {
             const tbody = document.getElementById('changes-body');
+            if (!tbody) return;
+
             tbody.innerHTML = '';
 
             if (recentChanges.length === 0) {
@@ -341,7 +343,7 @@
                     <td><span class="badge badge-info">${change.project || '-'}</span></td>
                     <td><span class="badge badge-success">${change.environment || '-'}</span></td>
                     <td>${change.operator || '-'}</td>
-                    <td>${new Date(change.time).toLocaleString() || '-'}</td>
+                    <td>${new Date(change.operateTime).toLocaleString() || '-'}</td>
                     <td><span class="badge badge-success">已更新</span></td>
                 `;
                 tbody.appendChild(row);

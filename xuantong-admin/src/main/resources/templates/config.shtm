@@ -429,6 +429,13 @@
             loadData().then(() => {
                 console.log('数据加载完成，开始初始化界面');
                 initializeUI();
+
+                // 自动触发一次配置查询
+                const project = document.getElementById('filter-project').value;
+                const environment = document.getElementById('filter-environment').value;
+                if (project && environment) {
+                    loadConfigs(1);
+                }
             }).catch(error => {
                 console.error('数据加载失败:', error);
                 alert('初始化失败，请刷新页面重试');

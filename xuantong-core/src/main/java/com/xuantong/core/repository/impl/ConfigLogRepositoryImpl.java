@@ -1,10 +1,15 @@
 package com.xuantong.core.repository.impl;
 
+import cn.hutool.core.date.DateUtil;
 import com.easy.query.api.proxy.base.MapProxy;
 import com.easy.query.api.proxy.client.EasyEntityQuery;
+import com.easy.query.core.proxy.sql.GroupKeys;
 import com.easy.query.solon.annotation.Db;
+import com.xuantong.core.model.ChangeVo;
 import com.xuantong.core.model.ConfigItem;
 import com.xuantong.core.model.ConfigLog;
+import com.xuantong.core.model.proxy.ChangeVoProxy;
+import com.xuantong.core.model.proxy.ConfigLogProxy;
 import com.xuantong.core.repository.ConfigLogRepository;
 import org.noear.solon.annotation.Component;
 
@@ -74,5 +79,24 @@ public class ConfigLogRepositoryImpl implements ConfigLogRepository {
     @Override
     public ConfigLog findById(Long logId) {
         return easyQuery.queryable(ConfigLog.class).whereById(logId).firstOrNull();
+    }
+
+    @Override
+    public List<ChangeVo> findLastChanges(int limit) {
+        return easyQuery.queryable(ConfigLog.class)
+                .innerJoin(ConfigItem.class, (log, config) -> config.id().eq(log.configId()))
+                .where((log, config) -> {
+                    log.operateTime().ge(DateUtil.offsetDay(new Date(), -7));
+                })
+                .select((c1, c2) ->  new ChangeVoProxy()
+                        .operator().set(c1.operator())
+                        .operateTime().set(c1.operateTime())
+                        .project().set(c2.project())
+                        .environment().set(c2.environment())
+                        .key().set(c2.key())
+                )
+                .orderBy(c -> c.operateTime().desc())
+                .limit(limit)
+                .toList();
     }
 }

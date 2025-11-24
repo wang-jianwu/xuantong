@@ -3,6 +3,7 @@ package com.xuantong.core.service;
 import com.easy.query.core.api.pagination.EasyPageResult;
 import com.xuantong.core.cluster.ConfigClusterBroadcaster;
 import com.xuantong.core.listener.model.ConfigChangeEvent;
+import com.xuantong.core.model.ChangeVo;
 import com.xuantong.core.model.ConfigItem;
 import com.xuantong.core.model.ConfigLog;
 import com.xuantong.core.model.User;
@@ -226,5 +227,9 @@ public class ConfigService {
 
     public Map<String, String> findChangesSince(String app, String env, Date date) {
         return configLogRepository.findChangesSince(app, env, date);
+    }
+
+    public List<ChangeVo> getRecentChanges(int limit) {
+        return configLogRepository.findLastChanges(limit);
     }
 }

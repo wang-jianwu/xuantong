@@ -1,6 +1,7 @@
 package com.xuantong.admin.controller;
 
 import com.easy.query.core.api.pagination.EasyPageResult;
+import com.xuantong.core.model.ChangeVo;
 import com.xuantong.core.model.ConfigItem;
 import com.xuantong.core.model.ConfigLog;
 import com.xuantong.core.service.ConfigService;
@@ -12,7 +13,6 @@ import io.swagger.annotations.ApiParam;
 import org.noear.solon.annotation.*;
 import org.noear.solon.core.handle.Result;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -120,34 +120,8 @@ public class ConfigController {
     @ApiOperation(value = "获取最近配置变更")
     @Get
     @Mapping("/changes")
-    public Result getRecentChanges() {
-        List<Map<String, Object>> changes = new ArrayList<>();
-
-        // 模拟最近变更数据（Java 8兼容语法）
-        Map<String, Object> change1 = new HashMap<>();
-        change1.put("key", "database.url");
-        change1.put("project", "demo");
-        change1.put("environment", "dev");
-        change1.put("operator", "admin");
-        change1.put("time", "2024-01-15 10:30:25");
-        changes.add(change1);
-
-        Map<String, Object> change2 = new HashMap<>();
-        change2.put("key", "redis.host");
-        change2.put("project", "demo");
-        change2.put("environment", "test");
-        change2.put("operator", "admin");
-        change2.put("time", "2024-01-15 09:15:42");
-        changes.add(change2);
-
-        Map<String, Object> change3 = new HashMap<>();
-        change3.put("key", "app.version");
-        change3.put("project", "production");
-        change3.put("environment", "prod");
-        change3.put("operator", "system");
-        change3.put("time", "2024-01-14 16:20:33");
-        changes.add(change3);
-
+    public Result<List<ChangeVo>> getRecentChanges() {
+        List<ChangeVo> changes = configService.getRecentChanges(5);
         return Result.succeed(changes);
     }
 }

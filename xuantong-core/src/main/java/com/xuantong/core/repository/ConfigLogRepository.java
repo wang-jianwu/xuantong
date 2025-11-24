@@ -1,5 +1,6 @@
 package com.xuantong.core.repository;
 
+import com.xuantong.core.model.ChangeVo;
 import com.xuantong.core.model.ConfigLog;
 
 import java.util.Date;
@@ -17,4 +18,6 @@ public interface ConfigLogRepository {
     Map<String, String> findChangesSince(String project, String environment, Date since);
 
     ConfigLog findById(Long logId);
+
+    List<ChangeVo> findLastChanges(int limit);
 }

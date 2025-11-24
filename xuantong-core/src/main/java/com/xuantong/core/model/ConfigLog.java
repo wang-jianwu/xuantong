@@ -1,9 +1,6 @@
 package com.xuantong.core.model;
 
-import com.easy.query.core.annotation.Column;
-import com.easy.query.core.annotation.EntityFileProxy;
-import com.easy.query.core.annotation.EntityProxy;
-import com.easy.query.core.annotation.Table;
+import com.easy.query.core.annotation.*;
 import com.easy.query.core.proxy.ProxyEntityAvailable;
 import com.xuantong.core.model.proxy.ConfigLogProxy;
 import lombok.Data;
@@ -41,4 +38,10 @@ public class ConfigLog implements ProxyEntityAvailable<ConfigLog , ConfigLogProx
 
     @Column
     private String ipAddress;  /** 操作IP */
+
+    @ColumnIgnore
+    private String project;
+
+    @ColumnIgnore
+    private String environment;
 }
