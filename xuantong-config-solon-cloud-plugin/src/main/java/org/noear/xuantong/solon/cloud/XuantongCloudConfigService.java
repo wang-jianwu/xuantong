@@ -1,6 +1,6 @@
 package org.noear.xuantong.solon.cloud;
 
-import com.xuantong.client.XuantongClient;
+import cloud.xuantong.client.XuantongClient;
 import org.noear.solon.cloud.CloudConfigHandler;
 import org.noear.solon.cloud.CloudProps;
 import org.noear.solon.cloud.exception.CloudException;

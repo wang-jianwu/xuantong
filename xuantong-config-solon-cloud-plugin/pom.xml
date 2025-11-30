@@ -15,7 +15,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.xuantong</groupId>
+            <groupId>cloud.xuantong</groupId>
             <artifactId>xuantong-client</artifactId>
             <version>1.0.0</version>
         </dependency>
