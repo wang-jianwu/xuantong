@@ -9,7 +9,7 @@ import org.noear.solon.annotation.Inject;
 import javax.sql.DataSource;
 
 /**
- * author wangjianwu
+ * author 封于修
  * date 2025/11/15 13:50
  */
 @Slf4j

@@ -7,7 +7,7 @@ import org.noear.solon.cloud.annotation.CloudConfig;
 import org.noear.solon.core.handle.Result;
 
 /**
- * author wangjianwu
+ * author 封于修
  * date 2025/11/19 00:21
  */
 @Controller

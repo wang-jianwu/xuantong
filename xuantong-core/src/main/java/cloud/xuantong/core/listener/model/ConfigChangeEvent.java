@@ -3,7 +3,7 @@ package cloud.xuantong.core.listener.model;
 import lombok.Getter;
 
 /**
- * author wangjianwu
+ * author 封于修
  */
 @Getter
 public class ConfigChangeEvent {
