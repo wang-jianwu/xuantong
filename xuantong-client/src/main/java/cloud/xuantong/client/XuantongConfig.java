@@ -1,5 +1,7 @@
 package cloud.xuantong.client;
 
+import cloud.xuantong.client.exception.XuantongException;
+
 import java.util.List;
 
 /**
@@ -18,10 +20,10 @@ public final class XuantongConfig {
      */
     public static synchronized void init(List<String> serverAddrs, List<String> subscribedApps, String env) {
         if (initialized) {
-            throw new IllegalStateException("NimbusConfig already initialized. Use close() before reinitializing.");
+            throw new XuantongException("XuantongConfig already initialized. Use close() before reinitializing.");
         }
         if (defaultClient != null) {
-            throw new IllegalStateException("NimbusConfig singleton instance already exists");
+            throw new XuantongException("XuantongConfig singleton instance already exists");
         }
         defaultClient = new XuantongClient(serverAddrs, subscribedApps, env);
         initialized = true;
@@ -60,7 +62,7 @@ public final class XuantongConfig {
     }
 
     /**
-     * 设置默认客户端实例（供NimBusClient内部使用）
+     * 设置默认客户端实例（供XuantongClient内部使用）
      */
     static synchronized void setClient(XuantongClient client) {
         if (defaultClient != null && defaultClient != client) {
@@ -90,7 +92,7 @@ public final class XuantongConfig {
 
     private static void checkInitialized() {
         if (!initialized || defaultClient == null) {
-            throw new IllegalStateException("NimbusConfig not initialized. Please call NimbusConfig.init() first.");
+            throw new XuantongException("XuantongConfig not initialized. Please call XuantongConfig.init() first.");
         }
     }
 }

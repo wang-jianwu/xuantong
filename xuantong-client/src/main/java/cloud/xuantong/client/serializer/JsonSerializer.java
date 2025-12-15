@@ -47,7 +47,7 @@ public class JsonSerializer implements Serializer {
     }
 
     @Override
-    public <T> List<T> deserializeTolist(String str, Class<T> clazz) {
+    public <T> List<T> deserializeToList(String str, Class<T> clazz) {
         return str != null && !str.trim().isEmpty() ? ONode.deserialize(str, new TypeRef<List<T>>() {
             @Override
             public Type getType() {
@@ -84,16 +84,15 @@ public class JsonSerializer implements Serializer {
         if (str == null || str.trim().isEmpty()) {
             return null;
         }
-        long startTime = System.currentTimeMillis();
         try {
-            // 处理可能的双引号转义JSON字符串
+            // 处理可能的双引号转义JSON 字符串
             String jsonStr = str.trim();
             if (jsonStr.startsWith("\"") && jsonStr.endsWith("\"")) {
                 jsonStr = jsonStr.substring(1, jsonStr.length() - 1)
                         .replace("\\\"", "\"");
             }
 
-            // 使用TypeRef确保正确的泛型类型反序列化
+            // 使用TypeRef 确保正确的泛型类型反序列化
             TypeRef<Map<K, V>> typeRef = new TypeRef<Map<K, V>>() {
             };
             return ONode.deserialize(jsonStr, typeRef);

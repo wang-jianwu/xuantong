@@ -1,0 +1,19 @@
+{
+  "properties": [
+    {
+      "name": "xuantong.config.serverAddresses",
+      "type": "java.util.List",
+      "description": "服务地址 - 127.0.0.1:8080"
+    },
+    {
+      "name": "xuantong.config.appNames",
+      "type": "java.util.List",
+      "description": "项目名 - myapp1"
+    },
+    {
+      "name": "xuantong.config.environment",
+      "type": "java.lang.String",
+      "description": "环境名称，如：dev, test, prod"
+    }
+  ]
+}

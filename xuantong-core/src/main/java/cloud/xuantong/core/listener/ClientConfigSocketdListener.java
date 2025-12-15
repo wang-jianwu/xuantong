@@ -5,6 +5,7 @@ import cloud.xuantong.core.model.ConfigItem;
 import cloud.xuantong.core.service.ConfigService;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.snack4.ONode;
+import org.noear.snack4.codec.TypeRef;
 import org.noear.socketd.transport.core.Entity;
 import org.noear.socketd.transport.core.Listener;
 import org.noear.socketd.transport.core.Session;
@@ -150,6 +151,38 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
                         s.reply(m, new StringEntity(data));
                     }
                 })
+                .doOn("/batch_keys", (s, m) -> {
+                    Entity entity = m.entity();
+                    String env = entity.meta("env");
+
+                    if (env == null || env.isEmpty()) {
+                        s.reply(m, new StringEntity("{}"));
+                        return;
+                    }
+
+                    try {
+                        // 解析请求体中的keys集合
+                        String requestBody = entity.dataAsString();
+                        Set<String> keys = parseKeysFromRequest(requestBody);
+
+                        if (keys.isEmpty()) {
+                            s.reply(m, new StringEntity("{}"));
+                            return;
+                        }
+
+                        // 批量查询配置
+                        Map<String, String> configs = configService.getBatchConfigsByKeys(keys, env);
+                        String data = ONode.serialize(configs);
+
+                        log.debug("Batch keys API returned {} configs for env: {}", configs.size(), env);
+                        if (m.isRequest()) {
+                            s.reply(m, new StringEntity(data));
+                        }
+                    } catch (Exception e) {
+                        log.error("Failed to process batch_keys request", e);
+                        s.reply(m, new StringEntity("{}"));
+                    }
+                })
                 .doOn("/get", (s, m) -> {
                     Entity entity = m.entity();
                     String app = entity.meta("app");
@@ -213,6 +246,26 @@ public class ClientConfigSocketdListener extends ToSocketdWebSocketListener {
      * 获取客户端IP地址
      * 优先从Socket.D协议的X-IP元信息中获取，如果没有则从远程地址解析
      */
+    /**
+     * 解析请求中的keys集合
+     */
+    private Set<String> parseKeysFromRequest(String requestBody) {
+        try {
+            if (requestBody == null || requestBody.trim().isEmpty()) {
+                return Collections.emptySet();
+            }
+            Set<String> keys = ONode.deserialize(requestBody, new TypeRef<Set<String>>() {
+            });
+            if (keys != null && !keys.isEmpty()) {
+                return keys;
+            }
+            return Collections.emptySet();
+        } catch (Exception e) {
+            log.warn("Failed to parse keys from request body: {}", requestBody, e);
+            return Collections.emptySet();
+        }
+    }
+
     private String getClientIp(Session session) {
         try {
             // 优先从协议元信息中获取X-Real-IP

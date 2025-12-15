@@ -17,6 +17,11 @@ import java.lang.annotation.*;
 public @interface ConfigValue {
 
     /**
+     * 配置键前缀（用于从复合配置中提取特定部分）
+     */
+    String prefix() default "";
+
+    /**
      * 配置键
      */
     String value() default "";

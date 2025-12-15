@@ -28,7 +28,7 @@
         <protobuf.version>4.28.2</protobuf.version>
         <socketd.version>2.5.20</socketd.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <java.version>1.8</java.version>
+        <java.version>25</java.version>
     </properties>
 
     <dependencyManagement>

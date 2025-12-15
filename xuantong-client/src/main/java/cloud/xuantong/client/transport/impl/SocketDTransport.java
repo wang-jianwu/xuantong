@@ -495,6 +495,35 @@ public class SocketDTransport implements ConfigTransport {
     }
 
     @Override
+    public String fetchSpecificKeys(String keys, String env) {
+        if (keys == null || keys.isEmpty()) {
+            return "{}";
+        }
+
+        ClientSession session = null;
+        try {
+            session = getConnection();
+            Entity request = new StringEntity(keys)
+                    .metaPut("action", "batch_keys")
+                    .metaPut("env", env);
+
+            Entity response = session.sendAndRequest("/batch_keys", request).await();
+            return response.dataAsString();
+        } catch (Exception e) {
+            logger.error("Failed to fetch specific keys via Socket.D", e);
+            return "{}";
+        } finally {
+            if (session != null) {
+                try {
+                    returnConnection(session);
+                } catch (Exception e) {
+                    logger.warn("Error returning connection", e);
+                }
+            }
+        }
+    }
+
+    @Override
     public void close() {
         // 停止监控任务
         poolMonitor.shutdown();

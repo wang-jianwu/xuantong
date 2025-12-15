@@ -232,4 +232,21 @@ public class ConfigService {
     public List<ChangeVo> getRecentChanges(int limit) {
         return configLogRepository.findLastChanges(limit);
     }
+
+    /**
+     * 批量查询指定配置键的值（按需加载优化）
+     */
+    public Map<String, String> getBatchConfigsByKeys(java.util.Set<String> keys, String env) {
+        if (keys == null || keys.isEmpty() || env == null || env.trim().isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        try {
+            // 批量查询
+            return configRepository.findByKeysAndEnvironment(keys, env);
+        } catch (Exception e) {
+            logger.error("Failed to get batch configs for keys: {} in env: {}", keys, env, e);
+            return Collections.emptyMap();
+        }
+    }
 }

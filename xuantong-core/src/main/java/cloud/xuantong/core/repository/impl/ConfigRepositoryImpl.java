@@ -168,6 +168,27 @@ public class ConfigRepositoryImpl implements ConfigRepository {
         return getStringMap(list);
     }
 
+    @Override
+    public Map<String, String> findByKeysAndEnvironment(java.util.Set<String> keys, String env) {
+        if (keys == null || keys.isEmpty() || env == null || env.trim().isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+
+        // 使用 IN 查询批量获取指定keys的配置
+        List<Map<String, Object>> list = easyQuery.queryable(ConfigItem.class)
+                .where(o -> {
+                    o.key().in(keys);
+                    o.environment().eq(env);
+                })
+                .select(c -> new MapProxy()
+                        .put("key", c.key())
+                        .put("value", c.value())
+                )
+                .toList();
+
+        return getStringMap(list);
+    }
+
     @NotNull
     static Map<String, String> getStringMap(List<Map<String, Object>> list) {
         Map<String, String> result = new HashMap<>();

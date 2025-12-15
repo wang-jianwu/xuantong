@@ -4,8 +4,6 @@ import cloud.xuantong.client.core.ConfigCore;
 import cloud.xuantong.client.listener.ConfigListener;
 import cloud.xuantong.client.serializer.Serializer;
 import cloud.xuantong.client.transport.impl.SocketDTransport;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -13,7 +11,6 @@ import java.util.List;
  * 配置客户端接口 - 实例化客户端（用于依赖注入）
  */
 public class XuantongClient implements AutoCloseable {
-    private static final Logger logger = LoggerFactory.getLogger(XuantongClient.class);
 
     private final ConfigCore configCore;
     private static XuantongClient defaultInstance = null;
@@ -70,7 +67,7 @@ public class XuantongClient implements AutoCloseable {
      */
     public <T> List<T> getObjectList(String key, Class<T> clazz) {
         String json = get(key, null);
-        return Serializer.defaultSerializer().deserializeTolist(json, clazz);
+        return Serializer.defaultSerializer().deserializeToList(json, clazz);
     }
 
     /**

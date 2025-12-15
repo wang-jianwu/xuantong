@@ -5,6 +5,7 @@ import cloud.xuantong.core.model.ConfigItem;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 配置数据访问接口
@@ -28,4 +29,9 @@ public interface ConfigRepository {
      * 批量查询多个项目的配置
      */
     Map<String, String> findByProjectsAndEnvironment(List<String> projects, String env);
+
+    /**
+     * 批量查询指定配置键的值（按需加载优化）
+     */
+    Map<String, String> findByKeysAndEnvironment(Set<String> keys, String env);
 }

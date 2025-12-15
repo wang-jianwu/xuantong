@@ -1,6 +1,7 @@
 package cloud.xuantong.client.transport;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 配置传输层接口
@@ -33,6 +34,14 @@ public interface ConfigTransport {
      * 批量获取多个应用的配置
      */
     String fetchAllForApps(List<String> appNames, String env);
+
+    /**
+     * 批量获取特定配置键的值
+     * @param keys 需要获取的配置键集合
+     * @param env 环境名称
+     * @return 配置键值对，格式为JSON字符串
+     */
+    String fetchSpecificKeys(String keys, String env);
 
     /**
      * 关闭连接

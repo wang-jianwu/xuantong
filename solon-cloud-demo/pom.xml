@@ -33,16 +33,21 @@
             <groupId>org.noear</groupId>
             <artifactId>solon-logging-logback</artifactId>
         </dependency>
-<!--        <dependency>-->
-<!--            <groupId>com.nimbus</groupId>-->
-<!--            <artifactId>nimbus-client</artifactId>-->
-<!--            <version>1.0.0</version>-->
-<!--        </dependency>-->
         <dependency>
-            <groupId>org.noear</groupId>
-            <artifactId>xuantong-config-solon-cloud-plugin</artifactId>
-            <version>${solon.version}</version>
+            <groupId>cloud.xuantong</groupId>
+            <artifactId>xuantong-config-solon-plugin</artifactId>
+            <version>1.0.0</version>
         </dependency>
+        <dependency>
+            <groupId>cloud.xuantong</groupId>
+            <artifactId>xuantong-client</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+<!--        <dependency>-->
+<!--            <groupId>org.noear</groupId>-->
+<!--            <artifactId>xuantong-config-solon-cloud-plugin</artifactId>-->
+<!--            <version>${solon.version}</version>-->
+<!--        </dependency>-->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
