@@ -15,7 +15,7 @@ public class XuantongConfigAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public XuantongClient nimBusClient(XuantongConfigProperties properties) {
+    public XuantongClient xuantongClient(XuantongConfigProperties properties) {
         return new XuantongClient(
                 properties.getServerAddresses(),
                 properties.getAppName(),
@@ -24,7 +24,7 @@ public class XuantongConfigAutoConfiguration {
     }
 
     @Bean
-    public XuantongConfigValueProcessor nimbusConfigValueProcessor(ObjectProvider<XuantongClient> xuantongClientProvider) {
+    public XuantongConfigValueProcessor xuantongConfigValueProcessor(ObjectProvider<XuantongClient> xuantongClientProvider) {
         return new XuantongConfigValueProcessor(xuantongClientProvider);
     }
 }

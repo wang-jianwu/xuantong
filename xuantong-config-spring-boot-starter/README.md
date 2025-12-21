@@ -1,13 +1,15 @@
-# Nimbus Config Spring Boot Starter
+# 玄同(Xuantong) Config Spring Boot Starter
 
 ## 功能特性
 
-- 动态配置管理：从Nimbus配置中心获取配置
-- `@Value`注解支持：自动刷新配置值
+- 动态配置管理：从玄同配置中心获取配置
+- **@ConfigValue注解**：功能强大的单一注解，支持所有配置场景
 - 类型支持：
   - 基本类型：String, Integer, Long, Boolean, Double, Float
   - 复杂对象：自动JSON反序列化
   - 列表/数组：支持泛型和数组类型
+- 自动刷新：实时配置更新支持
+- 必填校验：关键配置缺失保护
 
 ## 快速开始
 
@@ -15,8 +17,8 @@
 
 ```xml
 <dependency>
-    <groupId>com.nimbus</groupId>
-    <artifactId>nimbus-config-spring-boot-starter</artifactId>
+    <groupId>cloud.xuantong</groupId>
+    <artifactId>xuantong-config-spring-boot-starter</artifactId>
     <version>1.0.0</version>
 </dependency>
 ```
@@ -26,10 +28,10 @@
 在`application.yml`中添加配置：
 
 ```yaml
-nimbus:
+xuantong:
   config:
     server-addresses: ["config-server:8080"] # 配置中心地址
-    app-name: "your-application-name"        # 应用名称
+    app-name: ["your-application-name"]       # 应用名称
     environment: "prod"                      # 环境标识
 ```
 
@@ -40,12 +42,10 @@ nimbus:
 ```java
 @Component
 public class MyService {
-    // 有默认值
-    @Value("${server.port:8080}")
+    @ConfigValue(value = "server.port", type = ValueType.INTEGER, defaultValue = "8080")
     private int serverPort;
 
-    // 无默认值
-    @Value("${feature.enabled}")
+    @ConfigValue(value = "feature.enabled", type = ValueType.BOOLEAN, defaultValue = "true")
     private boolean featureEnabled;
 }
 ```
@@ -55,7 +55,7 @@ public class MyService {
 ```java
 @Component
 public class PaymentService {
-    @Value("${payment.config}")
+    @ConfigValue(value = "payment.config", type = ValueType.JSON)
     private PaymentConfig paymentConfig;
 }
 ```
@@ -65,35 +65,41 @@ public class PaymentService {
 ```java
 @Component
 public class DatabaseService {
-    @Value("${database.servers}")
+    @ConfigValue(value = "database.servers", type = ValueType.LIST)
     private List<DatabaseServer> servers;
 
-    @Value("${database.replicas}")
+    @ConfigValue(value = "database.replicas", type = ValueType.JSON)
     private DatabaseReplica[] replicas;
 }
 ```
 
 ## 最佳实践
 
-1**配置**：
+1**配置示例**：
    ```yaml
-   nimbus:
+   xuantong:
      config:
-       server-addresses: ["localhost:8080"]
+       server-addresses: ["localhost:8080", "config-center:8081"]
+       app-name: ["your-app-name", "another-app"]
        environment: "dev"
    ```
 
 2**配置变更监听**：
    ```java
-   无需监听，插件做了自动刷新机制
+   // 自动刷新配置，无需手动监听
+   @Component
+   public class ApplicationConfig {
+       @ConfigValue(value = "app.feature.rate-limit", type = ValueType.INTEGER, autoRefresh = true)
+       private int rateLimit;
+   }
    ```
 
 ## 注意事项
 
-1. 如果没有默认值且配置中心不可用，字段将保持初始值（通常为null）
+1. 建议为关键配置提供合理的默认值
 2. 复杂对象需要有无参构造函数
-3. 列表/数组类型需要指定泛型或组件类型
-4. 建议为关键配置提供合理的默认值（ps：目前不给配置启动会无法启动，正常启动后默认值会被刷新。加载机制问题还未解决）
+3. 必填配置缺失时会抛出运行时异常，请确保生产环境配置完整
+4. 配置Bean的依赖关系需要确保配置客户端先初始化
 
 ## 版本兼容性
 
