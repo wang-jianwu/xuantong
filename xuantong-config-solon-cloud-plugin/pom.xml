@@ -1,17 +1,46 @@
 <?xml version="1.0" encoding="UTF-8"?>
+
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <parent>
-        <groupId>org.noear</groupId>
-        <artifactId>solon-parent</artifactId>
-        <version>3.7.3</version>
-        <relativePath/>
-    </parent>
+
+    <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-cloud-plugin</artifactId>
-    <name>${project.artifactId}</name>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
+
+    <name>Xuantong Config Solon Cloud Plugin</name>
+    <description>Xuantong Config integration plugin for Solon Cloud framework</description>
+    <url>https://gitee.com/wjw_system/xuantong-config.git</url>
+
+    <licenses>
+        <license>
+            <name>Apache-2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>fengyuxiu</name>
+            <email>1252348549@qq.com</email>
+            <organization>fengyuxiu</organization>
+        </developer>
+    </developers>
+
+    <scm>
+        <url>https://gitee.com/wjw_system/xuantong-config.git</url>
+        <connection>scm:git:https://gitee.com/wjw_system/xuantong-config.git</connection>
+        <developerConnection>scm:git:https://gitee.com/wjw_system/xuantong-config.git</developerConnection>
+    </scm>
+
+    <properties>
+        <solon.version>3.10.4</solon.version>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
 
     <dependencies>
         <dependency>
@@ -25,8 +54,18 @@
             <version>${solon.version}</version>
         </dependency>
     </dependencies>
+
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.9.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>ossrh</publishingServerId>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -38,11 +77,48 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-deploy-plugin</artifactId>
-                <version>3.0.0-M1</version>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.2.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.0</version>
                 <configuration>
-                    <altDeploymentRepository>sonatype-nexus-releases::default::https://oss.sonatype.org/repository/releases/</altDeploymentRepository>
+                    <source>8</source>
+                    <encoding>UTF-8</encoding>
+                    <doclint>none</doclint>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
