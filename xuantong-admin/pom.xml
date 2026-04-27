@@ -12,11 +12,6 @@
     <artifactId>xuantong-admin</artifactId>
 
     <dependencies>
-        <dependency>
-            <groupId>cloud.xuantong</groupId>
-            <artifactId>xuantong-core</artifactId>
-            <version>1.0.0</version>
-        </dependency>
         <!-- Knife4j OpenAPI -->
         <dependency>
             <groupId>org.noear</groupId>

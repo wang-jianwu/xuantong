@@ -18,7 +18,6 @@
     <modules>
         <module>xuantong-admin</module>
         <module>xuantong-core</module>
-        <module>xuantong-client</module>
     </modules>
 
     <properties>
