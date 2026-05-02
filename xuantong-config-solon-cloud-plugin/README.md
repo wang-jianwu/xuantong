@@ -67,4 +67,4 @@ public class TestConfigHandler implements CloudConfigHandler {
 
 ### 5、演示项目
 
-* [https://gitee.com/wjw_system/xuantong-config/tree/main/solon-cloud-demo](https://gitee.com/wjw_system/xuantong-config/tree/main/solon-cloud-demo)
+* [https://gitee.com/wjw_system/xuantong-config/tree/master/solon-cloud-demo](https://gitee.com/wjw_system/xuantong-config/tree/main/solon-cloud-demo)
