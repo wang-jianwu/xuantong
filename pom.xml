@@ -12,7 +12,7 @@
     <parent>
         <groupId>org.noear</groupId>
         <artifactId>solon-parent</artifactId>
-        <version>3.10.4</version>
+        <version>4.0.0</version>
     </parent>
 
     <modules>
@@ -27,6 +27,7 @@
         <protobuf.version>4.28.2</protobuf.version>
         <socketd.version>2.5.20</socketd.version>
         <hutool.version>5.8.32</hutool.version>
+        <logback.version>1.5.34</logback.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <java.version>25</java.version>
     </properties>
@@ -95,7 +96,18 @@
             <dependency>
                 <groupId>org.noear</groupId>
                 <artifactId>solon-logging-logback</artifactId>
+                <exclusions>
+                    <exclusion>
+                        <groupId>ch.qos.logback</groupId>
+                        <artifactId>logback-classic</artifactId>
+                    </exclusion>
+                </exclusions>
                 <version>${solon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>${logback.version}</version>
             </dependency>
             <!--HikariCP-->
             <dependency>

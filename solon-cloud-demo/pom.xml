@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.noear</groupId>
         <artifactId>solon-parent</artifactId>
-        <version>3.10.4</version>
+        <version>4.0.0</version>
         <relativePath />
     </parent>
 
@@ -32,16 +32,27 @@
         <dependency>
             <groupId>org.noear</groupId>
             <artifactId>solon-logging-logback</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-classic</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.5.34</version>
         </dependency>
         <dependency>
             <groupId>cloud.xuantong</groupId>
             <artifactId>xuantong-config-solon-plugin</artifactId>
-            <version>1.0.0</version>
+            <version>1.1.0</version>
         </dependency>
         <dependency>
             <groupId>cloud.xuantong</groupId>
             <artifactId>xuantong-client</artifactId>
-            <version>1.0.0</version>
+            <version>1.1.0</version>
         </dependency>
 <!--        <dependency>-->
 <!--            <groupId>org.noear</groupId>-->

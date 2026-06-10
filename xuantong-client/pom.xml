@@ -7,7 +7,7 @@
 
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-client</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <packaging>jar</packaging>
 
     <name>Xuantong Config Client</name>
@@ -38,6 +38,9 @@
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
+        <snack-json.version>4.0.48</snack-json.version>
+        <socketd.version>2.5.20</socketd.version>
+        <logback.version>1.5.34</logback.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -45,18 +48,18 @@
         <dependency>
             <groupId>org.noear</groupId>
             <artifactId>snack4-jsonpath</artifactId>
-            <version>4.0.11</version>
+            <version>${snack-json.version}</version>
         </dependency>
         <!-- Socket.D 实时通信 -->
         <dependency>
             <groupId>org.noear</groupId>
             <artifactId>socketd-transport-java-websocket</artifactId>
-            <version>2.5.20</version>
+            <version>${socketd.version}</version>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <version>1.5.21</version>
+            <version>${logback.version}</version>
         </dependency>
     </dependencies>
 

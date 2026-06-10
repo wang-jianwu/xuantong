@@ -7,7 +7,7 @@
 
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-plugin</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <packaging>jar</packaging>
 
     <name>xuantong-config-solon-plugin</name>
@@ -36,9 +36,10 @@
     </scm>
 
     <properties>
-        <solon.version>3.10.4</solon.version>
+        <solon.version>4.0.0</solon.version>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
+        <xuantong.version>1.1.0</xuantong.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -51,7 +52,7 @@
         <dependency>
             <groupId>cloud.xuantong</groupId>
             <artifactId>xuantong-client</artifactId>
-            <version>1.0.0</version>
+            <version>${xuantong.version}</version>
         </dependency>
     </dependencies>
 
