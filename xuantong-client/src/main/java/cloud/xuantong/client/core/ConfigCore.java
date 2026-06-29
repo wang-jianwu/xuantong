@@ -23,6 +23,7 @@ public class ConfigCore implements AutoCloseable {
     private final List<String> serverAddress;
     private final List<String> subscribedApps;  // 订阅的应用列表
     private final String env;
+    private final String secretKey;
     private final ConfigTransport transport;
     private final ConfigCacheManager cacheManager;
     private final ConfigListenerManager listenerManager;
@@ -32,10 +33,11 @@ public class ConfigCore implements AutoCloseable {
     /**
      * 构造函数 - 支持多应用订阅
      */
-    public ConfigCore(List<String> serverAddress, List<String> subscribedApps, String env, ConfigTransport transport) {
+    public ConfigCore(List<String> serverAddress, List<String> subscribedApps, String env, String secretKey, ConfigTransport transport) {
         this.serverAddress = serverAddress;
         this.subscribedApps = subscribedApps != null ? subscribedApps : Collections.emptyList();
         this.env = env;
+        this.secretKey = secretKey != null ? secretKey : "";
         this.cacheManager = new ConfigCacheManager(env);
         this.listenerManager = new ConfigListenerManager();
         this.transport = transport;
@@ -55,7 +57,7 @@ public class ConfigCore implements AutoCloseable {
             logger.info("Initializing ConfigCore for{} with subscribed apps: {}", env, subscribedApps);
 
             // 注册配置变更监听器到传输层（监听主应用）
-            transport.connect(serverAddress, subscribedApps, env, configData -> {
+            transport.connect(serverAddress, subscribedApps, env, secretKey, configData -> {
                 logger.info("监听到配置变更 {}/{}/{}", subscribedApps, env, configData);
                 // 处理配置变更通知
                 Map<String, String> newConfigs = serializer.deserializeMap(configData);

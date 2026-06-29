@@ -32,6 +32,9 @@ public class ConfigBrokerListener extends BrokerListener {
     @Inject
     private ConfigService configService;
 
+    @Inject("${config.broker.secretKey:}")
+    private String secretKey;
+
     // ===== 连接追踪 =====
 
     /** 活跃会话: sessionId → PlayerInfo */
@@ -65,6 +68,17 @@ public class ConfigBrokerListener extends BrokerListener {
     @Override
     public void onOpen(Session session) throws IOException {
         super.onOpen(session);
+
+        // token 鉴权（如果配置了 secretKey）
+        if (secretKey != null && !secretKey.isEmpty()) {
+            String token = session.param("token");
+            if (!secretKey.equals(token)) {
+                log.warn("Player auth failed: name={}, token={}, ip={}",
+                        session.name(), token, getClientIp(session));
+                session.close();
+                return;
+            }
+        }
 
         PlayerInfo info = new PlayerInfo();
         info.setSessionId(session.sessionId());
@@ -106,6 +120,11 @@ public class ConfigBrokerListener extends BrokerListener {
         }
 
         switch (event) {
+            case "/config-change-ack":
+                log.debug("Config change ack received from player {}: {}",
+                        requester != null ? requester.sessionId() : "null",
+                        message.dataAsString());
+                return;
             case "/batch_all":
                 handleBatchAll(requester, message);
                 return;

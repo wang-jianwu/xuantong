@@ -17,8 +17,9 @@ public interface ConfigTransport {
 
     /**
      * 连接到配置服务器并注册变更监听器
+     * @param secretKey Broker 鉴权密钥，为空则不校验
      */
-    void connect(List<String> serverAddress, List<String> appNames, String env, ConfigChangeListener listener);
+    void connect(List<String> serverAddress, List<String> appNames, String env, String secretKey, ConfigChangeListener listener);
 
     /**
      * 获取配置变更

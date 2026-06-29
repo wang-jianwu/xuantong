@@ -19,13 +19,20 @@ public final class XuantongConfig {
      * 初始化配置客户端（静态方式）- 支持多应用订阅
      */
     public static synchronized void init(List<String> serverAddrs, List<String> subscribedApps, String env) {
+        init(serverAddrs, subscribedApps, env, "");
+    }
+
+    /**
+     * 初始化配置客户端（静态方式）- 支持多应用订阅 + Broker 鉴权
+     */
+    public static synchronized void init(List<String> serverAddrs, List<String> subscribedApps, String env, String secretKey) {
         if (initialized) {
             throw new XuantongException("XuantongConfig already initialized. Use close() before reinitializing.");
         }
         if (defaultClient != null) {
             throw new XuantongException("XuantongConfig singleton instance already exists");
         }
-        defaultClient = new XuantongClient(serverAddrs, subscribedApps, env);
+        defaultClient = new XuantongClient(serverAddrs, subscribedApps, env, secretKey);
         initialized = true;
     }
 

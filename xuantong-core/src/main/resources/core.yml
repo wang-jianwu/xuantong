@@ -1,27 +1,29 @@
 config:
   maxSessions: 1000
+  broker:
+    # Broker 鉴权密钥（不配置则不校验，开发环境可不配）
+    secretKey: ${BROKER_SECRET_KEY:}
   center:
     cluster:
       # 集群节点地址（复用 HTTP 端口，Broker 端点路径为 /config）
-      # ClusterSyncPlayer 会自动添加 @=config-node-{nodeId} 参数
       nodes:
         #- sd:ws://127.0.0.1:8088/config
 # 数据源配置
 xuantong:
   class: "com.zaxxer.hikari.HikariDataSource"
-  jdbcUrl: jdbc:mysql://127.0.0.1:3306/nimbus_config?useCursorFetch=true&rewriteBatchedStatements=true&useSSL=false&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useServerPrepStmts=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
+  jdbcUrl: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/nimbus_config?useCursorFetch=true&rewriteBatchedStatements=true&useSSL=false&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useServerPrepStmts=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
   driverClassName: com.mysql.cj.jdbc.Driver
-  username: xxx
-  password: xxx
+  username: ${DB_USER:root}
+  password: ${DB_PASSWORD:}
   #缓存
 cache:
   base:
     driverType: "redis"
     defSeconds: 3600  # 延长缓存时间到1小时
     maxWaitMillis: 5000
-    server: "127.0.0.1:6379"
+    server: "${REDIS_HOST:127.0.0.1}:${REDIS_PORT:6379}"
     db: 0
-    password: "xxx"
+    password: "${REDIS_PASSWORD:}"
     maxTotal: 10
     maxIdle: 20
     minIdle: 5

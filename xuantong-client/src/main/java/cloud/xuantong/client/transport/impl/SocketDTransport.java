@@ -49,14 +49,19 @@ public class SocketDTransport implements ConfigTransport {
     private Thread reconnectThread;
 
     @Override
-    public void connect(List<String> serverAddress, List<String> appNames, String env, ConfigChangeListener listener) {
+    public void connect(List<String> serverAddress, List<String> appNames, String env, String secretKey, ConfigChangeListener listener) {
         this.configChangeListener = listener;
         // Player 名用环境名，Broker 按环境组播推送
         this.playerName = env;
 
         // 构建所有 Broker 的连接 URL
-        // 格式: sd:ws://host:port?@=env&apps=app1,app2
+        // 格式: sd:ws://host:port?@=env&apps=app1,app2&token=xxx
         String appsParam = String.join(",", appNames);
+        StringBuilder params = new StringBuilder("@=").append(playerName).append("&apps=").append(appsParam);
+        if (secretKey != null && !secretKey.isEmpty()) {
+            params.append("&token=").append(secretKey);
+        }
+
         this.brokerUrls = new ArrayList<>();
         for (String address : serverAddress) {
             if (!address.startsWith("sd:")) {
@@ -66,7 +71,7 @@ public class SocketDTransport implements ConfigTransport {
                 address = address + "/config";
             }
             String separator = address.contains("?") ? "&" : "?";
-            this.brokerUrls.add(address + separator + "@=" + playerName + "&apps=" + appsParam);
+            this.brokerUrls.add(address + separator + params);
         }
 
         // 尝试连接到任一可用 Broker
@@ -120,6 +125,10 @@ public class SocketDTransport implements ConfigTransport {
                                         String message = m.dataAsString();
                                         logger.debug("Received config change: {}", message);
                                         configChangeListener.onChanged(message);
+                                        // 发送确认回执
+                                        try {
+                                            s.send("/config-change-ack", new StringEntity(message));
+                                        } catch (Exception ignored) {}
                                     } catch (Exception e) {
                                         logger.error("Failed to process config change", e);
                                     }

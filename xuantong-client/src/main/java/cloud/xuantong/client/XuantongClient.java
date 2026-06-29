@@ -19,7 +19,14 @@ public class XuantongClient implements AutoCloseable {
      * 构造函数 - 支持多应用订阅
      */
     public XuantongClient(List<String> serverAddress, List<String> subscribedApps, String env) {
-        this.configCore = new ConfigCore(serverAddress, subscribedApps, env, new SocketDTransport());
+        this(serverAddress, subscribedApps, env, "");
+    }
+
+    /**
+     * 构造函数 - 支持多应用订阅 + Broker 鉴权
+     */
+    public XuantongClient(List<String> serverAddress, List<String> subscribedApps, String env, String secretKey) {
+        this.configCore = new ConfigCore(serverAddress, subscribedApps, env, secretKey, new SocketDTransport());
         registerAsDefault();
     }
 
