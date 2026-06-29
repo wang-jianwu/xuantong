@@ -2,10 +2,10 @@ config:
   maxSessions: 1000
   center:
     cluster:
-      # 集群节点地址（Broker 端点路径为 /config）
+      # 集群节点地址（复用 HTTP 端口，Broker 端点路径为 /config）
       # ClusterSyncPlayer 会自动添加 @=config-node-{nodeId} 参数
       nodes:
-        - sd:ws://127.0.0.1:8088/xuantong-admin/config
+        #- sd:ws://127.0.0.1:8088/config
 # 数据源配置
 xuantong:
   class: "com.zaxxer.hikari.HikariDataSource"

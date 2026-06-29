@@ -8,6 +8,7 @@ import org.noear.solon.annotation.Mapping;
 import org.noear.solon.core.handle.Context;
 import org.noear.solon.core.handle.ModelAndView;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -107,25 +108,60 @@ public class HomeController {
         return mv;
     }
 
+    @Mapping("/broker")
+    public ModelAndView broker(Context context) {
+        if (!isLoggedIn(context)) {
+            context.redirect("/login");
+            return null;
+        }
+        ModelAndView mv = new ModelAndView("broker.shtm");
+        mv.put("user", context.session("user"));
+        mv.put("pageTitle", "Broker 监控 - Nimbus Config");
+        return mv;
+    }
+
     /**
      * 健康检查接口（无需登录）
-     * 返回 Broker 状态、集群连接数、Player 数量
      */
     @Mapping("/health")
     public Map<String, Object> health() {
         Map<String, Object> status = new HashMap<>();
-
-        // Broker 状态
         status.put("broker", "UP");
-        status.put("playerCount", brokerListener.getNameAll().size());
-
-        // 集群连接状态
-        if (clusterSyncPlayer != null) {
-            status.put("clusterConnections", clusterSyncPlayer.getActiveConnectionCount());
-        } else {
-            status.put("clusterConnections", 0);
-        }
-
+        status.put("playerCount", brokerListener.getActivePlayerCount());
+        status.put("clusterConnections", clusterSyncPlayer != null ? clusterSyncPlayer.getActiveConnectionCount() : 0);
         return status;
+    }
+
+    /**
+     * 获取连接的客户端列表（需要登录）
+     */
+    @Mapping("/api/broker/players")
+    public Object getPlayers(Context context) {
+        if (!isLoggedIn(context)) return Collections.singletonMap("error", "unauthorized");
+        return brokerListener.getActivePlayers();
+    }
+
+    /**
+     * 获取推送日志（需要登录）
+     */
+    @Mapping("/api/broker/push-logs")
+    public Object getPushLogs(Context context) {
+        if (!isLoggedIn(context)) return Collections.singletonMap("error", "unauthorized");
+        return brokerListener.getPushLogs();
+    }
+
+    /**
+     * Broker 总览（需要登录）
+     */
+    @Mapping("/api/broker/overview")
+    public Object getBrokerOverview(Context context) {
+        if (!isLoggedIn(context)) return Collections.singletonMap("error", "unauthorized");
+
+        Map<String, Object> overview = new HashMap<>();
+        overview.put("activePlayers", brokerListener.getActivePlayers());
+        overview.put("playerCount", brokerListener.getActivePlayerCount());
+        overview.put("recentPushLogs", brokerListener.getPushLogs());
+        overview.put("clusterConnections", clusterSyncPlayer != null ? clusterSyncPlayer.getActiveConnectionCount() : 0);
+        return overview;
     }
 }

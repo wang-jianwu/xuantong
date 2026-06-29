@@ -1,0 +1,216 @@
+#set(activeMenu = "broker")
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>#(pageTitle)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="/lib/bootstrap/5.3.0/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/lib/fontawesome/6.4.0/all.min.css">
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --sidebar-width: 250px;
+        }
+        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: linear-gradient(180deg, #2c3e50 0%, #3498db 100%); color: white; position: fixed; height: 100vh; left: 0; top: 0; z-index: 1000; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
+        .sidebar-header { padding: 20px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .logo { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+        .nav-menu { padding: 20px 0; }
+        .nav-item { padding: 12px 20px; color: white; text-decoration: none; display: flex; align-items: center; gap: 12px; transition: all 0.3s; border-left: 3px solid transparent; }
+        .nav-item:hover, .nav-item.active { background: rgba(255,255,255,0.1); border-left-color: var(--primary-color); }
+        .main-content { flex: 1; margin-left: var(--sidebar-width); min-height: 100vh; }
+        .header { height: 60px; background: white; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; justify-content: space-between; padding: 0 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .content { padding: 30px; }
+        .card { background: white; border-radius: 10px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        .stat-value { font-size: 36px; font-weight: bold; color: var(--primary-color); }
+        .badge-online { background: #d4edda; color: #155724; }
+        .badge-offline { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">玄同配置中心</div>
+            </div>
+            #include("_menu.shtm")
+        </aside>
+        <div class="main-content">
+            <header class="header">
+                <h1 style="font-size: 1.5rem; font-weight: 600; margin: 0;">Broker 监控</h1>
+                <div>
+                    <span id="user-name" style="margin-right: 15px;">#(user.realName)</span>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="logout()">
+                        <i class="fas fa-sign-out-alt"></i> 退出
+                    </button>
+                </div>
+            </header>
+            <div class="content">
+                <!-- 统计卡片 -->
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="card text-center">
+                            <div class="stat-value" id="player-count">0</div>
+                            <div class="text-muted">连接的客户端</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card text-center">
+                            <div class="stat-value" id="cluster-count">0</div>
+                            <div class="text-muted">集群连接数</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card text-center">
+                            <div class="stat-value" id="push-count">0</div>
+                            <div class="text-muted">推送日志数</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card text-center">
+                            <div class="stat-value text-success" id="broker-status">UP</div>
+                            <div class="text-muted">Broker 状态</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 连接的客户端列表 -->
+                <div class="card mt-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0"><i class="fas fa-desktop"></i> 连接的客户端</h5>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadData()">
+                            <i class="fas fa-sync"></i> 刷新
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Player 名称</th>
+                                    <th>Session ID</th>
+                                    <th>客户端 IP</th>
+                                    <th>订阅的项目</th>
+                                    <th>连接时间</th>
+                                    <th>最后请求</th>
+                                    <th>状态</th>
+                                </tr>
+                            </thead>
+                            <tbody id="players-body">
+                                <tr><td colspan="7" class="text-center text-muted">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 推送日志 -->
+                <div class="card mt-4">
+                    <h5><i class="fas fa-paper-plane"></i> 推送日志（最近 100 条）</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>项目</th>
+                                    <th>环境</th>
+                                    <th>变更 Key</th>
+                                    <th>目标客户端数</th>
+                                </tr>
+                            </thead>
+                            <tbody id="push-logs-body">
+                                <tr><td colspan="5" class="text-center text-muted">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/lib/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script>
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+            // 每 10 秒自动刷新
+            setInterval(loadData, 10000);
+        });
+
+        async function loadData() {
+            try {
+                const response = await fetch('/api/broker/overview');
+                const data = await response.json();
+
+                // 更新统计
+                document.getElementById('player-count').textContent = data.playerCount || 0;
+                document.getElementById('cluster-count').textContent = data.clusterConnections || 0;
+                document.getElementById('push-count').textContent = (data.recentPushLogs || []).length;
+
+                // 渲染客户端列表
+                renderPlayers(data.activePlayers || []);
+
+                // 渲染推送日志
+                renderPushLogs(data.recentPushLogs || []);
+
+            } catch (error) {
+                console.error('加载 Broker 数据失败:', error);
+            }
+        }
+
+        function renderPlayers(players) {
+            const tbody = document.getElementById('players-body');
+            if (players.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">暂无连接的客户端</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = players.map(p => `
+                <tr>
+                    <td><strong>${escapeHtml(p.playerName)}</strong></td>
+                    <td><code>${escapeHtml(p.sessionId ? p.sessionId.substring(0, 12) : '')}...</code></td>
+                    <td>${escapeHtml(p.clientIp)}</td>
+                    <td>${(p.subscribedApps || []).map(app => `<span class="badge bg-info me-1">${escapeHtml(app)}</span>`).join('') || '-'}</td>
+                    <td>${formatTime(p.connectedTime)}</td>
+                    <td>${formatTime(p.lastRequestTime)}</td>
+                    <td><span class="badge badge-online">在线</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function renderPushLogs(logs) {
+            const tbody = document.getElementById('push-logs-body');
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">暂无推送日志</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = logs.map(log => `
+                <tr>
+                    <td>${formatTime(log.timestamp)}</td>
+                    <td><span class="badge bg-primary">${escapeHtml(log.project)}</span></td>
+                    <td><span class="badge bg-secondary">${escapeHtml(log.env)}</span></td>
+                    <td>${escapeHtml(log.changeKey || '-')}</td>
+                    <td>${log.targetPlayerCount}</td>
+                </tr>
+            `).join('');
+        }
+
+        function formatTime(ts) {
+            if (!ts) return '-';
+            return new Date(ts).toLocaleString('zh-CN');
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function logout() {
+            if (confirm('确定退出？')) {
+                await fetch('/api/auth/logout');
+                window.location.href = '/login';
+            }
+        }
+    </script>
+</body>
+</html>

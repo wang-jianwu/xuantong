@@ -51,9 +51,12 @@ public class SocketDTransport implements ConfigTransport {
     @Override
     public void connect(List<String> serverAddress, List<String> appNames, String env, ConfigChangeListener listener) {
         this.configChangeListener = listener;
-        this.playerName = String.join("_", appNames) + ":" + env;
+        // Player 名用环境名，Broker 按环境组播推送
+        this.playerName = env;
 
         // 构建所有 Broker 的连接 URL
+        // 格式: sd:ws://host:port?@=env&apps=app1,app2
+        String appsParam = String.join(",", appNames);
         this.brokerUrls = new ArrayList<>();
         for (String address : serverAddress) {
             if (!address.startsWith("sd:")) {
@@ -63,7 +66,7 @@ public class SocketDTransport implements ConfigTransport {
                 address = address + "/config";
             }
             String separator = address.contains("?") ? "&" : "?";
-            this.brokerUrls.add(address + separator + "@=" + playerName);
+            this.brokerUrls.add(address + separator + "@=" + playerName + "&apps=" + appsParam);
         }
 
         // 尝试连接到任一可用 Broker

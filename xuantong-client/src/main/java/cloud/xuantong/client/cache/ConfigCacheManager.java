@@ -258,6 +258,9 @@ public class ConfigCacheManager {
         appConfigs.forEach((appName, appConfig) -> {
             Path cacheFile = getCachePath(appName);
             try {
+                // 确保缓存目录存在
+                Files.createDirectories(cacheDir);
+
                 // 直接使用传入的配置，不合并现有配置（避免旧配置污染）
                 List<String> lines = new ArrayList<>(appConfig.size());
                 for (Map.Entry<String, String> entry : appConfig.entrySet()) {

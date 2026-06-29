@@ -1,5 +1,5 @@
 xuantong:
   config:
-    server-addresses: ["127.0.0.1:8088", "127.0.0.1:8089"]
+    server-addresses: ["127.0.0.1:8088"]
     app-name: ["demo", "social", "advert"]
     environment: "dev"
