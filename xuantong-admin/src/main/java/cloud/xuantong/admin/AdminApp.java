@@ -4,7 +4,7 @@ import org.noear.solon.Solon;
 import org.noear.solon.annotation.Import;
 import org.noear.solon.annotation.SolonMain;
 
-@Import(scanPackages = {"com.xuantong.core", "com.xuantong.admin"}, profilesIfAbsent = {"classpath:core.yml"})
+@Import(scanPackages = {"cloud.xuantong.core", "cloud.xuantong.admin"}, profilesIfAbsent = {"classpath:core.yml"})
 @SolonMain
 public class AdminApp {
     public static void main(String[] args) {
