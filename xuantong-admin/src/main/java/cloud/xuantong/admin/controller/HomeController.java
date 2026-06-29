@@ -1,12 +1,24 @@
 package cloud.xuantong.admin.controller;
 
+import cloud.xuantong.core.cluster.ClusterSyncPlayer;
+import cloud.xuantong.core.listener.ConfigBrokerListener;
 import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Mapping;
 import org.noear.solon.core.handle.Context;
 import org.noear.solon.core.handle.ModelAndView;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @Controller
 public class HomeController {
+
+    @Inject
+    private ConfigBrokerListener brokerListener;
+
+    @Inject(required = false)
+    private ClusterSyncPlayer clusterSyncPlayer;
 
     private boolean isLoggedIn(Context context) {
         return context.session("user") != null;
@@ -93,5 +105,27 @@ public class HomeController {
         mv.put("user", context.session("user"));
         mv.put("pageTitle", "用户管理 - Nimbus Config");
         return mv;
+    }
+
+    /**
+     * 健康检查接口（无需登录）
+     * 返回 Broker 状态、集群连接数、Player 数量
+     */
+    @Mapping("/health")
+    public Map<String, Object> health() {
+        Map<String, Object> status = new HashMap<>();
+
+        // Broker 状态
+        status.put("broker", "UP");
+        status.put("playerCount", brokerListener.getNameAll().size());
+
+        // 集群连接状态
+        if (clusterSyncPlayer != null) {
+            status.put("clusterConnections", clusterSyncPlayer.getActiveConnectionCount());
+        } else {
+            status.put("clusterConnections", 0);
+        }
+
+        return status;
     }
 }

@@ -29,7 +29,8 @@
 solon:
   cloud:
     xuantong-config:
-      server: config-center:8080,config-center:8081
+      # Broker 地址（支持多地址，自动 failover，逗号分隔）
+      server: node1:8088/xuantong-admin,node2:8088/xuantong-admin
       namespace: dev:app1,appName2,appName3
       config:
         enable: true

@@ -28,10 +28,11 @@
 # app.yml
 xuantong:
   config:
-    serverAddresses: 
-      - config-center:8080
-      - config-center:8081
-    appNames: 
+    # Broker 地址（支持多地址，自动 failover）
+    serverAddresses:
+      - node1:8088/xuantong-admin
+      - node2:8088/xuantong-admin
+    appNames:
       - your-app-name
     environment: dev
 ```  

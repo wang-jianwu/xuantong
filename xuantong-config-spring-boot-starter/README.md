@@ -30,7 +30,8 @@
 ```yaml
 xuantong:
   config:
-    server-addresses: ["config-server:8080"] # 配置中心地址
+    # Broker 地址（支持多地址，自动 failover）
+    server-addresses: ["node1:8088/xuantong-admin", "node2:8088/xuantong-admin"]
     app-name: ["your-application-name"]       # 应用名称
     environment: "prod"                      # 环境标识
 ```
@@ -79,7 +80,8 @@ public class DatabaseService {
    ```yaml
    xuantong:
      config:
-       server-addresses: ["localhost:8080", "config-center:8081"]
+       # Broker 地址（单地址即可，集群内部自动同步）
+       server-addresses: ["config-center:8088/xuantong-admin"]
        app-name: ["your-app-name", "another-app"]
        environment: "dev"
    ```
