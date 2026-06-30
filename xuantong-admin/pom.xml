@@ -24,10 +24,6 @@
         </dependency>
         <dependency>
             <groupId>org.noear</groupId>
-            <artifactId>solon-sessionstate-jwt</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.noear</groupId>
             <artifactId>solon-view-enjoy</artifactId>
         </dependency>
     </dependencies>

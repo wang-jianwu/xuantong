@@ -1,6 +1,6 @@
 # 玄同 分布式配置中心
 
-![玄同logo](/static/assets/favicon.svg)
+![玄同logo](/resource/static/assets/favicon.svg)
 
 ## 🏷️ 产品介绍
 

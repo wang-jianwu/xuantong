@@ -11,5 +11,7 @@ public interface EnvironmentRepository {
     List<Environment> findAll();
     Environment findByCode(String code);
     long save(Environment env);
+    long update(Environment env);
     long setDefault(String code);
+    long delete(String code);
 }

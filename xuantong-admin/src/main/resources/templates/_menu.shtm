@@ -15,6 +15,7 @@
         <i class="fas fa-server"></i>
         <span>环境管理</span>
     </a>
+    #if(user?? && user.role == 'admin')
     <a href="/user" class="nav-item #if(activeMenu?? && activeMenu == 'user')active#end">
         <i class="fas fa-users"></i>
         <span>用户管理</span>
@@ -23,4 +24,5 @@
         <i class="fas fa-network-wired"></i>
         <span>Broker 监控</span>
     </a>
+    #end
 </nav>

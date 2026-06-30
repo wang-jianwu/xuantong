@@ -3,9 +3,13 @@ package cloud.xuantong.admin.controller;
 import cloud.xuantong.core.model.User;
 import cloud.xuantong.core.service.UserService;
 import org.noear.solon.annotation.*;
+import org.noear.solon.core.handle.Context;
 import org.noear.solon.core.handle.Result;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Controller
 @Mapping("/api/user")
@@ -13,25 +17,47 @@ public class UserController {
     @Inject
     private UserService userService;
 
+    /**
+     * 将 User 实体转为不含密码字段的 Map，防止密码哈希泄露
+     */
+    private Map<String, Object> toUserMap(User user) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", user.getId());
+        map.put("username", user.getUsername());
+        map.put("email", user.getEmail());
+        map.put("realName", user.getRealName());
+        map.put("role", user.getRole());
+        map.put("isActive", user.getIsActive());
+        map.put("createdAt", user.getCreatedAt());
+        map.put("lastLoginTime", user.getLastLoginTime());
+        return map;
+    }
+
     @Get
     @Mapping
-    public Result<List<User>> getAllUsers() {
+    public Result<List<Map<String, Object>>> getAllUsers() {
         List<User> users = userService.getAllUsers();
-        return Result.succeed(users);
+        List<Map<String, Object>> result = users.stream()
+                .map(this::toUserMap)
+                .collect(Collectors.toList());
+        return Result.succeed(result);
     }
 
     @Get
     @Mapping("/{id}")
-    public Result<User> getUserById(
-            @Path Long id) {
+    public Result<Map<String, Object>> getUserById(@Path Long id) {
         User user = userService.getUserById(id);
-        return user != null ? Result.succeed(user) : Result.failure("用户不存在");
+        return user != null ? Result.succeed(toUserMap(user)) : Result.failure("用户不存在");
     }
 
     @Post
     @Mapping
-    public Result<String> createUser(
-            @Body User user) {
+    public Result<String> createUser(@Body User user, Context ctx) {
+        // 非 admin 不允许创建用户
+        User currentUser = ctx.session("user", User.class);
+        if (currentUser == null || !"admin".equals(currentUser.getRole())) {
+            return Result.failure("权限不足");
+        }
         try {
             boolean success = userService.createUser(user);
             return success ? Result.succeed("创建成功") : Result.failure("创建失败");
@@ -42,8 +68,16 @@ public class UserController {
 
     @Put
     @Mapping
-    public Result<String> updateUser(
-            @Body User user) {
+    public Result<String> updateUser(@Body User user, Context ctx) {
+        // 非 admin 不允许修改他人信息，也不允许修改角色
+        User currentUser = ctx.session("user", User.class);
+        if (currentUser != null && !"admin".equals(currentUser.getRole())) {
+            // 普通用户只能修改自己的信息，且不能修改角色
+            if (!currentUser.getId().equals(user.getId())) {
+                return Result.failure("只能修改自己的信息");
+            }
+            user.setRole(currentUser.getRole()); // 强制保持原角色
+        }
         boolean success = userService.updateUser(user);
         return success ? Result.succeed("更新成功") : Result.failure("更新失败");
     }

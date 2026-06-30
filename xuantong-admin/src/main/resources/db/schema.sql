@@ -1,7 +1,7 @@
--- Nimbus Config 数据库初始化脚本
-CREATE DATABASE IF NOT EXISTS nimbus_config DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Xuantong Config 数据库初始化脚本
+CREATE DATABASE IF NOT EXISTS xuantong_config DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-USE nimbus_config;
+USE xuantong_config;
 
 -- 环境表
 CREATE TABLE IF NOT EXISTS environment (
@@ -75,8 +75,10 @@ INSERT IGNORE INTO environment (code, name, description, `order`, is_default) VA
 ('test', '测试环境', '测试环境', 2, FALSE),
 ('prod', '生产环境', '生产环境', 3, FALSE);
 
+-- 默认管理员账号: admin / admin123（首次登录会自动从MD5升级为BCrypt）
+-- 生产环境请立即修改默认密码！
 INSERT IGNORE INTO user (username, password, email, real_name, role, is_active) VALUES
-('admin', MD5('admin123'), 'admin@nimbus.com', '系统管理员', 'admin', TRUE);
+('admin', MD5('admin123'), 'admin@xuantong.com', '系统管理员', 'admin', TRUE);
 
 INSERT IGNORE INTO project (code, name, description, owner, is_active, created_by) VALUES
 ('demo', '演示项目', '演示项目', 'admin', TRUE, 'admin');

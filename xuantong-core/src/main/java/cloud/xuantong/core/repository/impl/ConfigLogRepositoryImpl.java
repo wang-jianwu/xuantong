@@ -64,6 +64,7 @@ public class ConfigLogRepositoryImpl implements ConfigLogRepository {
                     config.environment().eq(environment);
                     log.operateTime().ge(since);
                 })
+                .orderBy(c -> c.operateTime().desc())
                 .select((c1, c2) ->
                         new MapProxy()
                                 .put("key", c2.key())

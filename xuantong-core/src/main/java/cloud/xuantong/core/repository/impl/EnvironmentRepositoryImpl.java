@@ -36,6 +36,11 @@ public class EnvironmentRepositoryImpl implements EnvironmentRepository {
     }
 
     @Override
+    public long update(Environment env) {
+        return easyQuery.updatable(env).executeRows();
+    }
+
+    @Override
     public long setDefault(String code) {
         // 先取消所有默认设置
         easyQuery.updatable(Environment.class)
@@ -46,6 +51,14 @@ public class EnvironmentRepositoryImpl implements EnvironmentRepository {
         // 设置新的默认环境
         return easyQuery.updatable(Environment.class)
                 .setColumns(e -> e.isDefault().set(true))
+                .where(o -> o.code().eq(code))
+                .executeRows();
+    }
+
+    @Override
+    public long delete(String code) {
+        return easyQuery.deletable(Environment.class)
+                .allowDeleteStatement(true)
                 .where(o -> o.code().eq(code))
                 .executeRows();
     }

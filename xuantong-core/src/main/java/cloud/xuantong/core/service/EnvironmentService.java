@@ -4,6 +4,7 @@ import cloud.xuantong.core.model.Environment;
 import cloud.xuantong.core.repository.EnvironmentRepository;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
+import org.noear.solon.data.annotation.Transaction;
 
 import java.util.List;
 
@@ -24,7 +25,16 @@ public class EnvironmentService {
         return environmentRepository.save(env) > 0;
     }
 
+    public boolean updateEnvironment(Environment env) {
+        return environmentRepository.update(env) > 0;
+    }
+
+    @Transaction
     public boolean setDefaultEnvironment(String code) {
         return environmentRepository.setDefault(code) > 0;
+    }
+
+    public boolean deleteEnvironment(String code) {
+        return environmentRepository.delete(code) > 0;
     }
 }

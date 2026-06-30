@@ -35,9 +35,11 @@ public class ConfigRepositoryImpl implements ConfigRepository {
                 .where(o -> {
                     o.project().eq(project);
                     o.environment().eq(environment);
-                    o.or(() -> {
-                        o.key().like(StrUtil.isNotBlank(keyWords), keyWords);
-                        o.description().like(StrUtil.isNotBlank(keyWords), keyWords);
+                    o.and(() -> {
+                        o.or(() -> {
+                            o.key().like(StrUtil.isNotBlank(keyWords), keyWords);
+                            o.description().like(StrUtil.isNotBlank(keyWords), keyWords);
+                        });
                     });
                 })
                 .orderBy(o -> o.key().asc())

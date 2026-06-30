@@ -57,20 +57,35 @@ public class ConfigService {
     @Inject
     private ConfigClusterBroadcaster clusterBroadcaster;
 
-    @Transaction
+    /**
+     * 保存配置（事务保护 DB 操作，广播在事务外）
+     */
     public boolean saveConfig(ConfigItem config) {
         ConfigItem existing = configRepository.findByKey(config.getKey(),
                 config.getEnvironment(), config.getProject());
 
+        boolean result = doSaveConfig(config, existing);
+
+        // 集群广播（事务外，不影响主流程）
+        if (result) {
+            ConfigChangeEvent event = new ConfigChangeEvent(
+                    config.getKey(), config.getValue(),
+                    config.getProject(), config.getEnvironment()
+            );
+            broadcastConfigChange(event);
+        }
+        return result;
+    }
+
+    @Transaction
+    private boolean doSaveConfig(ConfigItem config, ConfigItem existing) {
         boolean result;
         if (existing != null) {
-            // 更新配置项
             config.setId(existing.getId());
-            config.setVersion(existing.getVersion() + 1);
+            config.setVersion(existing.getVersion());
             result = configRepository.update(config) > 0;
 
             if (result) {
-                // 记录UPDATE日志
                 ConfigLog log = new ConfigLog();
                 log.setConfigId(config.getId());
                 log.setOperation("UPDATE");
@@ -78,35 +93,21 @@ public class ConfigService {
                 log.setNewValue(config.getValue());
                 log.setOperator(getCurrentUser());
                 log.setOperateTime(new Date());
-                log.setIpAddress(Context.current().realIp());
+                log.setIpAddress(getCurrentIp());
                 configLogRepository.save(log);
-
-                // 创建变更事件
-                ConfigChangeEvent event = new ConfigChangeEvent(
-                        config.getKey(), config.getValue(),
-                        config.getProject(), config.getEnvironment()
-                );
-                // 集群广播
-                try {
-                    clusterBroadcaster.broadcastConfigChange(event);
-                } catch (Exception e) {
-                    logger.error("集群广播失败，但配置已保存", e);
-                }
             }
         } else {
-            // 创建新配置项
             config.setVersion(1);
             result = configRepository.save(config) > 0;
 
             if (result) {
-                // 记录CREATE日志
                 ConfigLog log = new ConfigLog();
                 log.setConfigId(config.getId());
                 log.setOperation("CREATE");
                 log.setNewValue(config.getValue());
                 log.setOperator(getCurrentUser());
                 log.setOperateTime(new Date());
-                log.setIpAddress(Context.current().realIp());
+                log.setIpAddress(getCurrentIp());
                 configLogRepository.save(log);
             }
         }
@@ -118,15 +119,57 @@ public class ConfigService {
         return result;
     }
 
-    private String getCurrentUser() {
-        // 从安全上下文中获取当前用户
-        return Context.current().session("user", User.class).getRealName();
+    private void broadcastConfigChange(ConfigChangeEvent event) {
+        try {
+            clusterBroadcaster.broadcastConfigChange(event);
+        } catch (Exception e) {
+            logger.error("集群广播失败，但配置已保存", e);
+        }
     }
 
+    private String getCurrentUser() {
+        try {
+            Context ctx = Context.current();
+            if (ctx != null) {
+                User user = ctx.session("user", User.class);
+                if (user != null) {
+                    return user.getRealName();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "system";
+    }
+
+    private String getCurrentIp() {
+        try {
+            Context ctx = Context.current();
+            if (ctx != null) {
+                return ctx.realIp();
+            }
+        } catch (Exception ignored) {
+        }
+        return "unknown";
+    }
+
+    @Transaction
     public boolean deleteConfig(Long id) {
         ConfigItem config = configRepository.findById(id);
+        if (config == null) {
+            return false;
+        }
         boolean result = configRepository.delete(id) > 0;
-        if (result && config != null) {
+        if (result) {
+            // 记录 DELETE 操作日志
+            ConfigLog log = new ConfigLog();
+            log.setConfigId(id);
+            log.setOperation("DELETE");
+            log.setOldValue(config.getValue());
+            log.setOperator(getCurrentUser());
+            log.setOperateTime(new Date());
+            log.setIpAddress(getCurrentIp());
+            configLogRepository.save(log);
+
             String cacheKey = buildCacheKey(config.getKey(), config.getEnvironment(), config.getProject());
             cacheService.remove(cacheKey);
         }
@@ -152,14 +195,33 @@ public class ConfigService {
         return configLogRepository.findByConfigId(configId);
     }
 
-    @Transaction
+    /**
+     * 回滚到指定版本（事务保护 DB 操作，广播在事务外）
+     */
     public boolean revertToVersion(Long logId) {
         ConfigLog configLog = configLogRepository.findById(logId);
         if (configLog == null) {
             return false;
         }
 
-        // 获取当前版本号
+        boolean result = doRevertToVersion(configLog);
+
+        // 集群广播（事务外）
+        if (result) {
+            ConfigItem current = configRepository.findById(configLog.getConfigId());
+            if (current != null) {
+                ConfigChangeEvent event = new ConfigChangeEvent(
+                        current.getKey(), configLog.getNewValue(),
+                        current.getProject(), current.getEnvironment()
+                );
+                broadcastConfigChange(event);
+            }
+        }
+        return result;
+    }
+
+    @Transaction
+    private boolean doRevertToVersion(ConfigLog configLog) {
         ConfigItem current = configRepository.findById(configLog.getConfigId());
         if (current == null) {
             return false;
@@ -167,14 +229,12 @@ public class ConfigService {
 
         String newValue = configLog.getNewValue();
         String oldValue = current.getValue();
-        // 更新配置项为目标版本
         current.setValue(newValue);
         current.setVersion(current.getVersion() + 1);
         current.setUpdatedAt(new Date());
 
         boolean result = configRepository.update(current) > 0;
         if (result) {
-            // 记录REVERT日志
             ConfigLog log = new ConfigLog();
             log.setConfigId(current.getId());
             log.setOperation("REVERT");
@@ -182,26 +242,13 @@ public class ConfigService {
             log.setNewValue(newValue);
             log.setOperator(getCurrentUser());
             log.setOperateTime(new Date());
-            log.setIpAddress(Context.current().realIp());
+            log.setIpAddress(getCurrentIp());
             configLogRepository.save(log);
 
-            // 清除缓存
             String cacheKey = buildCacheKey(current.getKey(),
                     current.getEnvironment(),
                     current.getProject());
             cacheService.remove(cacheKey);
-
-            // 创建变更事件
-            ConfigChangeEvent event = new ConfigChangeEvent(
-                    current.getKey(), newValue,
-                    current.getProject(), current.getEnvironment()
-            );
-            // 集群广播
-            try {
-                clusterBroadcaster.broadcastConfigChange(event);
-            } catch (Exception e) {
-                logger.error("集群广播失败，但配置已回滚", e);
-            }
         }
         return result;
     }

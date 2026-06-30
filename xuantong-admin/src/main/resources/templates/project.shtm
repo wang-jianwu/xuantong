@@ -3,154 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <title>#(pageTitle)</title>
     <link href="/lib/bootstrap/5.3.0/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="/lib/fontawesome/6.4.0/all.min.css">
-    <style>
-        :root {
-            --primary-color: #3498db;
-            --sidebar-width: 250px;
-        }
-
-        body {
-            margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f8f9fa;
-        }
-
-        .app-container {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        .sidebar {
-            width: var(--sidebar-width);
-            background: linear-gradient(180deg, #2c3e50 0%, #3498db 100%);
-            color: white;
-            position: fixed;
-            height: 100vh;
-            left: 0;
-            top: 0;
-            z-index: 1000;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
-        }
-
-        .sidebar-header {
-            padding: 20px;
-            text-align: center;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .logo {
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-
-        .nav-menu {
-            padding: 20px 0;
-        }
-
-        .nav-item {
-            padding: 12px 20px;
-            color: white;
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            transition: all 0.3s;
-            border-left: 3px solid transparent;
-        }
-
-        .nav-item:hover, .nav-item.active {
-            background: rgba(255,255,255,0.1);
-            border-left-color: var(--primary-color);
-        }
-
-        .main-content {
-            flex: 1;
-            margin-left: var(--sidebar-width);
-            min-height: 100vh;
-        }
-
-        .header {
-            height: 60px;
-            background: white;
-            border-bottom: 1px solid #e9ecef;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 25px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-
-        .logout-btn {
-            background: var(--primary-color);
-            border: none;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-
-        .content {
-            padding: 30px;
-        }
-
-        .card {
-            background: white;
-            border-radius: 10px;
-            padding: 25px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            margin-bottom: 20px;
-        }
-
-        .btn-primary {
-            background: var(--primary-color);
-            border: none;
-        }
-
-        .btn-primary:hover {
-            background: #2980b9;
-        }
-
-        .table th {
-            background: #f8f9fa;
-        }
-
-        .badge-success {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .badge-danger {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .badge-secondary {
-            background: #e9ecef;
-            color: #495057;
-        }
-    </style>
+    <link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/css/admin.css">
 </head>
 <body>
     <div class="app-container">
-        <!-- 侧边栏 -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo">玄同配置中心</div>
+                <a href="/dashboard" class="logo-link">
+                    <div class="logo-text">玄同配置中心</div>
+                </a>
+                <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="折叠侧边栏">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
             </div>
-
             #include("_menu.shtm")
         </aside>
 
-        <!-- 主内容区域 -->
         <div class="main-content">
             <header class="header">
-                <h1 style="font-size: 1.5rem; font-weight: 600; margin: 0;">项目管理</h1>
-                <div>
-                    <span id="user-name" style="margin-right: 15px;">#if(user??)#(user.realName)#end</span>
+                <h1 class="header-title">项目管理</h1>
+                <div class="user-area">
+                    <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <span class="user-name">#if(user??)#(user.realName)#end</span>
                     <button class="logout-btn" onclick="logout()">
                         <i class="fas fa-sign-out-alt"></i> 退出
                     </button>
@@ -158,7 +38,6 @@
             </header>
 
             <div class="content">
-                <!-- 操作区域 -->
                 <div class="card">
                     <div class="row">
                         <div class="col-md-8">
@@ -177,11 +56,10 @@
                     </div>
                 </div>
 
-                <!-- 项目列表 -->
                 <div class="card">
                     <h5 class="card-title">项目列表</h5>
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-striped table-hover">
                             <thead>
                                 <tr>
                                     <th>项目代码</th>
@@ -192,7 +70,7 @@
                                 </tr>
                             </thead>
                             <tbody id="projects-body">
-                                <!-- 项目数据将通过JavaScript动态填充 -->
+                                <tr><td colspan="5"><div class="skeleton-row"><div class="skeleton-cell"></div><div class="skeleton-cell"></div><div class="skeleton-cell"></div><div class="skeleton-cell"></div><div class="skeleton-cell"></div></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -238,31 +116,24 @@
     </div>
 
     <script src="/lib/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script src="/js/common.js"></script>
     <script>
         let projects = [];
-        let currentProject = {
-            id: null,
-            code: '',
-            name: '',
-            description: '',
-            owner: '',
-            isActive: true
-        };
+        let filteredProjects = [];
+        let currentProject = { id: null, code: '', name: '', description: '', owner: '', isActive: true };
 
         const projectModal = new bootstrap.Modal(document.getElementById('projectModal'));
 
         async function loadProjects() {
             try {
-                const response = await fetch('/api/project');
-                const data = await response.json();
-
+                const data = await apiGet('/api/project');
                 if (data.code === 200) {
                     projects = data.data;
+                    filteredProjects = projects;
                     renderProjectsTable();
                 }
             } catch (error) {
-                console.error('加载项目失败:', error);
-                alert('加载项目失败');
+                showToast('加载项目失败', 'error');
             }
         }
 
@@ -270,166 +141,139 @@
             const tbody = document.getElementById('projects-body');
             tbody.innerHTML = '';
 
+            if (!projects || projects.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><i class="fas fa-folder-open"></i><p>暂无项目数据</p></div></td></tr>';
+                return;
+            }
+
             projects.forEach(project => {
                 const row = document.createElement('tr');
-
                 row.innerHTML = `
-                    <td>${project.code}</td>
-                    <td>${project.name}</td>
-                    <td>${project.owner || '-'}</td>
+                    <td><code>${escapeHtml(project.code)}</code></td>
+                    <td><strong>${escapeHtml(project.name)}</strong></td>
+                    <td>${escapeHtml(project.owner || '-')}</td>
                     <td>
                         <span class="badge ${project.isActive ? 'badge-success' : 'badge-danger'}">
                             ${project.isActive ? '激活' : '禁用'}
                         </span>
                     </td>
-        <td>
-            <button class="btn btn-sm btn-outline-${project.isActive ? 'danger' : 'success'}"
-                    onclick="toggleProjectStatus('${project.code}', ${!project.isActive})">
-                <i class="fas fa-${project.isActive ? 'ban' : 'check'}"></i> ${project.isActive ? '禁用' : '激活'}
-            </button>
-        </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editProject('${escapeHtml(project.code)}')">
+                            <i class="fas fa-edit"></i> 编辑
+                        </button>
+                        <button class="btn btn-sm btn-outline-${project.isActive ? 'danger' : 'success'}"
+                                onclick="toggleProjectStatus('${escapeHtml(project.code)}', ${!project.isActive})">
+                            <i class="fas fa-${project.isActive ? 'ban' : 'check'}"></i> ${project.isActive ? '禁用' : '激活'}
+                        </button>
+                    </td>
                 `;
-
                 tbody.appendChild(row);
             });
-
-            if (projects.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center">暂无项目数据</td></tr>';
-            }
         }
 
         function showAddModal() {
-            currentProject = {
-                id: null,
-                code: '',
-                name: '',
-                description: '',
-                owner: '',
-                isActive: true
-            };
-
+            currentProject = { id: null, code: '', name: '', description: '', owner: '', isActive: true };
             document.getElementById('modalTitle').textContent = '新增项目';
             document.getElementById('project-code').value = '';
             document.getElementById('project-name').value = '';
             document.getElementById('project-description').value = '';
             document.getElementById('project-owner').value = '';
-
+            document.getElementById('project-code').disabled = false;
             projectModal.show();
         }
 
         async function editProject(projectCode) {
             try {
-                // 获取项目的完整信息，包括ID
-                const response = await fetch(`/api/project/${projectCode}`);
-                const result = await response.json();
-
+                const result = await apiGet('/api/project/' + encodeURIComponent(projectCode));
                 if (result.code === 200 && result.data) {
                     currentProject = result.data;
-
                     document.getElementById('modalTitle').textContent = '编辑项目';
                     document.getElementById('project-code').value = currentProject.code;
                     document.getElementById('project-name').value = currentProject.name;
                     document.getElementById('project-description').value = currentProject.description || '';
                     document.getElementById('project-owner').value = currentProject.owner || '';
-
+                    document.getElementById('project-code').disabled = true;
                     projectModal.show();
                 } else {
-                    alert('获取项目信息失败');
+                    showToast('获取项目信息失败', 'error');
                 }
             } catch (error) {
-                console.error('编辑项目失败:', error);
-                alert('编辑项目失败');
+                showToast('获取项目信息失败', 'error');
             }
         }
 
         async function saveProject() {
+            const code = document.getElementById('project-code').value.trim();
+            const name = document.getElementById('project-name').value.trim();
+
+            if (!code) { showToast('项目代码不能为空', 'warning'); return; }
+            if (!name) { showToast('项目名称不能为空', 'warning'); return; }
+
+            currentProject.code = code;
+            currentProject.name = name;
+            currentProject.description = document.getElementById('project-description').value;
+            currentProject.owner = document.getElementById('project-owner').value;
+
+            const isEdit = currentProject.id !== null;
+            const method = isEdit ? 'PUT' : 'POST';
+            const url = isEdit ? '/api/project/' + encodeURIComponent(currentProject.code) : '/api/project';
+
             try {
-                currentProject.code = document.getElementById('project-code').value;
-                currentProject.name = document.getElementById('project-name').value;
-                currentProject.description = document.getElementById('project-description').value;
-                currentProject.owner = document.getElementById('project-owner').value;
-
-                const isEdit = currentProject.id !== null;
-                const method = isEdit ? 'PUT' : 'POST';
-                const url = isEdit ? `/api/project/${currentProject.code}` : '/api/project';
-
-                const response = await fetch(url, {
+                const res = await fetch(url, {
                     method: method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(currentProject)
                 });
-
-                const data = await response.json();
+                const data = await res.json();
 
                 if (data.code === 200) {
                     projectModal.hide();
                     await loadProjects();
-                    alert('保存成功');
+                    showToast('保存成功', 'success');
                 } else {
-                    alert('保存失败: ' + data.message);
+                    showToast('保存失败: ' + data.message, 'error');
                 }
             } catch (error) {
-                console.error('保存失败:', error);
-                alert('保存失败');
+                showToast('保存失败', 'error');
             }
         }
 
         async function toggleProjectStatus(projectCode, active) {
-            if (confirm(`确定要${active ? '激活' : '禁用'}这个项目吗？`)) {
-                try {
-                    const response = await fetch(`/api/project/active/${projectCode}/${active}`, {
-                        method: 'PUT'
-                    });
+            const action = active ? '激活' : '禁用';
+            const confirmed = await showConfirm('确认操作', '确定要' + action + '这个项目吗？', '确定', '取消');
+            if (!confirmed) return;
 
-                    const data = await response.json();
-                    if (data.code === 200) {
-                        await loadProjects();
-                        alert('操作成功');
-                    } else {
-                        alert('操作失败: ' + data.message);
-                    }
-                } catch (error) {
-                    console.error('操作失败:', error);
-                    alert('操作失败');
+            try {
+                const data = await apiPut('/api/project/active/' + encodeURIComponent(projectCode) + '/' + active);
+                if (data.code === 200) {
+                    await loadProjects();
+                    showToast('操作成功', 'success');
+                } else {
+                    showToast('操作失败: ' + data.message, 'error');
                 }
+            } catch (error) {
+                showToast('操作失败', 'error');
             }
         }
 
         function searchProjects() {
             const keyword = document.getElementById('search-input').value.toLowerCase();
-            const filteredProjects = projects.filter(project =>
-                project.code.toLowerCase().includes(keyword) ||
-                project.name.toLowerCase().includes(keyword) ||
-                (project.owner && project.owner.toLowerCase().includes(keyword))
-            );
-
+            if (!keyword) {
+                filteredProjects = projects;
+            } else {
+                filteredProjects = projects.filter(p =>
+                    p.code.toLowerCase().includes(keyword) ||
+                    p.name.toLowerCase().includes(keyword) ||
+                    (p.owner && p.owner.toLowerCase().includes(keyword))
+                );
+            }
+            const saved = projects;
             projects = filteredProjects;
             renderProjectsTable();
-
-            // 恢复完整列表
-            if (!keyword) {
-                loadProjects();
-            }
+            projects = saved;
         }
 
-        async function logout() {
-            if (confirm('确定要退出登录吗？')) {
-                try {
-                    await fetch('/api/auth/logout');
-                    window.location.href = '/login';
-                } catch (error) {
-                    console.error('退出失败:', error);
-                    alert('退出失败');
-                }
-            }
-        }
-
-        // 页面加载完成后执行
-        document.addEventListener('DOMContentLoaded', function() {
-            loadProjects();
-        });
+        document.addEventListener('DOMContentLoaded', loadProjects);
     </script>
 </body>
 </html>

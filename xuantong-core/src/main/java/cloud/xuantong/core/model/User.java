@@ -18,7 +18,7 @@ import java.util.Date;
 @EntityFileProxy
 @Table("user")
 public class User implements ProxyEntityAvailable<User , UserProxy> {
-    @Column(primaryKey = true)
+    @Column(primaryKey = true, generatedKey = true)
     private Long id;
 
     @Column

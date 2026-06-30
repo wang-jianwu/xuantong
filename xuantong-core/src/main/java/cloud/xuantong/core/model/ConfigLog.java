@@ -15,7 +15,7 @@ import java.util.Date;
 @EntityFileProxy
 @Table("config_log")
 public class ConfigLog implements ProxyEntityAvailable<ConfigLog , ConfigLogProxy> {
-    @Column(primaryKey = true)
+    @Column(primaryKey = true, generatedKey = true)
     private Long id;
 
     @Column

@@ -16,6 +16,8 @@ public interface ConfigRepository {
     long save(ConfigItem config);
     long update(ConfigItem config);
     long delete(Long id);
+    /** @deprecated 该方法不可靠（当前实现只返回单行），请使用 ConfigLogRepository.findByConfigId 获取变更历史 */
+    @Deprecated
     List<ConfigItem> findHistory(Long configId);
 
     ConfigItem findById(Long id);
