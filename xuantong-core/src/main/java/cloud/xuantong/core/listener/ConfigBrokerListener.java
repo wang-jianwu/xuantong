@@ -120,11 +120,6 @@ public class ConfigBrokerListener extends BrokerListener {
         }
 
         switch (event) {
-            case "/config-change-ack":
-                log.debug("Config change ack received from player {}: {}",
-                        requester != null ? requester.sessionId() : "null",
-                        message.dataAsString());
-                return;
             case "/batch_all":
                 handleBatchAll(requester, message);
                 return;

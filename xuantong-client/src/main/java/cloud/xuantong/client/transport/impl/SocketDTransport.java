@@ -125,10 +125,6 @@ public class SocketDTransport implements ConfigTransport {
                                         String message = m.dataAsString();
                                         logger.debug("Received config change: {}", message);
                                         configChangeListener.onChanged(message);
-                                        // 发送确认回执
-                                        try {
-                                            s.send("/config-change-ack", new StringEntity(message));
-                                        } catch (Exception ignored) {}
                                     } catch (Exception e) {
                                         logger.error("Failed to process config change", e);
                                     }
