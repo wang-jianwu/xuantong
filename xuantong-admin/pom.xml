@@ -18,11 +18,6 @@
             <artifactId>xuantong-core</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- Knife4j OpenAPI -->
-        <dependency>
-            <groupId>org.noear</groupId>
-            <artifactId>solon-openapi2-knife4j</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.noear</groupId>
             <artifactId>solon-web</artifactId>

@@ -2,9 +2,6 @@ package cloud.xuantong.admin.controller;
 
 import cloud.xuantong.core.model.Project;
 import cloud.xuantong.core.service.ProjectService;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiParam;
 import org.noear.solon.annotation.*;
 import org.noear.solon.core.handle.Result;
 
@@ -12,33 +9,29 @@ import java.util.List;
 
 @Controller
 @Mapping("/api/project")
-@Api(produces = "项目管理接口")
 public class ProjectController {
     @Inject
     private ProjectService projectService;
 
-    @ApiOperation(value = "获取所有项目")
     @Get
     @Mapping
-    public Result getAllProjects() {
+    public Result<List<Project>> getAllProjects() {
         List<Project> projects = projectService.getAllProjects();
         return Result.succeed(projects);
     }
 
-    @ApiOperation(value = "获取指定项目")
     @Get
     @Mapping("/{code}")
-    public Result getProject(
-            @ApiParam(value = "项目代码") @Path String code) {
+    public Result<Project> getProject(
+            @Path String code) {
         Project project = projectService.getProject(code);
         return project != null ? Result.succeed(project) : Result.failure("项目不存在");
     }
 
-    @ApiOperation(value = "保存项目")
     @Post
     @Mapping
-    public Result saveProject(
-            @ApiParam(value = "项目对象") @Body Project project) {
+    public Result<String> saveProject(
+            @Body Project project) {
         try {
             boolean success = projectService.saveProject(project);
             return success ? Result.succeed("保存成功") : Result.failure("保存失败");
@@ -47,12 +40,11 @@ public class ProjectController {
         }
     }
 
-    @ApiOperation(value = "更新项目")
     @Put
     @Mapping("/{code}")
-    public Result updateProject(
-            @ApiParam(value = "项目代码") @Path String code,
-            @ApiParam(value = "项目对象") @Body Project project) {
+    public Result<String> updateProject(
+            @Path String code,
+            @Body Project project) {
         try {
             // 确保项目代码一致
             if (!code.equals(project.getCode())) {
@@ -65,12 +57,11 @@ public class ProjectController {
         }
     }
 
-    @ApiOperation(value = "设置项目激活状态")
     @Put
     @Mapping("/active/{code}/{active}")
-    public Result setProjectActive(
-            @ApiParam(value = "项目代码") @Path String code,
-            @ApiParam(value = "激活状态") @Path boolean active) {
+    public Result<String> setProjectActive(
+            @Path String code,
+            @Path boolean active) {
         boolean success = projectService.setProjectActive(code, active);
         return success ? Result.succeed("操作成功") : Result.failure("操作失败");
     }

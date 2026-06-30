@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Arrays;
 
 /**
- * Nimbus 配置服务实现
+ * Xuantong Config 配置服务实现
  */
 public class XuantongCloudConfigService implements CloudConfigService {
 

@@ -10,7 +10,7 @@ import org.noear.solon.core.AppContext;
 import org.noear.solon.core.Plugin;
 
 /**
- * Nimbus Solon Cloud 自动配置插件
+ * Xuantong Config Solon Cloud 自动配置插件
  */
 public class XuantongConfigAutoConfiguration implements Plugin {
 

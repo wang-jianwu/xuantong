@@ -90,11 +90,6 @@
             </dependency>
             <dependency>
                 <groupId>org.noear</groupId>
-                <artifactId>solon-openapi2-knife4j</artifactId>
-                <version>${solon.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.noear</groupId>
                 <artifactId>solon-logging-logback</artifactId>
                 <exclusions>
                     <exclusion>

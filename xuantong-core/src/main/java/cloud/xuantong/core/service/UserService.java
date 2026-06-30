@@ -64,7 +64,17 @@ public class UserService {
     }
 
     public boolean updateUser(User user) {
+        // 如果密码非空且不是 BCrypt 格式，说明是明文需要加密
+        String pwd = user.getPassword();
+        if (pwd != null && !pwd.isEmpty() && !isBcrypt(pwd)) {
+            user.setPassword(BCrypt.hashpw(pwd, BCrypt.gensalt()));
+        }
         return userRepository.update(user) > 0;
+    }
+
+    private boolean isBcrypt(String pwd) {
+        // BCrypt 哈希以 $2a$、$2b$ 或 $2y$ 开头
+        return pwd.startsWith("$2a$") || pwd.startsWith("$2b$") || pwd.startsWith("$2y$");
     }
 
     public boolean setUserActive(Long userId, boolean isActive) {

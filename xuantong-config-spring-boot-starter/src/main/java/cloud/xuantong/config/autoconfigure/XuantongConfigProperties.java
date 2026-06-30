@@ -8,7 +8,7 @@ import java.util.List;
 public class XuantongConfigProperties {
 
     /**
-     * Nimbus配置中心服务器地址列表
+     * Xuantong Config 服务器地址列表
      */
     private List<String> serverAddresses;
 

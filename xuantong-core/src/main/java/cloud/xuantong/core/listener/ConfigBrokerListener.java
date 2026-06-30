@@ -151,7 +151,9 @@ public class ConfigBrokerListener extends BrokerListener {
                 if (changeMap != null && !changeMap.isEmpty()) {
                     pushLog.setChangeKey(changeMap.keySet().iterator().next());
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                log.warn("Failed to parse changeJson for push log", e);
+            }
 
             // 统计目标 Player 数量
             int targetCount = 0;

@@ -162,7 +162,7 @@
                     <option value="">选择环境</option>
                 </select>
 
-                <span id="user-name" style="margin-right: 15px;">#(user.realName)</span>
+                <span id="user-name" style="margin-right: 15px;">#if(user??)#(user.realName)#end</span>
                 <button class="logout-btn" onclick="logout()">
                     <i class="fas fa-sign-out-alt"></i> 退出
                 </button>
