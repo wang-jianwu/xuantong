@@ -8,3 +8,6 @@ target/
 .xuantong-cache/
 core.yml.local
 *.tmp
+
+# H2 embedded database
+data/

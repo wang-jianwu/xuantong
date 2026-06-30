@@ -39,9 +39,9 @@ public class ConfigLog implements ProxyEntityAvailable<ConfigLog , ConfigLogProx
     @Column
     private String ipAddress;  /** 操作IP */
 
-    @ColumnIgnore
-    private String project;
+    @Column
+    private String project;    /** 项目（冗余存储，避免JOIN查询） */
 
-    @ColumnIgnore
-    private String environment;
+    @Column
+    private String environment; /** 环境（冗余存储，避免JOIN查询） */
 }

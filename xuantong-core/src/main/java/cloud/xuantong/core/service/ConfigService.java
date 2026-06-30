@@ -94,6 +94,8 @@ public class ConfigService {
                 log.setOperator(getCurrentUser());
                 log.setOperateTime(new Date());
                 log.setIpAddress(getCurrentIp());
+                log.setProject(config.getProject());
+                log.setEnvironment(config.getEnvironment());
                 configLogRepository.save(log);
             }
         } else {
@@ -108,6 +110,8 @@ public class ConfigService {
                 log.setOperator(getCurrentUser());
                 log.setOperateTime(new Date());
                 log.setIpAddress(getCurrentIp());
+                log.setProject(config.getProject());
+                log.setEnvironment(config.getEnvironment());
                 configLogRepository.save(log);
             }
         }
@@ -168,6 +172,8 @@ public class ConfigService {
             log.setOperator(getCurrentUser());
             log.setOperateTime(new Date());
             log.setIpAddress(getCurrentIp());
+            log.setProject(config.getProject());
+            log.setEnvironment(config.getEnvironment());
             configLogRepository.save(log);
 
             String cacheKey = buildCacheKey(config.getKey(), config.getEnvironment(), config.getProject());
@@ -243,6 +249,8 @@ public class ConfigService {
             log.setOperator(getCurrentUser());
             log.setOperateTime(new Date());
             log.setIpAddress(getCurrentIp());
+            log.setProject(current.getProject());
+            log.setEnvironment(current.getEnvironment());
             configLogRepository.save(log);
 
             String cacheKey = buildCacheKey(current.getKey(),

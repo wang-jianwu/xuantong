@@ -187,7 +187,7 @@ initTheme();
 function initSidebar() {
     // 桌面端：恢复折叠状态
     if (window.innerWidth > 768) {
-        var saved = safeStorage.get('sidebar_collapsed', 'false');
+        var saved = safeStorage.get('sidebar_collapsed', 'true');
         if (saved === 'true') {
             collapseSidebar(true);
         }
@@ -237,15 +237,12 @@ function toggleCollapse() {
 
 function collapseSidebar(collapsed) {
     var sidebar = document.querySelector('.sidebar');
-    var main = document.querySelector('.main-content');
     if (!sidebar) return;
 
     if (collapsed) {
         sidebar.classList.add('collapsed');
-        if (main) main.style.marginLeft = 'var(--sidebar-collapsed-width)';
     } else {
         sidebar.classList.remove('collapsed');
-        if (main) main.style.marginLeft = 'var(--sidebar-width)';
     }
     safeStorage.set('sidebar_collapsed', collapsed ? 'true' : 'false');
 }
@@ -267,7 +264,7 @@ document.addEventListener('click', function(e) {
 window.addEventListener('resize', function() {
     if (window.innerWidth > 768) {
         closeSidebar();
-        var saved = safeStorage.get('sidebar_collapsed', 'false');
+        var saved = safeStorage.get('sidebar_collapsed', 'true');
         collapseSidebar(saved === 'true');
     }
 });

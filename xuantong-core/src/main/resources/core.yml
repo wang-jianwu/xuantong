@@ -8,33 +8,37 @@ config:
       # 集群节点地址（复用 HTTP 端口，Broker 端点路径为 /config）
       nodes:
         #- sd:ws://127.0.0.1:8088/config
-# 数据源配置
+# ── 数据源 ──
+# 默认 H2 内嵌数据库，零配置启动
+# 生产环境切换 MySQL：取消注释下方配置，注释 H2
 xuantong:
   class: "com.zaxxer.hikari.HikariDataSource"
-  jdbcUrl: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/nimbus_config?useCursorFetch=true&rewriteBatchedStatements=true&useSSL=false&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useServerPrepStmts=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
-  driverClassName: com.mysql.cj.jdbc.Driver
-  username: ${DB_USER:root}
-  password: ${DB_PASSWORD:}
-  #缓存
-cache:
-  base:
-    driverType: "redis"
-    defSeconds: 3600  # 延长缓存时间到1小时
-    maxWaitMillis: 5000
-    server: "${REDIS_HOST:127.0.0.1}:${REDIS_PORT:6379}"
-    db: 0
-    password: "${REDIS_PASSWORD:}"
-    maxTotal: 10
-    maxIdle: 20
-    minIdle: 5
-    testOnBorrow: true
+  jdbcUrl: jdbc:h2:file:./data/xuantong;MODE=MySQL;AUTO_SERVER=TRUE;DATABASE_TO_UPPER=FALSE
+  driverClassName: org.h2.Driver
+  username: sa
+  password:
+
+# 生产环境 MySQL 配置示例
+#xuantong:
+#  class: "com.zaxxer.hikari.HikariDataSource"
+#  jdbcUrl: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/xuantong_config?useSSL=false&characterEncoding=utf8
+#  driverClassName: com.mysql.cj.jdbc.Driver
+#  username: ${DB_USER:root}
+#  password: ${DB_PASSWORD:}
+  # ── 缓存（可选，默认本地内存缓存）──
+  # 如需启用 Redis 共享缓存（多机部署），取消下方注释并配置连接信息
+  #cache:
+  #  base:
+  #    driverType: "redis"
+  #    server: "${REDIS_HOST:127.0.0.1}:${REDIS_PORT:6379}"
+  #    db: 0
+  #    password: "${REDIS_PASSWORD:}"
+  #    maxTotal: 10
+
 easy-query:
-  # 配置自定义日志
-  # log-class: ...
   xuantong:
-    # 支持mysql pgsql h2 mssql dameng mssql_row_number kingbase_es等其余数据库在适配中
-    database: mysql
-    # 支持underlined default lower_camel_case upper_camel_case upper_underlined
+    # 数据库方言：h2（默认） / mysql / pgsql / mssql / dameng / kingbase_es
+    database: h2
     name-conversion: underlined
     # 物理删除时抛出异常 不包括手写sql的情况
     delete-throw: true

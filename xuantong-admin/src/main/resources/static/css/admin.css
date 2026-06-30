@@ -108,10 +108,18 @@ body {
     width: var(--sidebar-collapsed-width);
 }
 
+/* 侧边栏折叠时，主内容区自动跟缩 */
+.sidebar.collapsed ~ .main-content {
+    margin-left: var(--sidebar-collapsed-width);
+}
+
 .sidebar.collapsed .logo-text,
-.sidebar.collapsed .nav-item span,
+.sidebar.collapsed .nav-item span {
+    display: none;
+}
+
 .sidebar.collapsed .sidebar-collapse-btn .fa-chevron-left::before {
-    content: "\f054"; /* FA chevron-right */
+    content: "\f054"; /* 折叠时显示 » */
 }
 
 .sidebar.collapsed .nav-item {
@@ -739,6 +747,7 @@ body {
     .sidebar.collapsed .logo-text { display: block; }
     .sidebar.collapsed .nav-item { justify-content: flex-start; padding: 12px 20px; gap: 12px; }
     .sidebar.collapsed .nav-item span { display: inline; }
+    .sidebar.collapsed ~ .main-content { margin-left: 0; }
 
     .sidebar-toggle { display: block; }
     .sidebar-overlay.show { display: block; }

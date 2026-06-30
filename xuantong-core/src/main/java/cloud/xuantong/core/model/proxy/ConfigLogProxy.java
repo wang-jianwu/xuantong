@@ -83,11 +83,27 @@ public class ConfigLogProxy extends AbstractProxyEntity<ConfigLogProxy, ConfigLo
     }
 
     /**
-     * 操作时间
+     * 操作IP
      * {@link ConfigLog#getIpAddress}
      */
     public SQLStringTypeColumn<ConfigLogProxy> ipAddress() {
         return getStringTypeColumn("ipAddress");
+    }
+
+    /**
+     * 项目
+     * {@link ConfigLog#getProject}
+     */
+    public SQLStringTypeColumn<ConfigLogProxy> project() {
+        return getStringTypeColumn("project");
+    }
+
+    /**
+     * 环境
+     * {@link ConfigLog#getEnvironment}
+     */
+    public SQLStringTypeColumn<ConfigLogProxy> environment() {
+        return getStringTypeColumn("environment");
     }
 
 
@@ -172,11 +188,27 @@ public class ConfigLogProxy extends AbstractProxyEntity<ConfigLogProxy, ConfigLo
         }
 
         /**
-         * 操作时间
+         * 操作IP
          * {@link ConfigLog#getIpAddress}
          */
         public ConfigLogProxyFetcher ipAddress() {
             return add(getProxy().ipAddress());
+        }
+
+        /**
+         * 项目
+         * {@link ConfigLog#getProject}
+         */
+        public ConfigLogProxyFetcher project() {
+            return add(getProxy().project());
+        }
+
+        /**
+         * 环境
+         * {@link ConfigLog#getEnvironment}
+         */
+        public ConfigLogProxyFetcher environment() {
+            return add(getProxy().environment());
         }
 
 
@@ -196,6 +228,8 @@ public class ConfigLogProxy extends AbstractProxyEntity<ConfigLogProxy, ConfigLo
         public static final String operator = "operator";
         public static final String operateTime = "operateTime";
         public static final String ipAddress = "ipAddress";
+        public static final String project = "project";
+        public static final String environment = "environment";
 
         private Fields() {
         }

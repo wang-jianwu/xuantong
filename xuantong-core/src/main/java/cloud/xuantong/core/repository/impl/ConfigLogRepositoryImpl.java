@@ -60,8 +60,8 @@ public class ConfigLogRepositoryImpl implements ConfigLogRepository {
                 .innerJoin(ConfigItem.class, (log, config)
                         -> config.id().eq(log.configId()))
                 .where((log, config) -> {
-                    config.project().eq(project);
-                    config.environment().eq(environment);
+                    log.project().eq(project);
+                    log.environment().eq(environment);
                     log.operateTime().ge(since);
                 })
                 .orderBy(c -> c.operateTime().desc())
@@ -89,8 +89,8 @@ public class ConfigLogRepositoryImpl implements ConfigLogRepository {
                 .select((c1, c2) ->  new ChangeVoProxy()
                         .operator().set(c1.operator())
                         .operateTime().set(c1.operateTime())
-                        .project().set(c2.project())
-                        .environment().set(c2.environment())
+                        .project().set(c1.project())
+                        .environment().set(c1.environment())
                         .key().set(c2.key())
                 )
                 .orderBy(c -> c.operateTime().desc())
