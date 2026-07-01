@@ -240,7 +240,7 @@
                     await loadUserList();
                     showToast('保存成功', 'success');
                 } else {
-                    showToast(result.message || '保存失败', 'error');
+                    showToast((result.description || result.message) || '保存失败', 'error');
                 }
             } catch (error) {
                 showToast('保存失败', 'error');
@@ -259,7 +259,7 @@
                     await loadUserList();
                     showToast('操作成功', 'success');
                 } else {
-                    showToast('操作失败: ' + result.message, 'error');
+                    showToast('操作失败: ' + (result.description || result.message), 'error');
                 }
             } catch (error) {
                 showToast('操作失败', 'error');
@@ -276,7 +276,7 @@
                     await loadUserList();
                     showToast('删除成功', 'success');
                 } else {
-                    showToast(result.message || '删除失败', 'error');
+                    showToast((result.description || result.message) || '删除失败', 'error');
                 }
             } catch (error) {
                 showToast('删除失败', 'error');

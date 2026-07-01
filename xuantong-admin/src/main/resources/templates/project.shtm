@@ -231,7 +231,7 @@
                     await loadProjects();
                     showToast('保存成功', 'success');
                 } else {
-                    showToast('保存失败: ' + data.message, 'error');
+                    showToast('保存失败: ' + (data.description || data.message), 'error');
                 }
             } catch (error) {
                 showToast('保存失败', 'error');
@@ -249,7 +249,7 @@
                     await loadProjects();
                     showToast('操作成功', 'success');
                 } else {
-                    showToast('操作失败: ' + data.message, 'error');
+                    showToast('操作失败: ' + (data.description || data.message), 'error');
                 }
             } catch (error) {
                 showToast('操作失败', 'error');

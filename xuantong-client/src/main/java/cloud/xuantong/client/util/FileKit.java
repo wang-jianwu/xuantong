@@ -133,7 +133,9 @@ public class FileKit {
     public static void processLines(Path path, LineProcessor lineProcessor) {
         try {
             if (Files.exists(path)) {
-                Files.lines(path, StandardCharsets.UTF_8).forEach(lineProcessor::process);
+                try (java.util.stream.Stream<String> lines = Files.lines(path, StandardCharsets.UTF_8)) {
+                    lines.forEach(lineProcessor::process);
+                }
             }
         } catch (IOException e) {
             logger.error("Process lines failed: {}", path, e);

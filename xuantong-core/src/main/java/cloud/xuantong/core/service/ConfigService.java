@@ -58,21 +58,30 @@ public class ConfigService {
     private ConfigClusterBroadcaster clusterBroadcaster;
 
     /**
-     * 保存配置（事务保护 DB 操作，广播在事务外）
+     * 保存配置（事务保护 DB 操作，推送在事务外）
+     * @param pushMode none=不推送, gray=灰度(1台), all=全量
      */
-    public boolean saveConfig(ConfigItem config) {
+    public boolean saveConfig(ConfigItem config, String pushMode) {
         ConfigItem existing = configRepository.findByKey(config.getKey(),
                 config.getEnvironment(), config.getProject());
 
         boolean result = doSaveConfig(config, existing);
 
-        // 集群广播（事务外，不影响主流程）
-        if (result) {
+        // 推送（事务外）
+        if (result && pushMode != null && !"none".equals(pushMode)) {
             ConfigChangeEvent event = new ConfigChangeEvent(
                     config.getKey(), config.getValue(),
                     config.getProject(), config.getEnvironment()
             );
-            broadcastConfigChange(event);
+            boolean gray = "gray".equals(pushMode);
+            try {
+                clusterBroadcaster.broadcastConfigChange(event, gray);
+                logger.info("Config saved and {} pushed: {}={}", gray ? "gray" : "full", config.getKey(), config.getValue());
+            } catch (Exception e) {
+                logger.error("推送失败，但配置已保存", e);
+            }
+        } else {
+            logger.info("Config saved (no push): {}={}", config.getKey(), config.getValue());
         }
         return result;
     }

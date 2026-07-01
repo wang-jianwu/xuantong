@@ -1,6 +1,8 @@
 package cloud.xuantong.admin.controller;
 
 import com.easy.query.core.api.pagination.EasyPageResult;
+import cloud.xuantong.core.cluster.ConfigClusterBroadcaster;
+import cloud.xuantong.core.listener.model.ConfigChangeEvent;
 import cloud.xuantong.core.model.ChangeVo;
 import cloud.xuantong.core.model.ConfigItem;
 import cloud.xuantong.core.model.ConfigLog;
@@ -25,6 +27,9 @@ public class ConfigController {
 
     @Inject
     private UserService userService;
+
+    @Inject
+    private ConfigClusterBroadcaster clusterBroadcaster;
 
     @Get
     @Mapping("/{project}/{environment}/{key}")
@@ -57,9 +62,32 @@ public class ConfigController {
     @Post
     @Mapping
     public Result<String> saveConfig(
-            @Body ConfigItem config) {
-        boolean success = configService.saveConfig(config);
-        return success ? Result.succeed("保存成功") : Result.failure("保存失败");
+            @Body ConfigItem config,
+            @Param(defaultValue = "none") String pushMode) {
+        boolean success = configService.saveConfig(config, pushMode);
+        if (success) {
+            switch (pushMode) {
+                case "gray": return Result.succeed("保存成功，灰度推送（1台）");
+                case "all":  return Result.succeed("保存成功，全量推送");
+                default:     return Result.succeed("保存成功（未推送）");
+            }
+        }
+        return Result.failure("保存失败");
+    }
+
+    /**
+     * 推送配置（不保存，只推送当前值）
+     */
+    @Post
+    @Mapping("/push")
+    public Result<String> pushConfig(@Body ConfigItem config, @Param(defaultValue = "all") String pushMode) {
+        ConfigChangeEvent event = new ConfigChangeEvent(
+                config.getKey(), config.getValue(),
+                config.getProject(), config.getEnvironment()
+        );
+        boolean gray = "gray".equals(pushMode);
+        clusterBroadcaster.broadcastConfigChange(event, gray);
+        return Result.succeed(gray ? "灰度推送成功（1台）" : "全量推送成功");
     }
 
     @Get

@@ -139,7 +139,18 @@ public class ConfigBrokerListener extends BrokerListener {
 
     // ===== 推送 =====
 
+    /**
+     * 全量推送：推给同环境的所有 Player
+     */
     public void pushConfigChange(String project, String env, String changeJson) {
+        pushConfigChange(project, env, changeJson, false);
+    }
+
+    /**
+     * 推送配置变更
+     * @param gray true=灰度推送（单播1台），false=全量推送（组播所有）
+     */
+    public void pushConfigChange(String project, String env, String changeJson, boolean gray) {
         try {
             // 记录推送日志
             PushLog pushLog = new PushLog();
@@ -155,28 +166,33 @@ public class ConfigBrokerListener extends BrokerListener {
                 log.warn("Failed to parse changeJson for push log", e);
             }
 
-            // 统计目标 Player 数量
-            int targetCount = 0;
-            for (PlayerInfo info : activePlayers.values()) {
-                if (env.equals(info.getPlayerName())) {
-                    targetCount++;
+            if (gray) {
+                // 灰度推送：单播，Broker 轮询选 1 台
+                broadcast("/config-change", new StringEntity(changeJson).at(env));
+                pushLog.setTargetPlayerCount(1);
+                log.info("Gray push: project={}, env={}, key={}", project, env, pushLog.getChangeKey());
+            } else {
+                // 全量推送：组播所有
+                int targetCount = 0;
+                for (PlayerInfo info : activePlayers.values()) {
+                    if (env.equals(info.getPlayerName())) {
+                        targetCount++;
+                    }
                 }
+                pushLog.setTargetPlayerCount(targetCount);
+                broadcast("/config-change", new StringEntity(changeJson).at(env + "*"));
+                log.info("Full push: project={}, env={}, key={}, targetPlayers={}",
+                        project, env, pushLog.getChangeKey(), targetCount);
             }
-            pushLog.setTargetPlayerCount(targetCount);
 
-            // 添加到日志列表（保留最近 MAX_PUSH_LOGS 条）
+            // 添加到日志列表
             pushLogs.add(0, pushLog);
             while (pushLogs.size() > MAX_PUSH_LOGS) {
                 pushLogs.remove(pushLogs.size() - 1);
             }
 
-            // 广播给同环境的所有 Player
-            broadcast("/config-change", new StringEntity(changeJson).at(env + "*"));
-            log.info("Config change pushed: project={}, env={}, key={}, targetPlayers={}",
-                    project, env, pushLog.getChangeKey(), targetCount);
-
         } catch (Exception e) {
-            log.debug("No matching players for env: {} - {}", env, e.getMessage());
+            log.debug("Push failed: env={} gray={} - {}", env, gray, e.getMessage());
         }
     }
 

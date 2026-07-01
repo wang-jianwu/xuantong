@@ -162,8 +162,13 @@ public class SocketDTransport implements ConfigTransport {
                     int index = (currentBrokerIndex.get() + i) % brokerUrls.size();
                     String url = brokerUrls.get(index);
 
-                    try {
+	                    try {
+                        ClientSession oldSession = this.session;
                         this.session = createSession(url);
+                        // 关闭旧 session
+                        if (oldSession != null) {
+                            try { oldSession.close(); } catch (Exception ignored) {}
+                        }
                         currentBrokerIndex.set(index);
                         logger.info("Reconnected to Broker ({}): {}", index, url);
                         reconnectThread = null;

@@ -30,26 +30,31 @@ public class ConfigClusterBroadcaster {
     private ConfigBrokerListener brokerListener;
 
     /**
-     * 广播配置变更
-     * 1. 推送给本地连接的客户端 Player
-     * 2. 同步给集群其他节点
-     *
-     * @param event 配置变更事件
+     * 全量推送配置变更
      */
     public void broadcastConfigChange(ConfigChangeEvent event) {
-        // 构建变更 JSON: {"key": "value"}
+        broadcastConfigChange(event, false);
+    }
+
+    /**
+     * 推送配置变更
+     * @param gray true=灰度推送（仅1台），false=全量推送
+     */
+    public void broadcastConfigChange(ConfigChangeEvent event, boolean gray) {
         Map<String, Object> changeData = new HashMap<>();
         changeData.put(event.getKey(), event.getValue());
         String changeJson = ONode.serialize(changeData);
 
-        // 1. 推送给客户端 Player（组播到 @=project:env*）
-        brokerListener.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson);
+        // 推送给客户端 Player
+        brokerListener.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson, gray);
 
-        // 2. 集群同步（广播到 @=config-node*）
-        String syncJson = ONode.serialize(event);
-        brokerListener.broadcastClusterSync(syncJson);
+        // 全量推送时才集群同步（灰度只推本地1台，不同步其他节点）
+        if (!gray) {
+            String syncJson = ONode.serialize(event);
+            brokerListener.broadcastClusterSync(syncJson);
+        }
 
-        log.debug("Config change broadcast: {}={}", event.getKey(), event.getValue());
+        log.debug("Config change broadcast: {}={} gray={}", event.getKey(), event.getValue(), gray);
     }
 
     /**

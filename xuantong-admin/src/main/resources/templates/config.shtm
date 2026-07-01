@@ -256,7 +256,11 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" onclick="saveConfig()">保存</button>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-outline-secondary" onclick="saveConfig('none')">保存（不推送）</button>
+                        <button type="button" class="btn btn-warning" onclick="saveConfig('gray')">保存并灰度推送</button>
+                        <button type="button" class="btn btn-primary" onclick="saveConfig('all')">保存并全量推送</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -522,7 +526,7 @@
                     renderConfigsTable();
                     renderPagination(total);
                 } else {
-                    showToast('加载配置失败: ' + (data.message || '未知错误'), 'error');
+                    showToast('加载配置失败: ' + ((data.description || data.message) || '未知错误'), 'error');
                 }
             } catch (error) {
                 console.error('加载配置异常:', error);
@@ -605,6 +609,12 @@
                         <button class="btn btn-sm btn-outline-info history-btn">
                             <i class="fas fa-history"></i> 历史
                         </button>
+                        <button class="btn btn-sm btn-outline-warning gray-push-btn">
+                            <i class="fas fa-flask"></i> 灰度
+                        </button>
+                        <button class="btn btn-sm btn-outline-success full-push-btn">
+                            <i class="fas fa-paper-plane"></i> 全量
+                        </button>
                         <button class="btn btn-sm btn-outline-danger delete-btn">
                             <i class="fas fa-trash"></i> 删除
                         </button>
@@ -614,6 +624,8 @@
                 // 添加事件监听
                 row.querySelector('.edit-btn').addEventListener('click', () => editConfig(config));
                 row.querySelector('.history-btn').addEventListener('click', () => showHistory(config.id));
+                row.querySelector('.gray-push-btn').addEventListener('click', () => pushConfig(config, 'gray'));
+                row.querySelector('.full-push-btn').addEventListener('click', () => pushConfig(config, 'all'));
                 row.querySelector('.delete-btn').addEventListener('click', () => deleteConfig(config.id));
 
                 // 添加鼠标悬停效果
@@ -898,7 +910,8 @@
         }
 
         // 保存配置
-        async function saveConfig() {
+        async function saveConfig(pushMode) {
+            pushMode = pushMode || 'none';
             try {
                 const project = document.getElementById('config-project').value;
                 const keyInput = document.getElementById('config-key').value.trim();
@@ -923,7 +936,7 @@
                     return;
                 }
 
-                const response = await fetch('/api/config', {
+                const response = await fetch('/api/config?pushMode=' + pushMode, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -934,15 +947,47 @@
                 const data = await response.json();
 
                 if (data.code === 200) {
-                    showToast('保存成功', 'success');
+                    showToast((data.description || data.message) || '保存成功', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('configModal')).hide();
                     await loadConfigs(currentPage);
                 } else {
-                    showToast('保存失败: ' + data.message, 'error');
+                    showToast('保存失败: ' + (data.description || data.message), 'error');
                 }
             } catch (error) {
                 console.error('保存失败:', error);
                 showToast('保存失败', 'error');
+            }
+        }
+
+        // 推送配置（灰度/全量）
+        async function pushConfig(config, mode) {
+            const label = mode === 'gray' ? '灰度推送（1台）' : '全量推送（全部）';
+            if (!await showConfirm('确认推送', `确认${label}？`)) return;
+
+            try {
+                const formData = {
+                    id: config.id,
+                    key: config.key,
+                    value: config.value,
+                    project: config.project,
+                    environment: config.environment
+                };
+
+                const response = await fetch('/api/config/push?pushMode=' + mode, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+                if (data.code === 200) {
+                    showToast((data.description || data.message) || label + '成功', 'success');
+                } else {
+                    showToast('推送失败: ' + (data.description || data.message), 'error');
+                }
+            } catch (error) {
+                console.error('推送失败:', error);
+                showToast('推送失败', 'error');
             }
         }
 
@@ -954,12 +999,13 @@
                 const response = await fetch(`/api/config/${configId}`, {
                     method: 'DELETE'
                 });
+                const data = await response.json();
 
-                if (response.ok) {
+                if (data.code === 200) {
                     showToast('删除成功', 'success');
                     await loadConfigs(currentPage);
                 } else {
-                    showToast('删除失败', 'error');
+                    showToast('删除失败: ' + (data.description || data.message || ''), 'error');
                 }
             } catch (error) {
                 console.error('删除失败:', error);
@@ -1057,7 +1103,7 @@
                     bootstrap.Modal.getInstance(document.getElementById('historyModal')).hide();
                     await loadConfigs(currentPage);
                 } else {
-                    showToast('回退失败: ' + data.message, 'error');
+                    showToast('回退失败: ' + (data.description || data.message), 'error');
                 }
             } catch (error) {
                 console.error('回退失败:', error);
