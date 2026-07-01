@@ -9,6 +9,7 @@ import cloud.xuantong.core.model.ConfigLog;
 import cloud.xuantong.core.model.User;
 import cloud.xuantong.core.repository.ConfigLogRepository;
 import cloud.xuantong.core.repository.ConfigRepository;
+import cloud.xuantong.core.util.AesEncryptor;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.core.handle.Context;
@@ -32,6 +33,21 @@ public class ConfigService {
     @Inject
     private CacheService cacheService;
 
+    @Inject
+    private ConfigClusterBroadcaster clusterBroadcaster;
+
+    @Inject("${config.encryptKey:}")
+    private String encryptKey;
+
+    private AesEncryptor encryptor;
+
+    private AesEncryptor getEncryptor() {
+        if (encryptor == null) {
+            encryptor = new AesEncryptor(encryptKey);
+        }
+        return encryptor;
+    }
+
     private String buildCacheKey(String key, String environment, String project) {
         return String.format("config:%s:%s:%s", project, environment, key);
     }
@@ -46,6 +62,10 @@ public class ConfigService {
                 cacheService.store(cacheKey, config, 30 * 60 * 60);
             }
         }
+        // 解密
+        if (config != null && Boolean.TRUE.equals(config.getIsEncrypted())) {
+            config.setValue(getEncryptor().decrypt(config.getValue()));
+        }
         return config;
     }
 
@@ -53,9 +73,6 @@ public class ConfigService {
         // 项目级配置不缓存，因变化频繁
         return configRepository.findByProject(project, environment, keyWords, pn, size);
     }
-
-    @Inject
-    private ConfigClusterBroadcaster clusterBroadcaster;
 
     /**
      * 保存配置（事务保护 DB 操作，推送在事务外）
@@ -89,6 +106,12 @@ public class ConfigService {
     @Transaction
     private boolean doSaveConfig(ConfigItem config, ConfigItem existing) {
         boolean result;
+
+        // 加密存储
+        if (Boolean.TRUE.equals(config.getIsEncrypted())) {
+            config.setValue(getEncryptor().encrypt(config.getValue()));
+        }
+
         if (existing != null) {
             config.setId(existing.getId());
             config.setVersion(existing.getVersion());
@@ -271,7 +294,12 @@ public class ConfigService {
     }
 
     public Map<String, String> findByProjectAndEnvironment(String project, String environment) {
-        return configRepository.findByProjectAndEnvironment(project, environment);
+        Map<String, String> result = configRepository.findByProjectAndEnvironment(project, environment);
+        // 解密加密的配置值
+        if (result != null && getEncryptor().isEnabled()) {
+            result.replaceAll((k, v) -> getEncryptor().decrypt(v));
+        }
+        return result;
     }
 
     /**
@@ -286,7 +314,11 @@ public class ConfigService {
             return findByProjectAndEnvironment(projects.get(0), environment);
         }
 
-        return configRepository.findByProjectsAndEnvironment(projects, environment);
+        Map<String, String> result = configRepository.findByProjectsAndEnvironment(projects, environment);
+        if (result != null && getEncryptor().isEnabled()) {
+            result.replaceAll((k, v) -> getEncryptor().decrypt(v));
+        }
+        return result;
     }
 
     public Map<String, String> findChangesSince(String app, String env, Date date) {
@@ -307,7 +339,11 @@ public class ConfigService {
 
         try {
             // 批量查询
-            return configRepository.findByKeysAndEnvironment(keys, env);
+            Map<String, String> result = configRepository.findByKeysAndEnvironment(keys, env);
+            if (result != null && getEncryptor().isEnabled()) {
+                result.replaceAll((k, v) -> getEncryptor().decrypt(v));
+            }
+            return result;
         } catch (Exception e) {
             logger.error("Failed to get batch configs for keys: {} in env: {}", keys, env, e);
             return Collections.emptyMap();

@@ -7,7 +7,7 @@
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-plugin</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
@@ -30,8 +30,8 @@ xuantong:
   config:
     # Broker 地址（支持多地址，自动 failover）
     serverAddresses:
-      - node1:8088/xuantong-admin
-      - node2:8088/xuantong-admin
+      - node1:8088
+      - node2:8088
     appNames:
       - your-app-name
     environment: dev

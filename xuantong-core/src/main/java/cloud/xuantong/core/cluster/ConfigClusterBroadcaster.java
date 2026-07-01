@@ -41,20 +41,31 @@ public class ConfigClusterBroadcaster {
      * @param gray true=灰度推送（仅1台），false=全量推送
      */
     public void broadcastConfigChange(ConfigChangeEvent event, boolean gray) {
+        broadcastConfigChange(event, gray, null, 0);
+    }
+
+    /**
+     * 推送配置变更（支持 IP 指定和比例灰度）
+     * @param gray       true=灰度推送
+     * @param targetIp   指定目标 IP
+     * @param percentage 按比例（0~1）
+     */
+    public void broadcastConfigChange(ConfigChangeEvent event, boolean gray, String targetIp, double percentage) {
         Map<String, Object> changeData = new HashMap<>();
         changeData.put(event.getKey(), event.getValue());
         String changeJson = ONode.serialize(changeData);
 
         // 推送给客户端 Player
-        brokerListener.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson, gray);
+        brokerListener.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson, gray, targetIp, percentage);
 
-        // 全量推送时才集群同步（灰度只推本地1台，不同步其他节点）
+        // 全量推送时才集群同步
         if (!gray) {
             String syncJson = ONode.serialize(event);
             brokerListener.broadcastClusterSync(syncJson);
         }
 
-        log.debug("Config change broadcast: {}={} gray={}", event.getKey(), event.getValue(), gray);
+        log.debug("Config change broadcast: {}={} gray={} ip={} pct={}",
+                event.getKey(), event.getValue(), gray, targetIp, percentage);
     }
 
     /**

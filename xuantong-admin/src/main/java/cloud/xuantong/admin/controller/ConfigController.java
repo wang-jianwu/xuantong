@@ -63,11 +63,30 @@ public class ConfigController {
     @Mapping
     public Result<String> saveConfig(
             @Body ConfigItem config,
-            @Param(defaultValue = "none") String pushMode) {
+            @Param(defaultValue = "none") String pushMode,
+            @Param(defaultValue = "") String targetIp,
+            @Param(defaultValue = "0") double percentage) {
         boolean success = configService.saveConfig(config, pushMode);
         if (success) {
+            // 灰度推送时支持 IP 和比例
+            if ("gray".equals(pushMode) && (targetIp != null && !targetIp.isEmpty())) {
+                ConfigChangeEvent event = new ConfigChangeEvent(
+                        config.getKey(), config.getValue(),
+                        config.getProject(), config.getEnvironment()
+                );
+                clusterBroadcaster.broadcastConfigChange(event, true, targetIp, 0);
+                return Result.succeed("保存成功，灰度推送（指定IP: " + targetIp + "）");
+            }
+            if ("gray".equals(pushMode) && percentage > 0 && percentage < 1) {
+                ConfigChangeEvent event = new ConfigChangeEvent(
+                        config.getKey(), config.getValue(),
+                        config.getProject(), config.getEnvironment()
+                );
+                clusterBroadcaster.broadcastConfigChange(event, true, null, percentage);
+                return Result.succeed("保存成功，灰度推送（比例: " + (int)(percentage * 100) + "%）");
+            }
             switch (pushMode) {
-                case "gray": return Result.succeed("保存成功，灰度推送（1台）");
+                case "gray": return Result.succeed("保存成功，灰度推送（随机1台）");
                 case "all":  return Result.succeed("保存成功，全量推送");
                 default:     return Result.succeed("保存成功（未推送）");
             }
@@ -80,14 +99,27 @@ public class ConfigController {
      */
     @Post
     @Mapping("/push")
-    public Result<String> pushConfig(@Body ConfigItem config, @Param(defaultValue = "all") String pushMode) {
+    public Result<String> pushConfig(@Body ConfigItem config,
+                                     @Param(defaultValue = "all") String pushMode,
+                                     @Param(defaultValue = "") String targetIp,
+                                     @Param(defaultValue = "0") double percentage) {
         ConfigChangeEvent event = new ConfigChangeEvent(
                 config.getKey(), config.getValue(),
                 config.getProject(), config.getEnvironment()
         );
         boolean gray = "gray".equals(pushMode);
+
+        if (targetIp != null && !targetIp.isEmpty()) {
+            clusterBroadcaster.broadcastConfigChange(event, true, targetIp, 0);
+            return Result.succeed("灰度推送成功（指定IP: " + targetIp + "）");
+        }
+        if (percentage > 0 && percentage < 1) {
+            clusterBroadcaster.broadcastConfigChange(event, true, null, percentage);
+            return Result.succeed("灰度推送成功（比例: " + (int)(percentage * 100) + "%）");
+        }
+
         clusterBroadcaster.broadcastConfigChange(event, gray);
-        return Result.succeed(gray ? "灰度推送成功（1台）" : "全量推送成功");
+        return Result.succeed(gray ? "灰度推送成功（随机1台）" : "全量推送成功");
     }
 
     @Get

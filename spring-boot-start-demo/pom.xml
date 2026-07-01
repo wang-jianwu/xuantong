@@ -37,7 +37,7 @@
         <dependency>
             <groupId>cloud.xuantong</groupId>
             <artifactId>xuantong-config-spring-boot-starter</artifactId>
-            <version>1.2.0</version>
+            <version>1.3.0</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>

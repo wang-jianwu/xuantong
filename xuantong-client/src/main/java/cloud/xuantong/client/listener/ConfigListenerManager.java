@@ -73,6 +73,7 @@ public class ConfigListenerManager {
             } catch (TimeoutException e) {
                 timeoutExecutions.incrementAndGet();
                 logger.warn("Listener execution timeout for key: {}", event.getKey());
+                allFutures.cancel(true); // 取消未完成的任务，释放线程
             } catch (Exception e) {
                 logger.error("Listener execution failed collectively for key: {}", event.getKey(), e);
             }

@@ -11,7 +11,9 @@ import org.noear.solon.core.VarHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.List;
 
 /**
  * author 封于修
@@ -42,7 +44,7 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
 
             if (value != null) {
                 // 类型转换并直接设置到 VarHolder
-                Object convertedValue = convertValue(value, varH.getDependencyType(), anno.type());
+                Object convertedValue = convertValue(value, varH, anno.type());
                 varH.setValue(convertedValue);
             }
 
@@ -58,27 +60,28 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
         }
     }
 
-    private Object convertValue(String value, Class<?> targetType, ValueType valueType) {
+    private Object convertValue(String value, VarHolder varH, ValueType valueType) {
         try {
             if (value == null) return null;
 
+            Class<?> targetType = varH.getDependencyType();
             switch (valueType) {
-                case INTEGER:
-                    return Integer.parseInt(value);
-                case LONG:
-                    return Long.parseLong(value);
-                case DOUBLE:
-                    return Double.parseDouble(value);
                 case BOOLEAN:
                     return Boolean.parseBoolean(value);
-                case MAP:
-                    return Serializer.defaultSerializer().deserializeMap(value);
-                case LIST:
-                    return Serializer.defaultSerializer().deserializeToList(value, targetType);
+                case NUMBER:
+                    if (targetType == int.class || targetType == Integer.class) return Integer.parseInt(value);
+                    if (targetType == long.class || targetType == Long.class) return Long.parseLong(value);
+                    if (targetType == float.class || targetType == Float.class) return Float.parseFloat(value);
+                    if (targetType == double.class || targetType == Double.class) return Double.parseDouble(value);
+                    if (targetType == short.class || targetType == Short.class) return Short.parseShort(value);
+                    if (targetType == byte.class || targetType == Byte.class) return Byte.parseByte(value);
+                    return Long.parseLong(value);
                 case JSON:
+                    if (List.class.isAssignableFrom(targetType)) {
+                        Class<?> componentType = getComponentType(varH);
+                        return Serializer.defaultSerializer().deserializeToList(value, componentType);
+                    }
                     return Serializer.defaultSerializer().deserialize(value, targetType);
-                case YAML:
-                    //return parseYamlValue(value, targetType, prefix);
                 case STRING:
                 default:
                     return value;
@@ -88,72 +91,34 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
         }
     }
 
+    private Class<?> getComponentType(VarHolder varH) {
+        Type genericType = varH.getGenericType();
+        if (genericType instanceof ParameterizedType) {
+            Type[] typeArguments = ((ParameterizedType) genericType).getActualTypeArguments();
+            if (typeArguments.length > 0 && typeArguments[0] instanceof Class) {
+                return (Class<?>) typeArguments[0];
+            }
+        }
+        return Object.class;
+    }
+
     private void registerAutoRefreshListener(VarHolder varH, ConfigValue configValue, String key) {
-        if (configValue.autoRefresh()) {
-            try {
-                XuantongClient.getDefault().addListener(key, event -> {
-                    try {
-                        String newValue = event.getNewValue();
-                        Object convertedValue = convertValue(
-                                newValue != null ? newValue : configValue.defaultValue(),
-                                varH.getDependencyType(),
-                                configValue.type());
-                        varH.setValue(convertedValue);
-                        logger.info("Auto-refreshed field: {} to new value: {}", key, newValue);
-                    } catch (Exception e) {
-                        logger.error("Failed to auto-refresh field: {}", key, e);
-                    }
-                });
-            } catch (Exception e) {
-                logger.warn("Failed to register auto-refresh listener for field: {}", key, e);
-            }
-        }
-    }
-
-//    private Object parseYamlValue(String yamlContent, Class<?> targetType, String prefix) {
-//        try {
-//            Yaml yaml = new Yaml();
-//            Object yamlObj = yaml.load(yamlContent);
-//
-//            if (prefix != null && !prefix.isEmpty()) {
-//                yamlObj = extractByPrefix(yamlObj, prefix);
-//            }
-//
-//            return convertToTargetType(yamlObj, targetType);
-//        } catch (Exception e) {
-//            throw new XuantongException("Failed to parse YAML content", e);
-//        }
-//    }
-
-    private Object extractByPrefix(Object data, String prefix) {
-        String[] paths = prefix.split("\\.");
-        Object current = data;
-
-        for (String path : paths) {
-            if (current instanceof Map) {
-                current = ((Map<?, ?>) current).get(path);
-                if (current == null) {
-                    throw new XuantongException("No data found at prefix path: " + prefix);
+        try {
+            XuantongClient.getDefault().addListener(key, event -> {
+                try {
+                    String newValue = event.getNewValue();
+                    Object convertedValue = convertValue(
+                            newValue != null ? newValue : configValue.defaultValue(),
+                            varH,
+                            configValue.type());
+                    varH.setValue(convertedValue);
+                    logger.info("Auto-refreshed field: {} to new value: {}", key, newValue);
+                } catch (Exception e) {
+                    logger.error("Failed to auto-refresh field: {}", key, e);
                 }
-            } else {
-                throw new XuantongException("Invalid prefix path for non-map data: " + prefix);
-            }
+            });
+        } catch (Exception e) {
+            logger.warn("Failed to register auto-refresh listener for field: {}", key, e);
         }
-        return current;
     }
-
-    private Object convertToTargetType(Object value, Class<?> targetType) {
-        if (targetType.isInstance(value)) {
-            return value;
-        }
-        // 简单类型转换
-        if (value instanceof String) {
-            String strValue = (String) value;
-            if (targetType == Integer.class || targetType == int.class) return Integer.parseInt(strValue);
-            if (targetType == Long.class || targetType == long.class) return Long.parseLong(strValue);
-            if (targetType == Double.class || targetType == double.class) return Double.parseDouble(strValue);
-            if (targetType == Boolean.class || targetType == boolean.class) return Boolean.parseBoolean(strValue);
-        }
-        return value;
-    }//
 }

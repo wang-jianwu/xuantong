@@ -6,12 +6,7 @@ package cloud.xuantong.client.enums;
  */
 public enum ValueType {
     STRING,
-    INTEGER,
-    LONG,
-    DOUBLE,
     BOOLEAN,
-    JSON,
-    YAML,
-    LIST,
-    MAP
+    NUMBER,
+    JSON
 }

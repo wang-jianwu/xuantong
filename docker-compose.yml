@@ -1,0 +1,39 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: nimbus_config
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./xuantong-admin/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  config-center:
+    build:
+      context: ./xuantong-admin
+      dockerfile: Dockerfile
+    ports:
+      - "8088:8088"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      BROKER_SECRET_KEY: ${BROKER_SECRET_KEY}
+    depends_on:
+      - mysql
+      - redis
+
+volumes:
+  mysql_data:

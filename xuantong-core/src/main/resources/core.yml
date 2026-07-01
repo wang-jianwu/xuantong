@@ -3,6 +3,8 @@ config:
   broker:
     # Broker 鉴权密钥（不配置则不校验，开发环境可不配）
     secretKey: ${BROKER_SECRET_KEY:}
+  # 配置值加密密钥（不配置则不加密）
+  encryptKey: ${CONFIG_ENCRYPT_KEY:}
   center:
     cluster:
       # 集群节点地址（复用 HTTP 端口，Broker 端点路径为 /config）

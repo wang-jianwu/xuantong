@@ -26,7 +26,12 @@ public class XuantongConfigPlugin implements Plugin {
             logger.warn("Xuantong-config server address is empty");
             return;
         }
-        XuantongConfig.init(configBindings.getServerAddresses(), configBindings.getAppNames(), configBindings.getEnvironment());
+        try {
+            XuantongConfig.init(configBindings.getServerAddresses(), configBindings.getAppNames(), configBindings.getEnvironment());
+        } catch (Exception e) {
+            logger.error("XuantongConfig init failed, config will not be available: {}", e.getMessage());
+            // 不抛出异常，让应用继续启动。配置注入会在配置中心可用后获取到值
+        }
         // 注册ConfigValue 注入器
         context.beanInjectorAdd(ConfigValue.class, new XuantongConfigValueInjector());
 

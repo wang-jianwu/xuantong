@@ -19,7 +19,7 @@
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-spring-boot-starter</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
@@ -31,7 +31,7 @@
 xuantong:
   config:
     # Broker 地址（支持多地址，自动 failover）
-    server-addresses: ["node1:8088/xuantong-admin", "node2:8088/xuantong-admin"]
+    server-addresses: ["node1:8088", "node2:8088"]
     app-name: ["your-application-name"]       # 应用名称
     environment: "prod"                      # 环境标识
 ```
@@ -81,7 +81,7 @@ public class DatabaseService {
    xuantong:
      config:
        # Broker 地址（单地址即可，集群内部自动同步）
-       server-addresses: ["config-center:8088/xuantong-admin"]
+       server-addresses: ["config-center:8088"]
        app-name: ["your-app-name", "another-app"]
        environment: "dev"
    ```

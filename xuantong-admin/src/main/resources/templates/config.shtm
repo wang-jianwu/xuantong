@@ -248,7 +248,32 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label class="form-label">配置类型</label>
+                                    <select class="form-select" id="config-type">
+                                        <option value="STRING">STRING</option>
+                                        <option value="NUMBER">NUMBER</option>
+                                        <option value="BOOLEAN">BOOLEAN</option>
+                                        <option value="JSON">JSON</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                         <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="config-encrypted">
+                                <label class="form-check-label" for="config-encrypted">敏感配置（值将加密存储）</label>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">配置值</label>
+                            <div class="input-group mb-2">
+                                <button class="btn btn-outline-secondary btn-sm" id="btn-format-json" onclick="formatJsonValue()" style="display:none">
+                                    <i class="fas"></i> 格式化 JSON
+                                </button>
+                            </div>
                             <label class="form-label">配置值</label>
                             <textarea class="form-control" id="config-value" name="value" rows="4" required></textarea>
                         </div>
@@ -340,6 +365,11 @@
             });
 
             document.getElementById('add-button').addEventListener('click', showAddDialog);
+
+            // 配置类型切换时显示/隐藏 JSON 格式化按钮
+            document.getElementById('config-type').addEventListener('change', function() {
+                document.getElementById('btn-format-json').style.display = this.value === 'JSON' ? '' : 'none';
+            });
 
             // 全局环境选择器变更事件
             document.getElementById('global-environment').addEventListener('change', function() {
@@ -599,7 +629,10 @@
 
                 row.innerHTML = `
                     <td>${escapeHtml(config.key) || '-'}</td>
-                    <td class="value-cell" data-value="${escapeHtml(config.value || '')}">${escapeHtml(displayValue)}</td>
+                    <td class="value-cell" data-value="${escapeHtml(config.value || '')}">
+                        <span class="badge badge-info" style="font-size:10px;margin-right:4px">${detectValueType(config.value)}</span>
+                        ${escapeHtml(displayValue)}
+                    </td>
                     <td><span class="badge badge-secondary">${escapeHtml(config.environment) || '-'}</span></td>
                     <td><span class="badge badge-success">${escapeHtml(config.project) || '-'}</span></td>
                     <td>
@@ -698,6 +731,10 @@
             // 清除校验状态
             document.getElementById('config-key').classList.remove('is-invalid');
             document.getElementById('config-value').classList.remove('is-invalid');
+
+            // 重置类型
+            document.getElementById('config-type').value = 'STRING';
+            document.getElementById('btn-format-json').style.display = 'none';
 
             // 更新项目前缀和完整键预览
             updateKeyPrefix();
@@ -897,6 +934,10 @@
             document.getElementById('config-environment').value = currentConfig.environment;
             document.getElementById('config-environment').disabled = true;
 
+            // 设置类型（后端不存，默认 STRING）
+            document.getElementById('config-type').value = 'STRING';
+            document.getElementById('btn-format-json').style.display = 'none';
+
             // 清除校验错误状态
             document.getElementById('config-key').classList.remove('is-invalid');
             document.getElementById('config-value').classList.remove('is-invalid');
@@ -912,10 +953,36 @@
         // 保存配置
         async function saveConfig(pushMode) {
             pushMode = pushMode || 'none';
+
+            // 灰度推送前弹出选择框
+            let targetIp = '', percentage = 0;
+            if (pushMode === 'gray') {
+                const choice = await showGrayDialog();
+                if (!choice) return;
+                if (choice === 'cancel') return;
+                targetIp = choice.ip || '';
+                percentage = choice.pct || 0;
+            }
+
+            // 全量推送二次确认
+            if (pushMode === 'all') {
+                if (!await showConfirm('确认全量推送', '确认保存并全量推送？所有客户端都将收到更新。')) return;
+            }
+
             try {
                 const project = document.getElementById('config-project').value;
                 const keyInput = document.getElementById('config-key').value.trim();
+                const configType = document.getElementById('config-type').value;
                 let finalKey = keyInput;
+                let configValue = document.getElementById('config-value').value;
+
+                // 类型校验
+                if (!validateValueByType(configValue, configType)) {
+                    showToast('配置值不符合类型 ' + configType + ' 的要求', 'warning');
+                    return;
+                }
+                // JSON 自动压缩为一行
+                configValue = compactValueByType(configValue, configType);
 
                 // 如果是新增模式（keyInput不包含项目前缀），自动添加前缀
                 if (!currentConfig?.id && !keyInput.startsWith(project + '.')) {
@@ -924,11 +991,12 @@
 
                 const formData = {
                     id: currentConfig?.id || null,
-                    key: finalKey, // 使用处理后的完整key
-                    value: document.getElementById('config-value').value,
+                    key: finalKey,
+                    value: configValue,
                     description: document.getElementById('config-description').value,
                     project: project,
-                    environment: document.getElementById('config-environment').value
+                    environment: document.getElementById('config-environment').value,
+                    isEncrypted: document.getElementById('config-encrypted').checked
                 };
 
                 if (!formData.key || !formData.value || !formData.project || !formData.environment) {
@@ -936,7 +1004,11 @@
                     return;
                 }
 
-                const response = await fetch('/api/config?pushMode=' + pushMode, {
+                let url = '/api/config?pushMode=' + pushMode;
+                if (targetIp) url += '&targetIp=' + encodeURIComponent(targetIp);
+                if (percentage > 0) url += '&percentage=' + percentage;
+
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -961,8 +1033,19 @@
 
         // 推送配置（灰度/全量）
         async function pushConfig(config, mode) {
-            const label = mode === 'gray' ? '灰度推送（1台）' : '全量推送（全部）';
-            if (!await showConfirm('确认推送', `确认${label}？`)) return;
+            let targetIp = '';
+            let percentage = 0;
+
+            if (mode === 'gray') {
+                // 显示灰度选择对话框
+                const choice = await showGrayDialog();
+                if (!choice) return;
+                if (choice === 'cancel') return;
+                targetIp = choice.ip || '';
+                percentage = choice.pct || 0;
+            } else {
+                if (!await showConfirm('确认推送', '确认全量推送？所有客户端都将收到更新。')) return;
+            }
 
             try {
                 const formData = {
@@ -973,7 +1056,11 @@
                     environment: config.environment
                 };
 
-                const response = await fetch('/api/config/push?pushMode=' + mode, {
+                let url = '/api/config/push?pushMode=' + mode;
+                if (targetIp) url += '&targetIp=' + encodeURIComponent(targetIp);
+                if (percentage > 0) url += '&percentage=' + percentage;
+
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
@@ -989,6 +1076,138 @@
                 console.error('推送失败:', error);
                 showToast('推送失败', 'error');
             }
+        }
+
+        // 灰度推送选择对话框
+        function showGrayDialog() {
+            return new Promise(resolve => {
+                const container = document.getElementById('gray-dialog-container') || createGrayDialog();
+                const el = container;
+                el.style.display = 'flex';
+
+                // 加载在线客户端 IP
+                loadOnlineIps();
+
+                document.querySelector('#gray-dialog-ip').value = '';
+                document.querySelector('#gray-dialog-pct').value = '10';
+                document.querySelector('#gray-mode-random').checked = true;
+                toggleGrayMode();
+
+                document.querySelector('#gray-confirm').onclick = function() {
+                    el.style.display = 'none';
+                    const mode = document.querySelector('input[name=grayMode]:checked').value;
+                    if (mode === 'random') resolve({ip:'', pct:0});
+                    else if (mode === 'ip') resolve({ip: document.querySelector('#gray-dialog-ip').value, pct:0});
+                    else resolve({ip:'', pct: parseInt(document.querySelector('#gray-dialog-pct').value) / 100});
+                };
+                document.querySelector('#gray-cancel').onclick = function() {
+                    el.style.display = 'none';
+                    resolve('cancel');
+                };
+            });
+        }
+
+        // 加载在线客户端 IP 列表
+        async function loadOnlineIps() {
+            try {
+                const resp = await fetch('/api/broker/players');
+                const data = await resp.json();
+                const select = document.getElementById('gray-dialog-ip');
+                select.innerHTML = '<option value="">选择在线客户端...</option>';
+                (data || []).forEach(p => {
+                    if (p.clientIp && p.clientIp !== 'unknown') {
+                        const opt = document.createElement('option');
+                        opt.value = p.clientIp;
+                        const apps = (p.subscribedApps || []).join(',');
+                        opt.textContent = p.clientIp + (apps ? ' (' + apps + ')' : '');
+                        select.appendChild(opt);
+                    }
+                });
+            } catch (e) {
+                console.error('加载客户端列表失败', e);
+            }
+        }
+
+        function createGrayDialog() {
+            const div = document.createElement('div');
+            div.id = 'gray-dialog-container';
+            div.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center';
+            div.innerHTML = `
+                <div style="background:white;border-radius:10px;padding:25px;width:400px;box-shadow:0 4px 20px rgba(0,0,0,0.2);">
+                    <h5 style="margin:0 0 20px 0;"><i class="fas fa-flask"></i> 灰度推送方式</h5>
+                    <div class="mb-3">
+                        <label><input type="radio" name="grayMode" id="gray-mode-random" value="random" checked onchange="toggleGrayMode()"> 随机 1 台</label>
+                    </div>
+                    <div class="mb-3">
+                        <label><input type="radio" name="grayMode" value="ip" onchange="toggleGrayMode()"> 指定 IP</label>
+                        <select id="gray-dialog-ip" class="form-select" style="margin-top:5px;display:none">
+                            <option value="">选择在线客户端...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label><input type="radio" name="grayMode" value="pct" onchange="toggleGrayMode()"> 按比例</label>
+                        <div style="display:none;margin-top:5px" id="gray-pct-input">
+                            <input type="range" id="gray-dialog-pct" min="10" max="50" step="10" value="10" style="width:200px;vertical-align:middle" oninput="document.getElementById('gray-pct-label').textContent=this.value+'%'">
+                            <span id="gray-pct-label" style="margin-left:10px;font-weight:bold">10%</span>
+                        </div>
+                    </div>
+                    <div class="text-end" style="margin-top:20px">
+                        <button class="btn btn-secondary me-2" id="gray-cancel">取消</button>
+                        <button class="btn btn-primary" id="gray-confirm">确定推送</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(div);
+            return div;
+        }
+
+        function toggleGrayMode() {
+            const mode = document.querySelector('input[name=grayMode]:checked').value;
+            document.getElementById('gray-dialog-ip').style.display = mode === 'ip' ? 'block' : 'none';
+            document.getElementById('gray-pct-input').style.display = mode === 'pct' ? 'block' : 'none';
+        }
+
+        // JSON 格式化
+        function formatJsonValue() {
+            const textarea = document.getElementById('config-value');
+            const raw = textarea.value.trim();
+            if (!raw) return;
+            try {
+                const parsed = JSON.parse(raw);
+                textarea.value = JSON.stringify(parsed, null, 2);
+            } catch (e) {
+                showToast('JSON 格式错误: ' + e.message, 'error');
+            }
+        }
+
+        // 根据类型校验配置值
+        function validateValueByType(value, type) {
+            if (!value) return type === 'STRING'; // 空值只允许 STRING
+            switch (type) {
+                case 'NUMBER': return !isNaN(value);
+                case 'BOOLEAN': return value === 'true' || value === 'false';
+                case 'JSON':
+                    try { JSON.parse(value); return true; }
+                    catch(e) { return false; }
+                default: return true;
+            }
+        }
+
+        // 根据类型压缩值（JSON→一行，其他不变）
+        function compactValueByType(value, type) {
+            if (type === 'JSON' && value) {
+                try { return JSON.stringify(JSON.parse(value)); }
+                catch(e) { return value; }
+            }
+            return value;
+        }
+
+        // 从值推断配置类型（用于列表展示）
+        function detectValueType(value) {
+            if (!value) return 'STRING';
+            if (/^\d+\.?\d*$/.test(value)) return 'NUMBER';
+            if (value === 'true' || value === 'false') return 'BOOLEAN';
+            try { JSON.parse(value); return 'JSON'; } catch(e) {}
+            return 'STRING';
         }
 
         // 删除配置

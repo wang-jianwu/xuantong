@@ -85,11 +85,11 @@ public class JsonSerializer implements Serializer {
             return null;
         }
         try {
-            // 处理可能的双引号转义JSON 字符串
+            // 处理可能的双引号转义JSON字符串（当 JSON 被字符串包裹时）
             String jsonStr = str.trim();
             if (jsonStr.startsWith("\"") && jsonStr.endsWith("\"")) {
-                jsonStr = jsonStr.substring(1, jsonStr.length() - 1)
-                        .replace("\\\"", "\"");
+                // 用 JSON 解析器解开外层字符串，而不是手动字符串替换
+                jsonStr = ONode.ofJson(jsonStr, options).toJson();
             }
 
             // 使用TypeRef 确保正确的泛型类型反序列化

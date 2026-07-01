@@ -204,6 +204,12 @@ public class FileKit {
      * 原子写入多行内容（智能降级策略）
      */
     public static void atomicWriteLines(Path path, List<String> lines) throws IOException {
+        // 确保父目录存在
+        Path parentDir = path.getParent();
+        if (!Files.exists(parentDir)) {
+            Files.createDirectories(parentDir);
+        }
+
         Path tempFile = path.resolveSibling(path.getFileName() + ".tmp");
         try {
             try (BufferedWriter writer = createBufferedWriter(tempFile, StandardOpenOption.CREATE)) {

@@ -16,6 +16,7 @@ import org.noear.solon.annotation.Inject;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -151,8 +152,17 @@ public class ConfigBrokerListener extends BrokerListener {
      * @param gray true=灰度推送（单播1台），false=全量推送（组播所有）
      */
     public void pushConfigChange(String project, String env, String changeJson, boolean gray) {
+        pushConfigChange(project, env, changeJson, gray, null, 0);
+    }
+
+    /**
+     * 推送配置变更（支持 IP 指定和比例灰度）
+     * @param gray       true=灰度推送
+     * @param targetIp   指定目标 IP（不为 null 时按 IP 推）
+     * @param percentage 按比例推送（0~1，如 0.1 表示 10%）
+     */
+    public void pushConfigChange(String project, String env, String changeJson, boolean gray, String targetIp, double percentage) {
         try {
-            // 记录推送日志
             PushLog pushLog = new PushLog();
             pushLog.setProject(project);
             pushLog.setEnv(env);
@@ -166,8 +176,43 @@ public class ConfigBrokerListener extends BrokerListener {
                 log.warn("Failed to parse changeJson for push log", e);
             }
 
-            if (gray) {
-                // 灰度推送：单播，Broker 轮询选 1 台
+            // 按 IP 推送：直接找到匹配的 session 发送
+            if (targetIp != null && !targetIp.isEmpty()) {
+                int count = 0;
+                for (PlayerInfo info : activePlayers.values()) {
+                    if (targetIp.equals(info.getClientIp()) && env.equals(info.getPlayerName())) {
+                        Session session = getSessionById(info.getSessionId());
+                        if (session != null && session.isValid()) {
+                            session.send("/config-change", new StringEntity(changeJson));
+                            count++;
+                        }
+                    }
+                }
+                pushLog.setTargetPlayerCount(count);
+                log.info("IP push: project={}, env={}, targetIp={}, count={}", project, env, targetIp, count);
+
+            // 按比例推送：随机选 N 台
+            } else if (percentage > 0 && percentage < 1) {
+                List<PlayerInfo> candidates = activePlayers.values().stream()
+                        .filter(p -> env.equals(p.getPlayerName()))
+                        .collect(Collectors.toList());
+                Collections.shuffle(candidates);
+                int count = (int) Math.ceil(candidates.size() * percentage);
+                int sent = 0;
+                for (int i = 0; i < count && i < candidates.size(); i++) {
+                    PlayerInfo info = candidates.get(i);
+                    Session session = getSessionById(info.getSessionId());
+                    if (session != null && session.isValid()) {
+                        session.send("/config-change", new StringEntity(changeJson));
+                        sent++;
+                    }
+                }
+                pushLog.setTargetPlayerCount(sent);
+                log.info("Percentage push: project={}, env={}, {}% target={} sent={}",
+                        project, env, (int)(percentage * 100), count, sent);
+
+            } else if (gray) {
+                // 现有灰度：单播随机选 1 台
                 broadcast("/config-change", new StringEntity(changeJson).at(env));
                 pushLog.setTargetPlayerCount(1);
                 log.info("Gray push: project={}, env={}, key={}", project, env, pushLog.getChangeKey());
@@ -185,14 +230,13 @@ public class ConfigBrokerListener extends BrokerListener {
                         project, env, pushLog.getChangeKey(), targetCount);
             }
 
-            // 添加到日志列表
             pushLogs.add(0, pushLog);
             while (pushLogs.size() > MAX_PUSH_LOGS) {
                 pushLogs.remove(pushLogs.size() - 1);
             }
 
         } catch (Exception e) {
-            log.debug("Push failed: env={} gray={} - {}", env, gray, e.getMessage());
+            log.debug("Push failed: env={} - {}", env, e.getMessage());
         }
     }
 

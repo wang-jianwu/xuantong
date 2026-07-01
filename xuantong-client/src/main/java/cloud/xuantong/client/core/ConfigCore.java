@@ -58,10 +58,10 @@ public class ConfigCore implements AutoCloseable {
 
             // 注册配置变更监听器到传输层（监听主应用）
             transport.connect(serverAddress, subscribedApps, env, secretKey, configData -> {
-                logger.info("监听到配置变更 {}/{}/{}", subscribedApps, env, configData);
                 // 处理配置变更通知
                 Map<String, String> newConfigs = serializer.deserializeMap(configData);
                 if (newConfigs != null && !newConfigs.isEmpty()) {
+                    logger.info("收到配置变更: {} 个配置项", newConfigs.size());
                     // 先更新缓存，再通知监听器（确保监听器回调中 get(key) 读到新值）
                     handleConfigPush(newConfigs);
                     newConfigs.forEach((key, value) -> listenerManager.fireEvent(new ConfigChangeEvent(key, value)));

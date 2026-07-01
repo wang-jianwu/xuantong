@@ -49,14 +49,14 @@ java -jar xuantong-admin.jar
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-client</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
 ```java
 // 初始化（配多个 Broker 地址自动 failover）
 XuantongConfig.init(
-    Arrays.asList("node1:8088/xuantong-admin", "node2:8088/xuantong-admin"),
+    Arrays.asList("node1:8088", "node2:8088"),
     Arrays.asList("your-app-name"),
     "prod"
 );
@@ -76,7 +76,7 @@ XuantongConfig.addListener("payment.timeout", event -> {
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-plugin</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
@@ -84,7 +84,7 @@ XuantongConfig.addListener("payment.timeout", event -> {
 # app.yml
 xuantong.config:
   serverAddresses:
-    - config-center:8088/xuantong-admin
+    - config-center:8088
   appNames:
     - your-app-name
   environment: prod
@@ -107,14 +107,14 @@ public class AppConfig {
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-cloud-plugin</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
 ```yaml
 # app.yml
 solon.cloud.xuantong:
-  server: "config-center:8088/xuantong-admin"
+  server: "config-center:8088"
   namespace: "prod:app1,app2"   # 格式: 环境:订阅应用列表
   config:
     enable: true
@@ -127,14 +127,14 @@ solon.cloud.xuantong:
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-spring-boot-starter</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
 ```yaml
 # application.yml
 xuantong.config:
-  server-addresses: ["config-center:8088/xuantong-admin"]
+  server-addresses: ["config-center:8088"]
   app-name: ["your-application-name"]
   environment: "prod"
 ```
@@ -213,3 +213,51 @@ A: 管理后台节点通过 Socket.D Broker 组播自动同步配置变更，无
 ## 许可证
 
 [Apache License 2.0](LICENSE)
+
+---
+
+## Docker 部署
+
+### 先决条件
+- Docker & Docker Compose
+
+### 快速启动
+
+```bash
+# 1. 设置密码
+export DB_PASSWORD=your_password
+
+# 2. 启动全部服务（MySQL + Redis + 配置中心）
+docker compose up -d
+
+# 3. 查看日志
+docker compose logs -f config-center
+```
+
+访问 `http://localhost:8088`，默认账号 `admin` / `admin123`。
+
+### 单独启动
+
+```bash
+# 启动 MySQL 和 Redis
+docker compose up -d mysql redis
+
+# 构建并启动配置中心
+docker compose up -d config-center
+```
+
+### 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DB_PASSWORD` | MySQL 密码 | (必填) |
+| `REDIS_PASSWORD` | Redis 密码 | 空 |
+| `BROKER_SECRET_KEY` | Broker 鉴权密钥 | 空（不校验） |
+
+### 手动构建
+
+```bash
+mvn clean package -DskipTests
+docker compose build config-center
+docker compose up -d config-center
+```
