@@ -203,7 +203,7 @@ public class SocketDTransport implements ConfigTransport {
         }
 
         try {
-            Entity request = new StringEntity("{\"action\":\"batch_all\"}")
+            Entity request = new StringEntity("{}")
                     .metaPut("apps", String.join(",", appNames))
                     .metaPut("env", env);
 
@@ -253,7 +253,7 @@ public class SocketDTransport implements ConfigTransport {
     @Override
     public String fetchChanges(String appName, String env) {
         try {
-            Entity request = new StringEntity("{\"action\":\"changes\"}")
+            Entity request = new StringEntity("{}")
                     .metaPut("app", appName)
                     .metaPut("env", env);
 

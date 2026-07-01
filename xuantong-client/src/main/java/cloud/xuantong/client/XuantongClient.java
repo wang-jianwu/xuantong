@@ -13,7 +13,8 @@ import java.util.List;
 public class XuantongClient implements AutoCloseable {
 
     private final ConfigCore configCore;
-    private static XuantongClient defaultInstance = null;
+    private static volatile XuantongClient defaultInstance = null;
+    private static final Object LOCK = new Object();
 
     /**
      * 构造函数 - 支持多应用订阅
@@ -31,12 +32,16 @@ public class XuantongClient implements AutoCloseable {
     }
 
     /**
-     * 注册当前实例为默认实例
+     * 注册当前实例为默认实例（双重检查锁定，静态锁保护静态字段）
      */
-    private synchronized void registerAsDefault() {
+    private void registerAsDefault() {
         if (defaultInstance == null) {
-            defaultInstance = this;
-            XuantongConfig.setClient(this);
+            synchronized (LOCK) {
+                if (defaultInstance == null) {
+                    defaultInstance = this;
+                    XuantongConfig.setClient(this);
+                }
+            }
         }
     }
 

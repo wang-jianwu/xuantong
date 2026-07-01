@@ -71,8 +71,8 @@ public class ConfigCacheManager {
     }
 
     // 获取配置（支持默认值）
-    public synchronized String get(String key) {
-        // 1. 检查内存缓存（同步）
+    public String get(String key) {
+        // 1. 检查内存缓存（ConcurrentHashMap 线程安全，无需 synchronized）
         String value = memoryCache.get(key);
         if (value != null) {
             lastAccessTimes.put(key, System.currentTimeMillis());
@@ -224,7 +224,7 @@ public class ConfigCacheManager {
     private String getFromCacheFile(String key) {
         String appName = extractAppName(key);
         if (DEFAULT_APP.equals(appName)) {
-            logger.error("Failed to load cache file for key: {}", key);
+            logger.debug("No app prefix for key, skip file cache: {}", key);
             return null;
         }
         Path cacheFile = getCachePath(appName);
@@ -241,13 +241,12 @@ public class ConfigCacheManager {
         // 按应用名分组配置
         Map<String, Map<String, String>> appConfigs = new ConcurrentHashMap<>();
         configs.forEach((key, value) -> {
-            String app = extractAppName(key);
             String appName = extractAppName(key);
             if (DEFAULT_APP.equals(appName)) {
-                logger.error("Failed to load cache file for key: {}", key);
+                logger.warn("Skipping cache for key without app prefix: {}", key);
                 return;
             }
-            appConfigs.computeIfAbsent(app, k -> new ConcurrentHashMap<>())
+            appConfigs.computeIfAbsent(appName, k -> new ConcurrentHashMap<>())
                     .put(key, value);
         });
 
@@ -278,7 +277,7 @@ public class ConfigCacheManager {
     private void removeFromCacheFile(String key) {
         String appName = extractAppName(key);
         if (DEFAULT_APP.equals(appName)) {
-            logger.error("Failed to load cache file for key: {}", key);
+            logger.debug("No app prefix for key, skip file remove: {}", key);
             return;
         }
         Path cacheFile = getCachePath(appName);
