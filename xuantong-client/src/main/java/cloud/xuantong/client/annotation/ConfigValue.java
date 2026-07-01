@@ -6,8 +6,6 @@ package cloud.xuantong.client.annotation;
  * 核心注解
  */
 
-import cloud.xuantong.client.enums.ValueType;
-
 import java.lang.annotation.*;
 
 
@@ -35,11 +33,6 @@ public @interface ConfigValue {
      * 自动刷新（动态配置）
      */
     boolean autoRefresh() default true;
-
-    /**
-     * 数据类型
-     */
-    ValueType type() default ValueType.STRING;
 
     /**
      * 配置描述

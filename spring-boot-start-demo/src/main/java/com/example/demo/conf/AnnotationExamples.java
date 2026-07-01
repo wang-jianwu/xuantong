@@ -1,7 +1,6 @@
 package com.example.demo.conf;
 
 import cloud.xuantong.client.annotation.ConfigValue;
-import cloud.xuantong.client.enums.ValueType;
 import lombok.Data;
 import lombok.Getter;
 import org.springframework.context.annotation.Configuration;
@@ -29,10 +28,10 @@ public class AnnotationExamples {
         @ConfigValue(value = "demo.nimbus.aaa", defaultValue = "MyApp", autoRefresh = true)
         private String appName;
 
-        @ConfigValue(value = "social.trtc.appid", type = ValueType.JSON, defaultValue = "8080")
+        @ConfigValue(value = "social.trtc.appid", defaultValue = "8080")
         private Long appid;
 
-        @ConfigValue(value = "fsocial.audit.switch", type = ValueType.BOOLEAN, defaultValue = "true")
+        @ConfigValue(value = "fsocial.audit.switch", defaultValue = "true")
         private boolean featureEnabled;
     }
 
@@ -43,10 +42,10 @@ public class AnnotationExamples {
     @Getter
     public static class ComplexConfigService {
 
-        @ConfigValue(value = "social.app.conf", type = ValueType.JSON)
+        @ConfigValue(value = "social.app.conf")
         private List<AppConfig> appConfig;
 
-        @ConfigValue(value = "social.pay.channel.zl", type = ValueType.JSON, autoRefresh = true)
+        @ConfigValue(value = "social.pay.channel.zl", autoRefresh = true)
         private Map<PayChannel, PaymentConfig> paymentConfig;
     }
 

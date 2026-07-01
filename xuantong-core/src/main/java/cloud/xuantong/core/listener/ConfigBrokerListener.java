@@ -352,6 +352,19 @@ public class ConfigBrokerListener extends BrokerListener {
     }
 
     /**
+     * 检查是否有客户端订阅了指定项目
+     * 注意：subscribedApps 只在客户端发起请求后才被填充，刚连上的客户端可能检测不到
+     */
+    public boolean hasSubscriber(String project, String env) {
+        for (PlayerInfo info : activePlayers.values()) {
+            if (env.equals(info.getPlayerName()) && info.getSubscribedApps().contains(project)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 获取活跃 Player 数量
      */
     public int getActivePlayerCount() {

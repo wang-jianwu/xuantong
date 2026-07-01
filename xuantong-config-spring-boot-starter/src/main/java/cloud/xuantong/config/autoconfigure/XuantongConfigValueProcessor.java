@@ -80,7 +80,8 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
 
             XuantongClient client = xuantongClientProvider.getIfAvailable();
             if (client != null) {
-                Object configValueObj = getConfigValue(client, configKey, field, defaultValue, configValue.type());
+                ValueType resolvedType = ValueType.inferFromClass(field.getType());
+                Object configValueObj = getConfigValue(client, configKey, field, defaultValue, resolvedType);
                 if (configValueObj != null) {
                     field.set(bean, configValueObj);
                 } else if (configValue.required()) {
@@ -151,8 +152,9 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
     private void refreshFieldValue(Object bean, Field field, ConfigValue configValue, String newValue) {
         try {
             field.setAccessible(true);
+            ValueType resolvedType = ValueType.inferFromClass(field.getType());
             Object convertedValue;
-            if (configValue.type() == ValueType.JSON) {
+            if (resolvedType == ValueType.JSON) {
                 XuantongClient client = xuantongClientProvider.getIfAvailable();
                 if (client == null) return;
                 Class<?> fieldType = field.getType();
@@ -162,7 +164,7 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
                     convertedValue = client.getObject(configValue.value(), fieldType);
                 }
             } else {
-                convertedValue = convertStringToType(newValue, field.getType(), configValue.type());
+                convertedValue = convertStringToType(newValue, field.getType(), resolvedType);
             }
             if (convertedValue != null) {
                 field.set(bean, convertedValue);

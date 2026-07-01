@@ -1,7 +1,6 @@
 package com.example.demo.controller;
 
 import cloud.xuantong.client.annotation.ConfigValue;
-import cloud.xuantong.client.enums.ValueType;
 import com.example.demo.conf.AnnotationExamples;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;

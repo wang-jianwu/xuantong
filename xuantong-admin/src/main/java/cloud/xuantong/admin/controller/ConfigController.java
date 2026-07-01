@@ -2,6 +2,7 @@ package cloud.xuantong.admin.controller;
 
 import com.easy.query.core.api.pagination.EasyPageResult;
 import cloud.xuantong.core.cluster.ConfigClusterBroadcaster;
+import cloud.xuantong.core.listener.ConfigBrokerListener;
 import cloud.xuantong.core.listener.model.ConfigChangeEvent;
 import cloud.xuantong.core.model.ChangeVo;
 import cloud.xuantong.core.model.ConfigItem;
@@ -30,6 +31,9 @@ public class ConfigController {
 
     @Inject
     private ConfigClusterBroadcaster clusterBroadcaster;
+
+    @Inject
+    private ConfigBrokerListener brokerListener;
 
     @Get
     @Mapping("/{project}/{environment}/{key}")
@@ -134,6 +138,14 @@ public class ConfigController {
     @Mapping("/{id}")
     public Result<String> deleteConfig(
             @Path Long id) {
+        ConfigItem config = configService.getConfigById(id);
+        if (config == null) {
+            return Result.failure("配置不存在");
+        }
+        // 检查是否有客户端正在使用该配置
+        if (brokerListener.hasSubscriber(config.getProject(), config.getEnvironment())) {
+            return Result.failure("有客户端正在使用此配置，无法删除");
+        }
         boolean success = configService.deleteConfig(id);
         return success ? Result.succeed("删除成功") : Result.failure("删除失败");
     }

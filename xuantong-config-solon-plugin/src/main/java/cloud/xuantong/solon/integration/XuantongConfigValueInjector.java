@@ -44,7 +44,7 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
 
             if (value != null) {
                 // 类型转换并直接设置到 VarHolder
-                Object convertedValue = convertValue(value, varH, anno.type());
+                Object convertedValue = convertValue(value, varH);
                 varH.setValue(convertedValue);
             }
 
@@ -60,11 +60,12 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
         }
     }
 
-    private Object convertValue(String value, VarHolder varH, ValueType valueType) {
+    private Object convertValue(String value, VarHolder varH) {
         try {
             if (value == null) return null;
 
             Class<?> targetType = varH.getDependencyType();
+            ValueType valueType = ValueType.inferFromClass(targetType);
             switch (valueType) {
                 case BOOLEAN:
                     return Boolean.parseBoolean(value);
@@ -109,8 +110,7 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
                     String newValue = event.getNewValue();
                     Object convertedValue = convertValue(
                             newValue != null ? newValue : configValue.defaultValue(),
-                            varH,
-                            configValue.type());
+                            varH);
                     varH.setValue(convertedValue);
                     logger.info("Auto-refreshed field: {} to new value: {}", key, newValue);
                 } catch (Exception e) {

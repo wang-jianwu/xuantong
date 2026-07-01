@@ -2,7 +2,6 @@ package com.example.controller;
 
 import cloud.xuantong.client.XuantongConfig;
 import cloud.xuantong.client.annotation.ConfigValue;
-import cloud.xuantong.client.enums.ValueType;
 import org.noear.solon.annotation.Controller;
 import org.noear.solon.annotation.Init;
 import org.noear.solon.annotation.Inject;
@@ -21,7 +20,7 @@ import java.util.Collections;
 public class TestController {
     private static final Logger logger = LoggerFactory.getLogger(TestController.class);
 
-    @ConfigValue(value = "demo.nimbus.aaa", defaultValue = "xxx", type = ValueType.STRING)
+    @ConfigValue(value = "demo.nimbus.aaa", defaultValue = "xxx")
     private String test;
 
     public TestController() {
