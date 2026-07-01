@@ -1,7 +1,7 @@
 package cloud.xuantong.admin.controller;
 
-import cloud.xuantong.core.cluster.ClusterSyncPlayer;
-import cloud.xuantong.core.listener.ConfigBrokerListener;
+import cloud.xuantong.core.cluster.ClusterMonitor;
+import cloud.xuantong.core.listener.BrokerMonitor;
 import org.noear.solon.annotation.Controller;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Mapping;
@@ -16,10 +16,10 @@ import java.util.Map;
 public class HomeController {
 
     @Inject
-    private ConfigBrokerListener brokerListener;
+    private BrokerMonitor brokerMonitor;
 
     @Inject(required = false)
-    private ClusterSyncPlayer clusterSyncPlayer;
+    private ClusterMonitor clusterMonitor;
 
     /**
      * 重定向未登录用户到登录页
@@ -100,8 +100,8 @@ public class HomeController {
     public Map<String, Object> health() {
         Map<String, Object> status = new HashMap<>();
         status.put("broker", "UP");
-        status.put("playerCount", brokerListener.getActivePlayerCount());
-        status.put("clusterConnections", clusterSyncPlayer != null ? clusterSyncPlayer.getActiveConnectionCount() : 0);
+        status.put("playerCount", brokerMonitor.getActivePlayerCount());
+        status.put("clusterConnections", clusterMonitor != null ? clusterMonitor.getActiveConnectionCount() : 0);
         return status;
     }
 
@@ -110,7 +110,7 @@ public class HomeController {
      */
     @Mapping("/api/broker/players")
     public Object getPlayers(Context context) {
-        return brokerListener.getActivePlayers();
+        return brokerMonitor.getActivePlayers();
     }
 
     /**
@@ -118,7 +118,7 @@ public class HomeController {
      */
     @Mapping("/api/broker/push-logs")
     public Object getPushLogs(Context context) {
-        return brokerListener.getPushLogs();
+        return brokerMonitor.getPushLogs();
     }
 
     /**
@@ -128,10 +128,10 @@ public class HomeController {
     public Object getBrokerOverview(Context context) {
 
         Map<String, Object> overview = new HashMap<>();
-        overview.put("activePlayers", brokerListener.getActivePlayers());
-        overview.put("playerCount", brokerListener.getActivePlayerCount());
-        overview.put("recentPushLogs", brokerListener.getPushLogs());
-        overview.put("clusterConnections", clusterSyncPlayer != null ? clusterSyncPlayer.getActiveConnectionCount() : 0);
+        overview.put("activePlayers", brokerMonitor.getActivePlayers());
+        overview.put("playerCount", brokerMonitor.getActivePlayerCount());
+        overview.put("recentPushLogs", brokerMonitor.getPushLogs());
+        overview.put("clusterConnections", clusterMonitor != null ? clusterMonitor.getActiveConnectionCount() : 0);
         return overview;
     }
 }

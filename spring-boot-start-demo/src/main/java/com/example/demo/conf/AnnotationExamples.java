@@ -31,7 +31,7 @@ public class AnnotationExamples {
         @ConfigValue(value = "social.trtc.appid", defaultValue = "8080")
         private Long appid;
 
-        @ConfigValue(value = "fsocial.audit.switch", defaultValue = "true")
+        @ConfigValue(value = "social.audit.switch", defaultValue = "true")
         private boolean featureEnabled;
     }
 

@@ -28,7 +28,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 @Slf4j
 @Component
-public class ConfigBrokerListener extends BrokerListener {
+public class ConfigBrokerListener extends BrokerListener implements ConfigPusher, BrokerMonitor {
 
     @Inject
     private ConfigService configService;
@@ -138,11 +138,12 @@ public class ConfigBrokerListener extends BrokerListener {
         super.onMessage(requester, message);
     }
 
-    // ===== 推送 =====
+    // ===== 推送（ConfigPusher 接口实现） =====
 
     /**
      * 全量推送：推给同环境的所有 Player
      */
+    @Override
     public void pushConfigChange(String project, String env, String changeJson) {
         pushConfigChange(project, env, changeJson, false);
     }
@@ -151,6 +152,7 @@ public class ConfigBrokerListener extends BrokerListener {
      * 推送配置变更
      * @param gray true=灰度推送（单播1台），false=全量推送（组播所有）
      */
+    @Override
     public void pushConfigChange(String project, String env, String changeJson, boolean gray) {
         pushConfigChange(project, env, changeJson, gray, null, 0);
     }
@@ -161,6 +163,7 @@ public class ConfigBrokerListener extends BrokerListener {
      * @param targetIp   指定目标 IP（不为 null 时按 IP 推）
      * @param percentage 按比例推送（0~1，如 0.1 表示 10%）
      */
+    @Override
     public void pushConfigChange(String project, String env, String changeJson, boolean gray, String targetIp, double percentage) {
         try {
             PushLog pushLog = new PushLog();
@@ -240,6 +243,7 @@ public class ConfigBrokerListener extends BrokerListener {
         }
     }
 
+    @Override
     public void broadcastClusterSync(String syncJson) {
         try {
             broadcast("/cluster-sync", new StringEntity(syncJson).at("config-node*"));
@@ -335,11 +339,12 @@ public class ConfigBrokerListener extends BrokerListener {
         }
     }
 
-    // ===== 监控数据查询 =====
+    // ===== 监控数据查询（BrokerMonitor 接口实现） =====
 
     /**
      * 获取所有活跃 Player 信息
      */
+    @Override
     public List<PlayerInfo> getActivePlayers() {
         return new ArrayList<>(activePlayers.values());
     }
@@ -347,6 +352,7 @@ public class ConfigBrokerListener extends BrokerListener {
     /**
      * 获取推送日志
      */
+    @Override
     public List<PushLog> getPushLogs() {
         return new ArrayList<>(pushLogs);
     }
@@ -355,6 +361,7 @@ public class ConfigBrokerListener extends BrokerListener {
      * 检查是否有客户端订阅了指定项目
      * 注意：subscribedApps 只在客户端发起请求后才被填充，刚连上的客户端可能检测不到
      */
+    @Override
     public boolean hasSubscriber(String project, String env) {
         for (PlayerInfo info : activePlayers.values()) {
             if (env.equals(info.getPlayerName()) && info.getSubscribedApps().contains(project)) {
@@ -367,6 +374,7 @@ public class ConfigBrokerListener extends BrokerListener {
     /**
      * 获取活跃 Player 数量
      */
+    @Override
     public int getActivePlayerCount() {
         return activePlayers.size();
     }

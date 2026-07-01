@@ -15,11 +15,14 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ConfigListenerManager {
     private static final Logger logger = LoggerFactory.getLogger(ConfigListenerManager.class);
     private static final long DEFAULT_EXECUTION_TIMEOUT = 500; // 500ms
-    private static final int MAX_CONCURRENT_LISTENERS = 100;
+    private static final int CORE_POOL_SIZE = 2;
+    private static final int MAX_POOL_SIZE = 16;
+    private static final long KEEP_ALIVE_SECONDS = 60L;
+    private static final int QUEUE_CAPACITY = 64;
 
     // key -> listeners mapping
     private final Map<String, List<ConfigListener>> listenersMap = new ConcurrentHashMap<>();
-    // 监听器执行线程池
+    // 监听器执行线程池（弹性：核心2线程，上限16，空闲60s回收）
     private final ExecutorService listenerExecutor;
     // 监控指标
     private final Map<String, Long> listenerExecutionTimes = new ConcurrentHashMap<>();
@@ -28,13 +31,16 @@ public class ConfigListenerManager {
     private final AtomicLong timeoutExecutions = new AtomicLong(0);
 
     public ConfigListenerManager() {
-        this.listenerExecutor = Executors.newFixedThreadPool(
-            MAX_CONCURRENT_LISTENERS,
+        this.listenerExecutor = new ThreadPoolExecutor(
+            CORE_POOL_SIZE, MAX_POOL_SIZE,
+            KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(QUEUE_CAPACITY),
             r -> {
                 Thread thread = new Thread(r, "config-listener-" + System.nanoTime());
                 thread.setDaemon(true);
                 return thread;
-            }
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy()
         );
     }
 

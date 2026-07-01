@@ -102,11 +102,9 @@ public class SocketDTransport implements ConfigTransport {
             }
         }
 
-        // 所有 Broker 都连接失败，启动后台重连
-        logger.error("All Brokers unreachable, starting background reconnect");
+        // 所有 Broker 都连接失败，启动后台重连（不抛异常，让应用继续启动）
+        logger.warn("All Brokers unreachable, starting background reconnect. App will continue without initial config.");
         startBackgroundReconnect();
-
-        throw new XuantongException("Failed to connect to any Broker after trying all addresses", lastException);
     }
 
     /**
@@ -220,7 +218,7 @@ public class SocketDTransport implements ConfigTransport {
     @Override
     public String fetch(String key, String env) {
         try {
-            Entity request = new StringEntity("{\"action\":\"get\",\"key\":\"" + key + "\"}")
+            Entity request = new StringEntity("{}")
                     .metaPut("env", env)
                     .metaPut("key", key);
 

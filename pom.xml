@@ -126,6 +126,13 @@
                 <artifactId>protobuf-java</artifactId>
                 <version>${protobuf.version}</version>
             </dependency>
+            <!-- 测试依赖 -->
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-test</artifactId>
+                <version>${solon.version}</version>
+                <scope>test</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>

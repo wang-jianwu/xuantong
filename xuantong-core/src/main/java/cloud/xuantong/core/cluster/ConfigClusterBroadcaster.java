@@ -1,11 +1,12 @@
 package cloud.xuantong.core.cluster;
 
-import cloud.xuantong.core.listener.ConfigBrokerListener;
+import cloud.xuantong.core.listener.ConfigPusher;
 import cloud.xuantong.core.listener.model.ConfigChangeEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.snack4.ONode;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
+import org.noear.solon.core.event.EventListener;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -14,20 +15,43 @@ import java.util.Map;
  * 配置变更广播器（Broker 模式）
  * <p>
  * 职责：
- * 1. 客户端推送：通过 Broker 组播，推送给匹配的客户端 Player（@=project:env*）
- * 2. 集群同步：通过 Broker 组播，广播给其他配置中心节点（@=config-node*）
+ * 1. 客户端推送：通过 ConfigPusher 组播，推送给匹配的客户端 Player
+ * 2. 集群同步：通过 ConfigPusher 组播，广播给其他配置中心节点
  * <p>
  * 配置变更传播路径：
- * API → ConfigService → ConfigClusterBroadcaster
- * → brokerListener.pushConfigChange()（客户端推送）
- * → brokerListener.broadcastClusterSync()（集群同步）
+ * API → EventBus → ConfigClusterBroadcaster → ConfigPusher（抽象）
+ * → ConfigBrokerListener（Socket.D 实现）
  */
 @Slf4j
 @Component
-public class ConfigClusterBroadcaster {
+public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> {
 
     @Inject
-    private ConfigBrokerListener brokerListener;
+    private ConfigPusher pusher;
+
+    /**
+     * 事件总线订阅：处理 ConfigPushEvent
+     */
+    @Override
+    public void onEvent(ConfigPushEvent pushEvent) throws Throwable {
+        ConfigChangeEvent event = pushEvent.getConfigEvent();
+        switch (pushEvent.getPushMode()) {
+            case NONE:
+                return;
+            case ALL:
+                broadcastConfigChange(event, false);
+                break;
+            case GRAY:
+                broadcastConfigChange(event, true);
+                break;
+            case IP:
+                broadcastConfigChange(event, true, pushEvent.getTargetIp(), 0);
+                break;
+            case PERCENTAGE:
+                broadcastConfigChange(event, true, null, pushEvent.getPercentage());
+                break;
+        }
+    }
 
     /**
      * 全量推送配置变更
@@ -56,12 +80,12 @@ public class ConfigClusterBroadcaster {
         String changeJson = ONode.serialize(changeData);
 
         // 推送给客户端 Player
-        brokerListener.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson, gray, targetIp, percentage);
+        pusher.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson, gray, targetIp, percentage);
 
         // 全量推送时才集群同步
         if (!gray) {
             String syncJson = ONode.serialize(event);
-            brokerListener.broadcastClusterSync(syncJson);
+            pusher.broadcastClusterSync(syncJson);
         }
 
         log.debug("Config change broadcast: {}={} gray={} ip={} pct={}",
@@ -82,6 +106,6 @@ public class ConfigClusterBroadcaster {
         changeData.put(event.getKey(), event.getValue());
         String changeJson = ONode.serialize(changeData);
 
-        brokerListener.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson);
+        pusher.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson);
     }
 }

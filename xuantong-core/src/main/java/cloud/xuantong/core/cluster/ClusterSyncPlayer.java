@@ -13,6 +13,9 @@ import org.noear.solon.annotation.Init;
 
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 集群同步 Player
@@ -27,7 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 @Slf4j
 @Component
-public class ClusterSyncPlayer {
+public class ClusterSyncPlayer implements ClusterMonitor {
 
     @Inject
     private ClusterConfig clusterConfig;
@@ -37,6 +40,7 @@ public class ClusterSyncPlayer {
 
     private final String nodeId = UUID.randomUUID().toString().substring(0, 8);
     private final CopyOnWriteArrayList<ClientSession> sessions = new CopyOnWriteArrayList<>();
+    private ScheduledExecutorService scheduler;
 
     @Init
     public void init() {
@@ -47,16 +51,15 @@ public class ClusterSyncPlayer {
 
         log.info("ClusterSyncPlayer starting, nodeId: {}", nodeId);
 
-        new Thread(() -> {
-            try {
-                // 延迟启动，等待 Broker 就绪
-                Thread.sleep(3000);
-                connectToClusterNodes();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.warn("ClusterSyncPlayer init interrupted");
-            }
-        }, "cluster-sync-init").start();
+        // 用 ScheduledExecutorService 延迟启动，比裸 Thread.sleep 更优雅：
+        // 1. 可被 close() 中的 shutdownNow 正常取消
+        // 2. 不占用线程等待，延迟到点后执行一次即释放
+        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "cluster-sync-init");
+            t.setDaemon(true);
+            return t;
+        });
+        scheduler.schedule(this::connectToClusterNodes, 3, TimeUnit.SECONDS);
     }
 
     /**
@@ -131,6 +134,7 @@ public class ClusterSyncPlayer {
     /**
      * 获取活跃的集群连接数
      */
+    @Override
     public int getActiveConnectionCount() {
         return (int) sessions.stream().filter(ClientSession::isValid).count();
     }
@@ -140,6 +144,11 @@ public class ClusterSyncPlayer {
      */
     @Destroy
     public void close() {
+        // 取消尚未执行的延迟任务
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+        }
+
         sessions.forEach(session -> {
             try {
                 session.close();

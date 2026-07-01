@@ -1,11 +1,10 @@
 package cloud.xuantong.core.model;
 
+import cloud.xuantong.core.model.proxy.EnvironmentProxy;
 import com.easy.query.core.annotation.Column;
-import com.easy.query.core.annotation.EntityFileProxy;
 import com.easy.query.core.annotation.EntityProxy;
 import com.easy.query.core.annotation.Table;
 import com.easy.query.core.proxy.ProxyEntityAvailable;
-import cloud.xuantong.core.model.proxy.EnvironmentProxy;
 import lombok.Data;
 
 /**
@@ -13,7 +12,6 @@ import lombok.Data;
  */
 @Data
 @EntityProxy
-@EntityFileProxy
 @Table("environment")
 public class Environment implements ProxyEntityAvailable<Environment , EnvironmentProxy> {
     @Column(primaryKey = true)

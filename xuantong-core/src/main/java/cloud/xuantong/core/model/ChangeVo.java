@@ -1,8 +1,8 @@
 package cloud.xuantong.core.model;
 
+import cloud.xuantong.core.model.proxy.ChangeVoProxy;
 import com.easy.query.core.annotation.EntityProxy;
 import com.easy.query.core.proxy.ProxyEntityAvailable;
-import cloud.xuantong.core.model.proxy.ChangeVoProxy;
 import lombok.Data;
 
 import java.util.Date;

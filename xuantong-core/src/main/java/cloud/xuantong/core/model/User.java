@@ -1,11 +1,10 @@
 package cloud.xuantong.core.model;
 
+import cloud.xuantong.core.model.proxy.UserProxy;
 import com.easy.query.core.annotation.Column;
-import com.easy.query.core.annotation.EntityFileProxy;
 import com.easy.query.core.annotation.EntityProxy;
 import com.easy.query.core.annotation.Table;
 import com.easy.query.core.proxy.ProxyEntityAvailable;
-import cloud.xuantong.core.model.proxy.UserProxy;
 import lombok.Data;
 
 import java.util.Date;
@@ -15,7 +14,6 @@ import java.util.Date;
  */
 @Data
 @EntityProxy
-@EntityFileProxy
 @Table("user")
 public class User implements ProxyEntityAvailable<User , UserProxy> {
     @Column(primaryKey = true, generatedKey = true)
