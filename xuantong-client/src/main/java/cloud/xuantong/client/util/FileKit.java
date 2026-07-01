@@ -194,7 +194,9 @@ public class FileKit {
             } catch (IOException e) {
                 // 原子移动失败时降级到复制策略（兼容性更好）
                 logger.debug("Atomic move failed, fallback to copy strategy: {}", e.getMessage());
-                Files.copy(tempFile, path, StandardCopyOption.REPLACE_EXISTING);
+                if (Files.exists(tempFile)) {
+                    Files.copy(tempFile, path, StandardCopyOption.REPLACE_EXISTING);
+                }
             }
         } finally {
             deleteFile(tempFile);
@@ -212,7 +214,7 @@ public class FileKit {
 
         Path tempFile = path.resolveSibling(path.getFileName() + ".tmp");
         try {
-            try (BufferedWriter writer = createBufferedWriter(tempFile, StandardOpenOption.CREATE)) {
+            try (BufferedWriter writer = createBufferedWriter(tempFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
                 for (String line : lines) {
                     writer.write(line);
                     writer.newLine();
@@ -225,7 +227,9 @@ public class FileKit {
             } catch (IOException e) {
                 // 原子移动失败时降级到复制策略（兼容性更好）
                 logger.debug("Atomic move failed, fallback to copy strategy: {}", e.getMessage());
-                Files.copy(tempFile, path, StandardCopyOption.REPLACE_EXISTING);
+                if (Files.exists(tempFile)) {
+                    Files.copy(tempFile, path, StandardCopyOption.REPLACE_EXISTING);
+                }
             }
         } finally {
             deleteFile(tempFile);

@@ -1019,7 +1019,7 @@
                 const data = await response.json();
 
                 if (data.code === 200) {
-                    showToast((data.description || data.message) || '保存成功', 'success');
+                    showToast(data.data || (data.description || data.message) || '保存成功', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('configModal')).hide();
                     await loadConfigs(currentPage);
                 } else {
@@ -1035,6 +1035,7 @@
         async function pushConfig(config, mode) {
             let targetIp = '';
             let percentage = 0;
+            const label = mode === 'gray' ? '灰度推送（随机1台）' : '全量推送（全部）';
 
             if (mode === 'gray') {
                 // 显示灰度选择对话框
@@ -1068,7 +1069,7 @@
 
                 const data = await response.json();
                 if (data.code === 200) {
-                    showToast((data.description || data.message) || label + '成功', 'success');
+                    showToast(data.data || (data.description || data.message) || label + '成功', 'success');
                 } else {
                     showToast('推送失败: ' + (data.description || data.message), 'error');
                 }
