@@ -405,9 +405,13 @@ public class ConfigBrokerListener extends BrokerListener implements ConfigPusher
 
         /** 灰度推送：单播随机选 1 台 */
         private void pushGray(PushLog pushLog, String env, String changeJson) throws IOException {
+            // 先检查是否有在线 Player，避免日志硬编码为 1 但实际无人收到
+            boolean hasPlayer = activePlayers.values().stream()
+                    .anyMatch(p -> env.equals(p.getPlayerName()));
+            pushLog.setTargetPlayerCount(hasPlayer ? 1 : 0);
             broadcast("/config-change", new StringEntity(changeJson).at(env));
-            pushLog.setTargetPlayerCount(1);
-            log.info("Gray push: project={}, env={}, key={}", pushLog.getProject(), env, pushLog.getChangeKey());
+            log.info("Gray push: project={}, env={}, key={}, targetPlayers={}",
+                    pushLog.getProject(), env, pushLog.getChangeKey(), pushLog.getTargetPlayerCount());
         }
 
         /** 全量推送：组播所有匹配的 Player */

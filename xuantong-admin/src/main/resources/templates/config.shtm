@@ -1205,10 +1205,10 @@
             return value;
         }
 
-        // 从值推断配置类型（用于列表展示）
+        // 从值推断配置类型（用于旧数据列表展示，新数据优先用存储的 valueType）
         function detectValueType(value) {
             if (!value) return 'STRING';
-            if (/^\d+\.?\d*$/.test(value)) return 'NUMBER';
+            if (/^-?\d+(\.\d+)?$/.test(value)) return 'NUMBER';
             if (value === 'true' || value === 'false') return 'BOOLEAN';
             try { JSON.parse(value); return 'JSON'; } catch(e) {}
             return 'STRING';

@@ -195,6 +195,9 @@ public class ConfigService {
         boolean result;
         String oldValue = null;
 
+        // 保留明文值，用于构建推送事件（推送给客户端的必须是明文）
+        String plainValue = config.getValue();
+
         if (Boolean.TRUE.equals(config.getIsEncrypted())) {
             config.setValue(getEncryptor().encrypt(config.getValue()));
         }
@@ -219,7 +222,8 @@ public class ConfigService {
 
         if (result) {
             removeCache(config.getKey(), config.getEnvironment(), config.getProject());
-            return new ConfigChangeEvent(config.getKey(), config.getValue(),
+            // 推送事件使用明文值，客户端不需要也不应该接触密文
+            return new ConfigChangeEvent(config.getKey(), plainValue,
                     config.getProject(), config.getEnvironment());
         }
         return null;
