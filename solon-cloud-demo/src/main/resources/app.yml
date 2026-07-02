@@ -19,11 +19,11 @@ xuantong:
       - advert
     environment: dev
 #solon.cloud:
-    #  xuantong:
-    #   server: 127.0.0.1:8088,127.0.0.1:8089
-    #   namespace: dev:social,demo,advert
-      # config:
-    #  load: demo.aaa.yml
+#      xuantong:
+#       server: 127.0.0.1:8088 #多个逗号,分隔
+#       namespace: dev:demo
+#       config:
+#      #load: demo.aaa.yml #这个里的配置可以使用@Inject
 solon:
   logging:
     appender:

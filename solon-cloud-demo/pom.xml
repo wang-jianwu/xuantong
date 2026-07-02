@@ -54,10 +54,11 @@
             <artifactId>xuantong-client</artifactId>
             <version>1.3.0</version>
         </dependency>
+        <!--测试cloud 插件时用这个-->
 <!--        <dependency>-->
-<!--            <groupId>org.noear</groupId>-->
+<!--            <groupId>cloud.xuantong</groupId>-->
 <!--            <artifactId>xuantong-config-solon-cloud-plugin</artifactId>-->
-<!--            <version>${solon.version}</version>-->
+<!--            <version>1.3.0</version>-->
 <!--        </dependency>-->
         <dependency>
             <groupId>org.projectlombok</groupId>
