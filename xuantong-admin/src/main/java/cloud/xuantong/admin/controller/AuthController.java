@@ -6,6 +6,9 @@ import org.noear.solon.annotation.*;
 import org.noear.solon.core.handle.Context;
 import org.noear.solon.core.handle.Result;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @Controller
 @Mapping("/api/auth")
 public class AuthController {
@@ -14,13 +17,13 @@ public class AuthController {
 
     @Post
     @Mapping("/login")
-    public Result<User> login(
+    public Result<Map<String, Object>> login(
             @Param String username,
             @Param String password, Context ctx) {
         User user = userService.authenticate(username, password);
         if (user != null) {
             ctx.sessionSet("user", user);
-            return Result.succeed(user);
+            return Result.succeed(toSafeMap(user));
         }
         return Result.failure("用户名或密码错误");
     }
@@ -34,8 +37,23 @@ public class AuthController {
 
     @Get
     @Mapping("/userinfo")
-    public Result<User> getUserInfo() {
+    public Result<Map<String, Object>> getUserInfo() {
         User user = Context.current().session("user", User.class);
-        return user != null ? Result.succeed(user) : Result.failure("未登录");
+        return user != null ? Result.succeed(toSafeMap(user)) : Result.failure("未登录");
+    }
+
+    /**
+     * 过滤密码哈希，防止 User 序列化时泄露密码字段
+     */
+    private Map<String, Object> toSafeMap(User user) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", user.getId());
+        map.put("username", user.getUsername());
+        map.put("email", user.getEmail());
+        map.put("realName", user.getRealName());
+        map.put("role", user.getRole());
+        map.put("isActive", user.getIsActive());
+        map.put("lastLoginTime", user.getLastLoginTime());
+        return map;
     }
 }
