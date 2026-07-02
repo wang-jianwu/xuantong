@@ -10,9 +10,12 @@ import cloud.xuantong.client.transport.ConfigTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 配置核心实现
@@ -75,7 +78,7 @@ public class ConfigCore implements AutoCloseable {
 
             initialized = true;
             logger.info("ConfigCore initialized successfully for {} apps: {}",
-                    subscribedApps.size() + 1, subscribedApps);
+                    subscribedApps.size(), subscribedApps);
         } catch (Exception e) {
             logger.error("ConfigCore initialization failed", e);
             throw new XuantongException("Failed to initialize ConfigCore", e);
@@ -123,7 +126,7 @@ public class ConfigCore implements AutoCloseable {
                 String data = transport.fetchAllForApps(subscribedApps, env);
                 if (data != null) {
                     Map<String, String> allConfigs = serializer.deserializeMap(data);
-                    cacheManager.batchUpdate(allConfigs);
+                    cacheManager.batchUpdate(allConfigs, true);
                     logger.info("Loaded {} initial configs from {} apps: {}",
                             allConfigs.size(), subscribedApps.size(), subscribedApps);
                     return;
@@ -164,8 +167,8 @@ public class ConfigCore implements AutoCloseable {
         }
 
         // 分离：更新 vs 删除
-        Map<String, String> updates = new java.util.HashMap<>();
-        java.util.List<String> deletions = new java.util.ArrayList<>();
+        Map<String, String> updates = new HashMap<>();
+        List<String> deletions = new ArrayList<>();
 
         for (Map.Entry<String, String> entry : newConfigs.entrySet()) {
             String key = entry.getKey();
@@ -179,7 +182,7 @@ public class ConfigCore implements AutoCloseable {
                 }
             } else {
                 // 服务端更新：值不同才视为变更
-                if (!java.util.Objects.equals(oldValue, newValue)) {
+                if (!Objects.equals(oldValue, newValue)) {
                     updates.put(key, newValue);
                 }
             }
@@ -223,16 +226,31 @@ public class ConfigCore implements AutoCloseable {
 
             // 检测断线期间被删除的 key：本地有但服务端全量中没有
             Map<String, String> localCache = cacheManager.getAll();
+            java.util.List<String> deletedKeys = new java.util.ArrayList<>();
             for (String localKey : localCache.keySet()) {
                 if (!allConfigs.containsKey(localKey)) {
-                    cacheManager.remove(localKey);
-                    listenerManager.fireEvent(new ConfigChangeEvent(localKey, null));
-                    logger.info("Detected deleted config after reconnect: {}", localKey);
+                    deletedKeys.add(localKey);
                 }
             }
 
-            // 通过 handleConfigPush 统一做 diff + 缓存更新 + 监听器触发
-            handleConfigPush(allConfigs);
+            // 全量替换缓存（replace=true），清除已删除的 key
+            cacheManager.batchUpdate(allConfigs, true);
+
+            // 从内存和文件中移除已删除的 key，并触发删除事件
+            for (String key : deletedKeys) {
+                cacheManager.remove(key);
+                listenerManager.fireEvent(new ConfigChangeEvent(key, null));
+                logger.info("Detected deleted config after reconnect: {}", key);
+            }
+
+            // 对更新的 key 触发监听器
+            for (Map.Entry<String, String> entry : allConfigs.entrySet()) {
+                String oldValue = localCache.get(entry.getKey());
+                if (!java.util.Objects.equals(oldValue, entry.getValue())) {
+                    listenerManager.fireEvent(new ConfigChangeEvent(entry.getKey(), entry.getValue()));
+                }
+            }
+
             logger.info("Config reload after reconnect completed: {} configs", allConfigs.size());
         } catch (Exception e) {
             logger.warn("Failed to reload configs after reconnect", e);

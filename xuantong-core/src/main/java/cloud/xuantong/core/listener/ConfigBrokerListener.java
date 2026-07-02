@@ -236,9 +236,14 @@ public class ConfigBrokerListener extends BrokerListener implements ConfigPusher
         }
 
         ConfigItem config = configService.getConfig(key, env, app);
-        String value = (config != null) ? config.getValue() : "";
-
-        replyIfRequest(session, message, new StringEntity(value));
+        if (config != null) {
+            // 记录存在：value 可能是正常值、空串 ""、或 DB NULL（用空串传输）
+            String value = config.getValue() != null ? config.getValue() : "";
+            replyIfRequest(session, message, new StringEntity(value).metaPut("found", "true"));
+        } else {
+            // 记录不存在：未配置
+            replyIfRequest(session, message, new StringEntity("").metaPut("found", "false"));
+        }
     }
 
     private void handlePing(Session session, Message message) throws IOException {
@@ -259,7 +264,8 @@ public class ConfigBrokerListener extends BrokerListener implements ConfigPusher
         pushLog.setEnv(env);
         pushLog.setTimestamp(System.currentTimeMillis());
         try {
-            Map<String, Object> changeMap = ONode.deserialize(changeJson, new TypeRef<Map<String, Object>>() {});
+            Map<String, Object> changeMap = ONode.deserialize(changeJson, new TypeRef<>() {
+            });
             if (changeMap != null && !changeMap.isEmpty()) {
                 pushLog.setChangeKey(changeMap.keySet().iterator().next());
             }
@@ -321,7 +327,7 @@ public class ConfigBrokerListener extends BrokerListener implements ConfigPusher
     // ===== 工具方法 =====
 
     /** 请求消息统一回复工具，避免重复判空嵌套 */
-    private void replyIfRequest(Session session, Message message, StringEntity entity) throws IOException {
+    private void replyIfRequest(Session session, Message message, Entity entity) throws IOException {
         if (message.isRequest() && session != null) {
             session.reply(message, entity);
         }

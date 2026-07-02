@@ -63,7 +63,7 @@ public class ConfigService {
 
     private void decryptMapValues(Map<String, String> map) {
         if (map == null || !getEncryptor().isEnabled()) return;
-        map.replaceAll((k, v) -> getEncryptor().decrypt(v));
+        map.replaceAll((k, v) -> v != null ? getEncryptor().decrypt(v) : v);
     }
 
     // ===== 缓存 =====
@@ -153,7 +153,7 @@ public class ConfigService {
             return Collections.emptyMap();
         }
         if (projects.size() == 1) {
-            return findByProjectAndEnvironment(projects.get(0), environment);
+            return findByProjectAndEnvironment(projects.getFirst(), environment);
         }
         Map<String, String> result = configRepository.findByProjectsAndEnvironment(projects, environment);
         decryptMapValues(result);
@@ -193,7 +193,14 @@ public class ConfigService {
     }
 
     public List<ConfigLog> getConfigHistory(Long configId) {
-        return configLogRepository.findByConfigId(configId);
+        List<ConfigLog> logs = configLogRepository.findByConfigId(configId);
+        // 日志中的 oldValue/newValue 可能是密文（ENC(...) 前缀），解密后返回给前端展示
+        // decrypt() 对非密文值透传，所以安全
+        for (ConfigLog log : logs) {
+            log.setOldValue(getEncryptor().decrypt(log.getOldValue()));
+            log.setNewValue(getEncryptor().decrypt(log.getNewValue()));
+        }
+        return logs;
     }
 
     // ===== 写入操作（事务保护，不推送） =====
@@ -268,18 +275,22 @@ public class ConfigService {
      * @return 删除成功返回 ConfigChangeEvent，失败返回 null
      */
     @Transaction
-    public ConfigChangeEvent deleteConfig(Long id) {
-        ConfigItem config = configRepository.findById(id);
+    public ConfigChangeEvent deleteConfig(ConfigItem config) {
         if (config == null) {
             return null;
         }
+        Long id = config.getId();
+        String key = config.getKey();
+        String oldValue = config.getValue();
+        String environment = config.getEnvironment();
+        String project = config.getProject();
         boolean result = configRepository.delete(id) > 0;
         if (result) {
-            saveConfigLog(id, "DELETE", config.getValue(), null,
-                    config.getProject(), config.getEnvironment());
-            removeCache(config.getKey(), config.getEnvironment(), config.getProject());
-            return new ConfigChangeEvent(config.getKey(), null,
-                    config.getProject(), config.getEnvironment());
+            saveConfigLog(id, "DELETE", oldValue, null,
+                    project, environment);
+            removeCache(key, environment, project);
+            return new ConfigChangeEvent(key, null,
+                    project, environment);
         }
         return null;
     }

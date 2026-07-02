@@ -214,7 +214,7 @@ public class FileKit {
 
         Path tempFile = path.resolveSibling(path.getFileName() + ".tmp");
         try {
-            try (BufferedWriter writer = createBufferedWriter(tempFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            try (BufferedWriter writer = createBufferedWriter(tempFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
                 for (String line : lines) {
                     writer.write(line);
                     writer.newLine();

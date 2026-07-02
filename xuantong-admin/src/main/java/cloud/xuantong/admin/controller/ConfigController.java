@@ -125,7 +125,7 @@ public class ConfigController {
             return Result.failure("配置不存在");
         }
 
-        ConfigChangeEvent event = configService.deleteConfig(id);
+        ConfigChangeEvent event = configService.deleteConfig(config);
         if (event == null) {
             return Result.failure("删除失败");
         }

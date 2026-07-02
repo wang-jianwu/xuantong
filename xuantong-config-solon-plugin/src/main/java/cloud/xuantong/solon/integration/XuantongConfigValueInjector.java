@@ -67,6 +67,11 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
 
             Class<?> targetType = varH.getDependencyType();
             ValueType valueType = ValueType.inferFromClass(targetType);
+            // 只有 String 类型允许空值，其他类型空串必须校验失败
+            if (value.isEmpty() && valueType != ValueType.STRING) {
+                throw new XuantongException("Empty config value is not allowed for non-String type: " + targetType);
+            }
+
             switch (valueType) {
                 case BOOLEAN:
                     return Boolean.parseBoolean(value);
@@ -125,14 +130,40 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
 
     private void registerAutoRefreshListener(VarHolder varH, ConfigValue configValue, String key) {
         try {
-            XuantongClient.getDefault().addListener(key, event -> {
+            XuantongClient client = XuantongClient.getDefault();
+            if (client == null) {
+                logger.warn("XuantongClient not initialized, skip auto-refresh for: {}", key);
+                return;
+            }
+            client.addListener(key, event -> {
                 try {
                     String newValue = event.getNewValue();
-                    Object convertedValue = convertValue(
-                            newValue != null ? newValue : configValue.defaultValue(),
-                            varH);
+
+                    // newValue="" 是"配置更新为空串"，不是删除，应直接设置
+                    String effectiveValue;
+                    if (newValue != null) {
+                        effectiveValue = newValue; // 包括 ""（空串也是有效配置值，仅 String 类型允许）
+                    } else {
+                        // 配置已删除，回退到注解默认值
+                        effectiveValue = configValue.defaultValue();
+                        if (effectiveValue.isEmpty()) {
+                            effectiveValue = null; // 空默认值 → 无默认值
+                        }
+                    }
+
+                    if (effectiveValue == null) {
+                        if (configValue.required()) {
+                            logger.warn("Config deleted but field is required, keeping old value: {}", key);
+                            return;
+                        }
+                        varH.setValue(null);
+                        logger.info("Auto-refreshed field: {} to null (config deleted)", key);
+                        return;
+                    }
+
+                    Object convertedValue = convertValue(effectiveValue, varH);
                     varH.setValue(convertedValue);
-                    logger.info("Auto-refreshed field: {} to new value: {}", key, newValue);
+                    logger.info("Auto-refreshed field: {} to new value", key);
                 } catch (Exception e) {
                     logger.error("Failed to auto-refresh field: {}", key, e);
                 }

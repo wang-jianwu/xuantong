@@ -1,3 +1,7 @@
+server.port: 8081
+spring:
+  application:
+    name: demo
 xuantong:
   config:
     server-addresses: ["127.0.0.1:8088"]

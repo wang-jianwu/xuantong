@@ -121,6 +121,10 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
 
     private Object convertStringToType(String value, Class<?> fieldType, ValueType valueType) {
         if (value == null) return null;
+        // 只有 String 类型允许空值，其他类型空串必须校验失败
+        if (value.isEmpty() && valueType != ValueType.STRING) {
+            throw new XuantongException("Empty config value is not allowed for non-String type: " + fieldType);
+        }
 
         try {
             if (valueType == ValueType.BOOLEAN) {
@@ -179,10 +183,17 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
             ValueType resolvedType = ValueType.inferFromClass(field.getType());
             Object convertedValue;
 
-            // 配置被删除（value=null）时，回退到注解的默认值
-            String effectiveValue = (newValue != null) ? newValue : configValue.defaultValue();
-            if (effectiveValue.isEmpty()) {
-                effectiveValue = null; // "" 视为无默认值
+            // 配置被删除（newValue=null）时，回退到注解的默认值
+            // newValue="" 是"配置更新为空串"，不是删除，应直接设置
+            String effectiveValue;
+            if (newValue != null) {
+                effectiveValue = newValue; // 包括 ""（空串也是有效配置值，仅 String 类型允许）
+            } else {
+                // 配置已删除，回退到注解默认值
+                effectiveValue = configValue.defaultValue();
+                if (effectiveValue.isEmpty()) {
+                    effectiveValue = null; // 空默认值 → 无默认值
+                }
             }
 
             if (effectiveValue == null) {

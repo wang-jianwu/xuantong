@@ -25,7 +25,7 @@ public class ConfigChangeEvent {
     public String toString() {
         return "ConfigChangeEvent{" +
                 "key='" + key + '\'' +
-                ", value='" + value + '\'' +
+                ", hasValue=" + (value != null && !value.isEmpty()) +
                 '}';
     }
 }

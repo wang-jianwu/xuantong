@@ -3,7 +3,9 @@ package cloud.xuantong.core.cluster;
 import cloud.xuantong.core.listener.ConfigPusher;
 import cloud.xuantong.core.listener.model.ConfigChangeEvent;
 import lombok.extern.slf4j.Slf4j;
+import org.noear.snack4.Feature;
 import org.noear.snack4.ONode;
+import org.noear.snack4.Options;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.core.event.EventListener;
@@ -36,8 +38,8 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
      */
     @Override
     public void onEvent(ConfigPushEvent pushEvent) throws Throwable {
-        ConfigChangeEvent event = pushEvent.getConfigEvent();
-        switch (pushEvent.getPushMode()) {
+        ConfigChangeEvent event = pushEvent.configEvent();
+        switch (pushEvent.pushMode()) {
             case NONE:
                 return;
             case ALL:
@@ -47,10 +49,10 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
                 broadcastConfigChange(event, true);
                 break;
             case IP:
-                broadcastConfigChange(event, true, pushEvent.getTargetIp(), 0);
+                broadcastConfigChange(event, true, pushEvent.targetIp(), 0);
                 break;
             case PERCENTAGE:
-                broadcastConfigChange(event, true, null, pushEvent.getPercentage());
+                broadcastConfigChange(event, true, null, pushEvent.percentage());
                 break;
         }
     }
@@ -85,7 +87,7 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
         // 全量推送时才集群同步
         if (!gray) {
             event.setSourceNodeId(clusterConfig.getNodeId());
-            String syncJson = ONode.serialize(event);
+            String syncJson = ONode.serialize(event, Options.of(Feature.Write_Nulls));
             pusher.broadcastClusterSync(syncJson);
         }
 
@@ -96,20 +98,23 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
     /**
      * 处理来自集群的配置变更
      * 由 ClusterSyncPlayer 收到 /cluster-sync 消息后调用
+     * <p>
+     * 注意：只推送给本地客户端 Player，不再触发集群广播（防止无限循环）
      *
      * @param event 配置变更事件
      */
     public void handleClusterSync(ConfigChangeEvent event) {
-        log.debug("Handling cluster sync: {}={}", event.getKey(), event.getValue());
+        log.debug("Handling cluster sync: key={}", event.getKey());
 
-        // 推送给本地连接的客户端 Player
+        // 仅推送给本地连接的客户端 Player，不广播回集群
         pusher.pushConfigChange(event.getProject(), event.getEnvironment(), buildChangeJson(event));
     }
 
     /**
-     * 构建单 key 变更 JSON（提取公共逻辑，消除重复 Map 创建）
+     * 构建单 key 变更 JSON
+     * null {} [] 保留
      */
     private String buildChangeJson(ConfigChangeEvent event) {
-        return ONode.serialize(Collections.singletonMap(event.getKey(), event.getValue()));
+        return ONode.serialize(Collections.singletonMap(event.getKey(), event.getValue()), Options.of(Feature.Write_Nulls));
     }
 }

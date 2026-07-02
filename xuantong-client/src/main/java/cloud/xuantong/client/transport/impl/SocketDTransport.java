@@ -138,16 +138,14 @@ public class SocketDTransport implements ConfigTransport {
                             })
                             .doOnOpen(s -> {
                                 logger.info("Broker connection opened: {}", s.sessionId());
-                                // 初始连接后再次打开才视为重连，避免与初始化流程重复
-                                if (initialConnected && onReconnectListener != null) {
-                                    logger.info("Reconnect detected, triggering config reload");
-                                    onReconnectListener.run();
-                                }
+                                // 仅标记初始连接完成；reload 由 startBackgroundReconnect 在 session 赋值后显式触发
+                                // 避免 doOnOpen 在 openOrThow 返回前触发、this.session 尚未赋值的时序问题
                                 initialConnected = true;
                             })
                             .doOnClose(s -> {
                                 logger.warn("Broker connection closed: {}", s.sessionId());
-                                if (!closed) {
+                                // 只有当前活跃 session 关闭才触发重连，旧 session 的关闭事件忽略
+                                if (!closed && s == session) {
                                     startBackgroundReconnect();
                                 }
                             })
@@ -205,6 +203,11 @@ public class SocketDTransport implements ConfigTransport {
                 if (connected) {
                     backoffMultiplier = 1; // 重置退避
                     reconnectThread = null;
+                    // 重连成功后触发配置重载（在 this.session 已赋值之后，避免 doOnOpen 时序问题）
+                    if (initialConnected && onReconnectListener != null) {
+                        logger.info("Reconnect succeeded, triggering config reload");
+                        onReconnectListener.run();
+                    }
                     return;
                 }
 
@@ -246,7 +249,7 @@ public class SocketDTransport implements ConfigTransport {
             return response.dataAsString();
         } catch (Exception e) {
             logger.error("Failed to fetch batch configs via Broker", e);
-            return "{}";
+            return null;
         }
     }
 
@@ -258,6 +261,11 @@ public class SocketDTransport implements ConfigTransport {
                     .metaPut("key", key);
 
             Entity response = session.sendAndRequest("/get", request).await();
+            // 服务端用 meta "found" 区分：配置存在（值为空串）vs 配置不存在
+            String found = response.meta("found");
+            if ("false".equals(found)) {
+                return null;
+            }
             return response.dataAsString();
         } catch (Exception e) {
             logger.error("Failed to fetch config '{}' via Broker", key, e);

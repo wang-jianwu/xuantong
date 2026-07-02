@@ -199,7 +199,9 @@ public class ConfigRepositoryImpl implements ConfigRepository {
         list.forEach(map -> {
             String key = (String) map.get("key");
             String value = (String) map.get("value");
-            result.put(key, value);
+            // DB value=NULL 用空串表示"已配置但值为空"，
+            // 避免下游 ConcurrentHashMap 不支持 null value 导致 NPE
+            result.put(key, value != null ? value : "");
         });
 
         return result;

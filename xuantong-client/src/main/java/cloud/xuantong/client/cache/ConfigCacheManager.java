@@ -14,7 +14,11 @@ import java.util.Map;
 import java.util.concurrent.*;
 
 /**
- * 多级缓存管理器（支持缓存同步、过期策略和监控）
+ * 配置缓存管理器
+ * <p>
+ * 使用单文件 all.properties 存储所有配置，不再按 key 前缀拆分文件。
+ * 原因：key 前缀不等于 project 名（如 key="zl.new.hand" 属于 social 项目），
+ * 按前缀拆分会导致缓存文件分组错误。
  */
 public class ConfigCacheManager {
     private static final Logger logger = LoggerFactory.getLogger(ConfigCacheManager.class);
@@ -25,16 +29,18 @@ public class ConfigCacheManager {
     private final ConcurrentHashMap<String, String> memoryCache = new ConcurrentHashMap<>();
     // 缓存目录
     private final Path cacheDir;
+    // 统一缓存文件
+    private final Path cacheFile;
     // 缓存访问时间记录
     private final ConcurrentHashMap<String, Long> lastAccessTimes = new ConcurrentHashMap<>();
     // 清理调度器（定时任务使用单线程）
     private final ScheduledExecutorService cleanupScheduler;
-    // 文件操作执行器（并发文件操作使用多线程）
+    // 文件操作执行器
     private final ExecutorService fileOpsExecutor;
-    private static final String DEFAULT_APP = "default";
 
     public ConfigCacheManager(String env) {
         this.cacheDir = Paths.get(System.getProperty("user.dir"), ".xuantong-cache", env);
+        this.cacheFile = cacheDir.resolve("all.properties");
         try {
             Files.createDirectories(cacheDir);
         } catch (IOException e) {
@@ -48,8 +54,8 @@ public class ConfigCacheManager {
             return thread;
         });
 
-        // 文件操作使用固定大小线程池（提高IO并发性能）
-        this.fileOpsExecutor = java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
+        // 文件操作使用固定大小线程池
+        this.fileOpsExecutor = Executors.newFixedThreadPool(2, r -> {
             Thread thread = new Thread(r, "cache-file-ops-thread");
             thread.setDaemon(true);
             return thread;
@@ -62,42 +68,46 @@ public class ConfigCacheManager {
     // 启动时从文件缓存加载
     private void loadFromFileCache() {
         try {
-            Map<String, String> fileConfigs = loadAllFromCacheFiles();
-            memoryCache.putAll(fileConfigs);
-            logger.info("Loaded {} configs from local file cache", fileConfigs.size());
+            Map<String, String> fileConfigs = loadCacheFile();
+            if (!fileConfigs.isEmpty()) {
+                memoryCache.putAll(fileConfigs);
+            }
+            logger.info("Loaded {} configs from local file cache", memoryCache.size());
         } catch (Exception e) {
             logger.error("Failed to load configs from file cache", e);
         }
     }
 
-    // 获取配置（支持默认值）
+    // 获取配置
     public String get(String key) {
-        // 1. 检查内存缓存（ConcurrentHashMap 线程安全，无需 synchronized）
         String value = memoryCache.get(key);
         if (value != null) {
             lastAccessTimes.put(key, System.currentTimeMillis());
             return value;
         }
-
-        // 2. 检查文件快照（异步写入不影响读取）
-        value = getFromCacheFile(key);
-        if (value != null) {
-            lastAccessTimes.put(key, System.currentTimeMillis());
-            memoryCache.put(key, value); // 回填内存缓存
-            return value;
-        }
-        // 3. 远程获取由上层处理
         return null;
     }
 
-    // 批量更新缓存 - 内存同步，快照异步
+    // 批量更新缓存 - 内存同步，快照异步（合并模式：推送增量更新时使用）
     public void batchUpdate(Map<String, String> configs) {
+        batchUpdate(configs, false);
+    }
+
+    /**
+     * 批量更新缓存
+     * @param configs 配置数据
+     * @param replace true=全量替换（初始加载/重连），false=合并到现有（推送增量）
+     */
+    public void batchUpdate(Map<String, String> configs, boolean replace) {
         if (configs == null || configs.isEmpty()) {
             return;
         }
 
         // 同步更新内存缓存（确保实时性）
         synchronized (memoryCache) {
+            if (replace) {
+                memoryCache.clear();
+            }
             memoryCache.putAll(configs);
             configs.keySet().forEach(key -> lastAccessTimes.put(key, System.currentTimeMillis()));
         }
@@ -105,8 +115,8 @@ public class ConfigCacheManager {
         // 异步更新文件快照（最终一致性）
         fileOpsExecutor.execute(() -> {
             try {
-                updateCacheFiles(configs);
-                logger.debug("Async snapshot updated with {} configs", configs.size());
+                writeCacheFile(configs, replace);
+                logger.debug("Async snapshot updated with {} configs (replace={})", configs.size(), replace);
             } catch (Exception e) {
                 logger.error("Failed to update snapshot", e);
             }
@@ -115,16 +125,15 @@ public class ConfigCacheManager {
 
     // 清除指定配置 - 内存同步，快照异步
     public void remove(String key) {
-        // 同步移除内存缓存
         synchronized (memoryCache) {
             memoryCache.remove(key);
             lastAccessTimes.remove(key);
         }
 
-        // 异步移除文件快照
+        // 异步从文件中移除
         fileOpsExecutor.execute(() -> {
             try {
-                removeFromCacheFile(key);
+                removeKeyFromFile(key);
             } catch (Exception e) {
                 logger.error("Failed to remove snapshot for key: {}", key, e);
             }
@@ -158,7 +167,6 @@ public class ConfigCacheManager {
 
     // 关闭所有线程池
     public void shutdown() {
-        // 关闭清理调度器
         cleanupScheduler.shutdown();
         try {
             if (!cleanupScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -169,7 +177,6 @@ public class ConfigCacheManager {
             Thread.currentThread().interrupt();
         }
 
-        // 关闭文件操作线程池
         fileOpsExecutor.shutdown();
         try {
             if (!fileOpsExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -184,8 +191,13 @@ public class ConfigCacheManager {
     // 清除所有配置
     public void clear() {
         memoryCache.clear();
-        clearAllCacheFiles();
         lastAccessTimes.clear();
+        try {
+            Files.deleteIfExists(cacheFile);
+            logger.info("Deleted cache file: {}", cacheFile.getFileName());
+        } catch (IOException e) {
+            logger.warn("Failed to delete cache file", e);
+        }
     }
 
     // 获取所有配置
@@ -193,144 +205,71 @@ public class ConfigCacheManager {
         return new ConcurrentHashMap<>(memoryCache);
     }
 
-    // ========== 文件缓存实现 ==========
+    // ========== 单文件缓存实现 ==========
 
-    private Path getCachePath(String appName) {
-        return cacheDir.resolve(appName + ".properties");
-    }
-
-    private String extractAppName(String key) {
-        int dotIndex = key.indexOf('.');
-        return dotIndex > 0 ? key.substring(0, dotIndex) : "default";
-    }
-
-    private Map<String, String> loadAllFromCacheFiles() {
-        Map<String, String> allConfigs = new ConcurrentHashMap<>();
-        try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(cacheDir, "*.properties")) {
-            for (Path path : stream) {
-                try {
-                    Map<String, String> appCache = loadAppCache(path);
-                    allConfigs.putAll(appCache);
-                } catch (Exception e) {
-                    logger.warn("Failed to load cache from: {}", path.getFileName(), e);
+    /**
+     * 加载统一缓存文件 all.properties
+     */
+    private Map<String, String> loadCacheFile() {
+        Map<String, String> cacheMap = new ConcurrentHashMap<>();
+        if (Files.exists(cacheFile)) {
+            FileKit.processLines(cacheFile, line -> {
+                int index = line.indexOf('=');
+                if (index > 0) {
+                    String key = line.substring(0, index);
+                    String value = line.substring(index + 1);
+                    cacheMap.put(key, value);
                 }
-            }
-        } catch (IOException e) {
-            logger.error("Failed to load all cache files", e);
+            });
         }
-        return allConfigs;
+        return cacheMap;
     }
 
-    private String getFromCacheFile(String key) {
-        String appName = extractAppName(key);
-        if (DEFAULT_APP.equals(appName)) {
-            logger.debug("No app prefix for key, skip file cache: {}", key);
-            return null;
-        }
-        Path cacheFile = getCachePath(appName);
+    /**
+     * 写入缓存文件
+     * @param configs 新配置
+     * @param replace true=全量替换，false=增量合并
+     */
+    private void writeCacheFile(Map<String, String> configs, boolean replace) {
         try {
-            Map<String, String> cache = loadAppCache(cacheFile);
-            return cache.get(key);
+            Files.createDirectories(cacheDir);
+
+            Map<String, String> merged;
+            if (replace) {
+                merged = new ConcurrentHashMap<>(configs);
+            } else {
+                // 增量合并：先加载现有文件数据，再合并新配置
+                merged = loadCacheFile();
+                merged.putAll(configs);
+            }
+
+            List<String> lines = new ArrayList<>(merged.size());
+            for (Map.Entry<String, String> entry : merged.entrySet()) {
+                lines.add(entry.getKey() + "=" + entry.getValue());
+            }
+            FileKit.atomicWriteLines(cacheFile, lines);
+
+            logger.info("Saved {} configs to cache file ({} new, replace={})", merged.size(), configs.size(), replace);
         } catch (Exception e) {
-            logger.warn("Failed to get cache for key: {}", key, e);
-            return null;
+            logger.error("Failed to write cache file", e);
         }
     }
 
-    private void updateCacheFiles(Map<String, String> configs) {
-        // 按应用名分组配置
-        Map<String, Map<String, String>> appConfigs = new ConcurrentHashMap<>();
-        configs.forEach((key, value) -> {
-            String appName = extractAppName(key);
-            if (DEFAULT_APP.equals(appName)) {
-                logger.warn("Skipping cache for key without app prefix: {}", key);
-                return;
-            }
-            appConfigs.computeIfAbsent(appName, k -> new ConcurrentHashMap<>())
-                    .put(key, value);
-        });
-
-        // 调试日志：显示分组结果
-        logger.debug("Cache file grouping: {}", appConfigs.keySet());
-
-        // 为每个应用更新缓存文件
-        appConfigs.forEach((appName, appConfig) -> {
-            Path cacheFile = getCachePath(appName);
-            try {
-                // 确保缓存目录存在
-                Files.createDirectories(cacheDir);
-
-                // 直接使用传入的配置，不合并现有配置（避免旧配置污染）
-                List<String> lines = new ArrayList<>(appConfig.size());
-                for (Map.Entry<String, String> entry : appConfig.entrySet()) {
-                    lines.add(entry.getKey() + "=" + entry.getValue());
-                }
-                FileKit.atomicWriteLines(cacheFile, lines);
-
-                logger.info("Saved {} configs for app {}", appConfig.size(), appName);
-            } catch (Exception e) {
-                logger.error("Failed to update cache for app {}", appName, e);
-            }
-        });
-    }
-
-    private void removeFromCacheFile(String key) {
-        String appName = extractAppName(key);
-        if (DEFAULT_APP.equals(appName)) {
-            logger.debug("No app prefix for key, skip file remove: {}", key);
-            return;
-        }
-        Path cacheFile = getCachePath(appName);
+    /**
+     * 从缓存文件中移除指定 key
+     */
+    private void removeKeyFromFile(String key) {
         try {
-            // 加载现有配置并移除指定key
-            Map<String, String> currentConfig = loadAppCache(cacheFile);
+            Map<String, String> currentConfig = loadCacheFile();
             currentConfig.remove(key);
 
-            // 保存更新后的配置
             List<String> lines = new ArrayList<>(currentConfig.size());
             for (Map.Entry<String, String> entry : currentConfig.entrySet()) {
                 lines.add(entry.getKey() + "=" + entry.getValue());
             }
             FileKit.atomicWriteLines(cacheFile, lines);
-
         } catch (Exception e) {
-            logger.error("Failed to remove cache for key: {}", key, e);
+            logger.error("Failed to remove key from cache file: {}", key, e);
         }
-    }
-
-    private void clearAllCacheFiles() {
-        try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(cacheDir, "*.properties")) {
-            for (Path path : stream) {
-                try {
-                    Files.delete(path);
-                    logger.info("Deleted cache file: {}", path.getFileName());
-                } catch (IOException e) {
-                    logger.warn("Failed to delete cache file: {}", path.getFileName(), e);
-                }
-            }
-        } catch (IOException e) {
-            logger.error("Failed to clear cache files", e);
-        }
-    }
-
-    private Map<String, String> loadAppCache(Path filePath) {
-        Map<String, String> cacheMap = new ConcurrentHashMap<>();
-        try {
-            if (Files.exists(filePath)) {
-                FileKit.processLines(filePath, line -> {
-                    if (line.contains("=")) {
-                        int index = line.indexOf('=');
-                        if (index > 0) {
-                            String key = line.substring(0, index);
-                            String value = line.substring(index + 1);
-                            cacheMap.put(key, value);
-                        }
-                    }
-                });
-            }
-        } catch (Exception e) {
-            logger.error("Load app cache failed: {}", filePath.getFileName(), e);
-        }
-        return cacheMap;
     }
 }

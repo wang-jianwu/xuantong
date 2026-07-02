@@ -368,6 +368,8 @@
             // 配置类型切换时显示/隐藏 JSON 格式化按钮
             document.getElementById('config-type').addEventListener('change', function() {
                 document.getElementById('btn-format-json').style.display = this.value === 'JSON' ? '' : 'none';
+                // 类型切换时重新校验值（STRING 允许空值，其他类型不允许）
+                validateValueInput();
             });
 
             // 全局环境选择器变更事件
@@ -840,9 +842,10 @@
         // 实时校验值输入
         function validateValueInput() {
             const valueInput = document.getElementById('config-value');
-            const value = valueInput.value.trim();
+            const type = document.getElementById('config-type').value;
+            const value = valueInput.value;
 
-            if (!value) {
+            if (!validateValueByType(value, type)) {
                 valueInput.classList.add('is-invalid');
                 return false;
             } else {
@@ -865,7 +868,8 @@
         // 表单校验
         function validateForm() {
             const key = document.getElementById('config-key').value.trim();
-            const value = document.getElementById('config-value').value.trim();
+            const value = document.getElementById('config-value').value;
+            const type = document.getElementById('config-type').value;
             const project = document.getElementById('config-project').value;
             const environment = document.getElementById('config-environment').value;
 
@@ -876,8 +880,9 @@
                 return false;
             }
 
-            if (!value) {
-                showToast('配置值不能为空', 'warning');
+            // 按类型校验值（STRING 允许空值，其他类型不允许）
+            if (!validateValueByType(value, type)) {
+                showToast('配置值不符合类型 ' + type + ' 的要求', 'warning');
                 document.getElementById('config-value').focus();
                 return false;
             }
@@ -983,6 +988,11 @@
                     showToast('配置值不符合类型 ' + configType + ' 的要求', 'warning');
                     return;
                 }
+
+                // 空值二次确认（仅 STRING 类型允许空值，提醒用户确认）
+                if (!configValue && configType === 'STRING') {
+                    if (!await showConfirm('确认保存空值', '配置值为空，确认保存？所有客户端将收到空值更新。')) return;
+                }
                 // JSON 自动压缩为一行
                 configValue = compactValueByType(configValue, configType);
 
@@ -1002,10 +1012,12 @@
                     valueType: configType
                 };
 
-                if (!formData.key || !formData.value || !formData.project || !formData.environment) {
+                if (!formData.key || !formData.project || !formData.environment) {
                     showToast('请填写完整信息', 'warning');
                     return;
                 }
+                // 注意：不在此处校验 value 非空，由 validateValueByType 按类型判断
+                // （STRING 类型允许空值，其他类型不允许）
 
                 let url = '/api/config?pushMode=' + pushMode;
                 if (targetIp) url += '&targetIp=' + encodeURIComponent(targetIp);
