@@ -94,3 +94,16 @@ WHERE NOT EXISTS (SELECT 1 FROM "user" WHERE username = 'admin');
 INSERT INTO project (code, name, description, owner, is_active, created_by)
 SELECT 'demo', '演示项目', '演示项目', 'admin', TRUE, 'admin'
 WHERE NOT EXISTS (SELECT 1 FROM project WHERE code = 'demo');
+
+-- 演示配置项（供 TestController 使用）
+INSERT INTO config_item ("key", "value", description, environment, project, version, is_encrypted, created_by)
+SELECT 'demo.aaa', 'hello', '演示字符串配置', 'dev', 'demo', 1, FALSE, 'admin'
+WHERE NOT EXISTS (SELECT 1 FROM config_item WHERE "key" = 'demo.aaa' AND environment = 'dev' AND project = 'demo');
+
+INSERT INTO config_item ("key", "value", description, environment, project, version, is_encrypted, created_by)
+SELECT 'demo.list', '[{"name":"德莱厄斯","age":18},{"name":"锐雯","age":18}]', '演示列表配置', 'dev', 'demo', 1, FALSE, 'admin'
+WHERE NOT EXISTS (SELECT 1 FROM config_item WHERE "key" = 'demo.list' AND environment = 'dev' AND project = 'demo');
+
+INSERT INTO config_item ("key", "value", description, environment, project, version, is_encrypted, created_by)
+SELECT 'demo.map', '{"MALE":[{"name":"德莱厄斯","age":18}],"FEMALE":[{"name":"锐雯","age":18}]}', '演示Map配置', 'dev', 'demo', 1, FALSE, 'admin'
+WHERE NOT EXISTS (SELECT 1 FROM config_item WHERE "key" = 'demo.map' AND environment = 'dev' AND project = 'demo');
