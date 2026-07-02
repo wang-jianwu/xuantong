@@ -270,7 +270,7 @@
                         <div class="mb-3">
                             <label class="form-label">配置值</label>
                             <div class="input-group mb-2">
-                                <button class="btn btn-outline-secondary btn-sm" id="btn-format-json" onclick="formatJsonValue()" style="display:none">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-format-json" onclick="formatJsonValue()" style="display:none">
                                     <i class="fas"></i> 格式化 JSON
                                 </button>
                             </div>
@@ -934,9 +934,10 @@
             document.getElementById('config-environment').value = currentConfig.environment;
             document.getElementById('config-environment').disabled = true;
 
-            // 设置类型（后端不存，默认 STRING）
-            document.getElementById('config-type').value = 'STRING';
-            document.getElementById('btn-format-json').style.display = 'none';
+            // 根据值自动推断类型并回显
+            const inferredType = detectValueType(currentConfig.value);
+            document.getElementById('config-type').value = inferredType;
+            document.getElementById('btn-format-json').style.display = inferredType === 'JSON' ? '' : 'none';
 
             // 清除校验错误状态
             document.getElementById('config-key').classList.remove('is-invalid');
