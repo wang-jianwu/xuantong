@@ -38,6 +38,9 @@ public class ConfigItem implements ProxyEntityAvailable<ConfigItem , ConfigItemP
     private Integer version;     /** 版本号 */
 
     @Column
+    private String valueType;    /** 值类型：STRING/NUMBER/BOOLEAN/JSON */
+
+    @Column
     private String createdBy;     /** 创建人 */
 
     @Column

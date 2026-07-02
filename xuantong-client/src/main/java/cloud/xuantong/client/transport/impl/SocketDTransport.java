@@ -42,10 +42,12 @@ public class SocketDTransport implements ConfigTransport {
 
     private volatile ClientSession session;
     private ConfigChangeListener configChangeListener;
+    private Runnable onReconnectListener;
     private List<String> brokerUrls;
     private String playerName;
     private final AtomicInteger currentBrokerIndex = new AtomicInteger(0);
     private volatile boolean closed = false;
+    private volatile boolean initialConnected = false;
     private Thread reconnectThread;
 
     @Override
@@ -128,7 +130,15 @@ public class SocketDTransport implements ConfigTransport {
                                     }
                                 }
                             })
-                            .doOnOpen(s -> logger.info("Broker connection opened: {}", s.sessionId()))
+                            .doOnOpen(s -> {
+                                logger.info("Broker connection opened: {}", s.sessionId());
+                                // 初始连接后再次打开才视为重连，避免与初始化流程重复
+                                if (initialConnected && onReconnectListener != null) {
+                                    logger.info("Reconnect detected, triggering config reload");
+                                    onReconnectListener.run();
+                                }
+                                initialConnected = true;
+                            })
                             .doOnClose(s -> {
                                 logger.warn("Broker connection closed: {}", s.sessionId());
                                 if (!closed) {
@@ -282,5 +292,10 @@ public class SocketDTransport implements ConfigTransport {
                 logger.warn("Error closing Broker connection", e);
             }
         }
+    }
+
+    @Override
+    public void setOnReconnect(Runnable listener) {
+        this.onReconnectListener = listener;
     }
 }

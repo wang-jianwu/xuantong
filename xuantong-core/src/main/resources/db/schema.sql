@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS config_item (
     environment VARCHAR(20) NOT NULL COMMENT '环境',
     project VARCHAR(50) NOT NULL COMMENT '项目',
     version INT DEFAULT 1 COMMENT '版本号',
+    value_type VARCHAR(20) DEFAULT 'STRING' COMMENT '值类型：STRING/NUMBER/BOOLEAN/JSON',
     is_encrypted BOOLEAN DEFAULT FALSE COMMENT '是否加密',
     created_by VARCHAR(50) COMMENT '创建人',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

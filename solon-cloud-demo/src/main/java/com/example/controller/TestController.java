@@ -32,7 +32,7 @@ public class TestController {
     /**
      * json {"MALE":[{"name":"德莱厄斯","age":18}],"FEMALE":[{"name":"锐雯","age":18}]}
      */
-    @ConfigValue(value = "demo.map")
+    @ConfigValue(value = "demo.map", required = true)
     private Map<Gender, List<User>> map;
 
     @Mapping("/")

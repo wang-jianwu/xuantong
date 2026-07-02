@@ -274,7 +274,6 @@
                                     <i class="fas"></i> 格式化 JSON
                                 </button>
                             </div>
-                            <label class="form-label">配置值</label>
                             <textarea class="form-control" id="config-value" name="value" rows="4" required></textarea>
                         </div>
                     </form>
@@ -630,7 +629,7 @@
                 row.innerHTML = `
                     <td>${escapeHtml(config.key) || '-'}</td>
                     <td class="value-cell" data-value="${escapeHtml(config.value || '')}">
-                        <span class="badge badge-info" style="font-size:10px;margin-right:4px">${detectValueType(config.value)}</span>
+                        <span class="badge badge-info" style="font-size:10px;margin-right:4px">${config.valueType || detectValueType(config.value)}</span>
                         ${escapeHtml(displayValue)}
                     </td>
                     <td><span class="badge badge-secondary">${escapeHtml(config.environment) || '-'}</span></td>
@@ -934,10 +933,12 @@
             document.getElementById('config-environment').value = currentConfig.environment;
             document.getElementById('config-environment').disabled = true;
 
-            // 根据值自动推断类型并回显
-            const inferredType = detectValueType(currentConfig.value);
-            document.getElementById('config-type').value = inferredType;
-            document.getElementById('btn-format-json').style.display = inferredType === 'JSON' ? '' : 'none';
+            // 优先使用存储的类型，否则自动推断
+            const storedType = currentConfig.valueType;
+            const resolvedType = (storedType && ['STRING','NUMBER','BOOLEAN','JSON'].includes(storedType))
+                    ? storedType : detectValueType(currentConfig.value);
+            document.getElementById('config-type').value = resolvedType;
+            document.getElementById('btn-format-json').style.display = resolvedType === 'JSON' ? '' : 'none';
 
             // 清除校验错误状态
             document.getElementById('config-key').classList.remove('is-invalid');
@@ -997,7 +998,8 @@
                     description: document.getElementById('config-description').value,
                     project: project,
                     environment: document.getElementById('config-environment').value,
-                    isEncrypted: document.getElementById('config-encrypted').checked
+                    isEncrypted: document.getElementById('config-encrypted').checked,
+                    valueType: configType
                 };
 
                 if (!formData.key || !formData.value || !formData.project || !formData.environment) {

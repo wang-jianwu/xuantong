@@ -28,6 +28,9 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
     @Inject
     private ConfigPusher pusher;
 
+    @Inject
+    private ClusterConfig clusterConfig;
+
     /**
      * 事件总线订阅：处理 ConfigPushEvent
      */
@@ -81,6 +84,7 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
 
         // 全量推送时才集群同步
         if (!gray) {
+            event.setSourceNodeId(clusterConfig.getNodeId());
             String syncJson = ONode.serialize(event);
             pusher.broadcastClusterSync(syncJson);
         }

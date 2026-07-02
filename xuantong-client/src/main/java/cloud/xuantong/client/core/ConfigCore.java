@@ -62,11 +62,13 @@ public class ConfigCore implements AutoCloseable {
                 Map<String, String> newConfigs = serializer.deserializeMap(configData);
                 if (newConfigs != null && !newConfigs.isEmpty()) {
                     logger.info("收到配置变更: {} 个配置项", newConfigs.size());
-                    // 先更新缓存，再通知监听器（确保监听器回调中 get(key) 读到新值）
+                    // handleConfigPush 内部做 diff 对比并触发监听器，无需在此重复触发
                     handleConfigPush(newConfigs);
-                    newConfigs.forEach((key, value) -> listenerManager.fireEvent(new ConfigChangeEvent(key, value)));
                 }
             });
+
+            // 注册重连回调：重连成功后重新拉取全量配置，防止断线期间的变更丢失
+            transport.setOnReconnect(this::reloadConfigs);
 
             // 加载初始配置（只加载当前应用和订阅应用的配置）
             loadInitialConfigs();
@@ -158,9 +160,46 @@ public class ConfigCore implements AutoCloseable {
             return;
         }
 
-        // 直接更新缓存
-        cacheManager.batchUpdate(newConfigs);
-        logger.info("Processed config push with {} configs", newConfigs.size());
+        // 对比旧值，只触发真正发生变更的监听器
+        Map<String, String> changedConfigs = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : newConfigs.entrySet()) {
+            String key = entry.getKey();
+            String newValue = entry.getValue();
+            String oldValue = cacheManager.get(key);
+            if (!java.util.Objects.equals(oldValue, newValue)) {
+                changedConfigs.put(key, newValue);
+            }
+        }
+
+        if (changedConfigs.isEmpty()) {
+            logger.debug("Received push but no actual changes detected");
+            return;
+        }
+
+        // 更新缓存
+        cacheManager.batchUpdate(changedConfigs);
+        logger.info("Processed config push: {} changed / {} received", changedConfigs.size(), newConfigs.size());
+
+        // 只对变更的 key 触发监听器
+        changedConfigs.forEach((key, value) -> listenerManager.fireEvent(new ConfigChangeEvent(key, value)));
+    }
+
+    /**
+     * 重连后重新拉取全量配置（与 loadInitialConfigs 不同：检测变更并触发监听器）
+     */
+    private void reloadConfigs() {
+        try {
+            String data = transport.fetchAllForApps(subscribedApps, env);
+            if (data == null) return;
+            Map<String, String> allConfigs = serializer.deserializeMap(data);
+            if (allConfigs == null || allConfigs.isEmpty()) return;
+
+            // 通过 handleConfigPush 统一做 diff + 缓存更新 + 监听器触发
+            handleConfigPush(allConfigs);
+            logger.info("Config reload after reconnect completed: {} configs", allConfigs.size());
+        } catch (Exception e) {
+            logger.warn("Failed to reload configs after reconnect", e);
+        }
     }
 
     /**

@@ -11,7 +11,6 @@ import org.noear.solon.annotation.Destroy;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Init;
 
-import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -38,7 +37,6 @@ public class ClusterSyncPlayer implements ClusterMonitor {
     @Inject
     private ConfigClusterBroadcaster broadcaster;
 
-    private final String nodeId = UUID.randomUUID().toString().substring(0, 8);
     private final CopyOnWriteArrayList<ClientSession> sessions = new CopyOnWriteArrayList<>();
     private ScheduledExecutorService scheduler;
 
@@ -49,7 +47,7 @@ public class ClusterSyncPlayer implements ClusterMonitor {
             return;
         }
 
-        log.info("ClusterSyncPlayer starting, nodeId: {}", nodeId);
+        log.info("ClusterSyncPlayer starting, nodeId: {}", clusterConfig.getNodeId());
 
         // 用 ScheduledExecutorService 延迟启动，比裸 Thread.sleep 更优雅：
         // 1. 可被 close() 中的 shutdownNow 正常取消
@@ -95,6 +93,11 @@ public class ClusterSyncPlayer implements ClusterMonitor {
                                     log.debug("Received cluster sync: {}", data);
                                     ConfigChangeEvent event = ONode.deserialize(data, ConfigChangeEvent.class);
                                     if (event != null) {
+                                        // 防环：忽略自身产生的事件
+                                        if (clusterConfig.getNodeId().equals(event.getSourceNodeId())) {
+                                            log.debug("Skipping self-originated cluster sync event");
+                                            return;
+                                        }
                                         broadcaster.handleClusterSync(event);
                                     }
                                 } catch (Exception e) {
@@ -128,7 +131,7 @@ public class ClusterSyncPlayer implements ClusterMonitor {
 
         // 添加 @=name 参数
         String separator = address.contains("?") ? "&" : "?";
-        return address + separator + "@=config-node-" + nodeId;
+        return address + separator + "@=config-node-" + clusterConfig.getNodeId();
     }
 
     /**

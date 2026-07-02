@@ -12,6 +12,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +23,8 @@ import java.util.List;
  * <p>
  * H2 内嵌模式下无需手动建表；MySQL/PG 也可自动初始化。
  * 使用 CREATE TABLE IF NOT EXISTS + INSERT ... WHERE NOT EXISTS 保证幂等。
+ * <p>
+ * 对于已存在的表，自动检测并补充缺失的列（兼容版本升级场景）。
  */
 @Component
 public class DbInitializer {
@@ -28,6 +32,11 @@ public class DbInitializer {
 
     @Inject
     private DataSource dataSource;
+
+    /** 版本升级时需要补充的列：{表名, 列名, 列定义} */
+    private static final String[][] MIGRATION_COLUMNS = {
+        {"config_item", "value_type", "VARCHAR(20) DEFAULT 'STRING'"}
+    };
 
     @Init
     public void init() {
@@ -57,12 +66,55 @@ public class DbInitializer {
                         }
                     }
                 }
+
+                // 补列：兼容已有数据库缺少新增列的情况
+                migrateColumns(conn);
             }
 
             log.info("Database initialized: {} / {} statements executed", ok, statements.size());
         } catch (Exception e) {
             log.error("Database initialization failed", e);
         }
+    }
+
+    /**
+     * 检测并补充缺失的列（用于版本升级时已有表缺少新字段）
+     */
+    private void migrateColumns(Connection conn) {
+        try {
+            DatabaseMetaData meta = conn.getMetaData();
+            for (String[] col : MIGRATION_COLUMNS) {
+                String table = col[0];
+                String column = col[1];
+                String definition = col[2];
+
+                if (!columnExists(meta, table, column)) {
+                    String sql = String.format("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition);
+                    try (Statement stmt = conn.createStatement()) {
+                        stmt.execute(sql);
+                        log.info("Migration: added column {}.{}", table, column);
+                    } catch (Exception e) {
+                        log.warn("Migration failed for {}.{}: {}", table, column, e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Column migration check failed", e);
+        }
+    }
+
+    /**
+     * 检测表中是否存在指定列（兼容大小写差异）
+     */
+    private boolean columnExists(DatabaseMetaData meta, String table, String column) {
+        // 尝试原表名和.toUpperCase()两种形式（H2 默认大写，MySQL 默认小写）
+        try (ResultSet rs = meta.getColumns(null, null, table, column)) {
+            if (rs.next()) return true;
+        } catch (Exception ignored) {}
+        try (ResultSet rs = meta.getColumns(null, null, table.toUpperCase(), column.toUpperCase())) {
+            if (rs.next()) return true;
+        } catch (Exception ignored) {}
+        return false;
     }
 
     /** 逐行读取 SQL 文件，按分号拆分为独立语句 */

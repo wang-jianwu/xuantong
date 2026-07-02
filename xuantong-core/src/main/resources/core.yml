@@ -55,7 +55,7 @@ solon.logging.logger:
   "com.zaxxer.hikari":
     level: WARN
   "com.easy.query":
-    level: WARN
+    level: INFO
   "org.noear.solon":
     level: INFO
   "com.xuantong":

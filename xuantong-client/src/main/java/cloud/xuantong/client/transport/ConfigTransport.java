@@ -49,4 +49,9 @@ public interface ConfigTransport {
      * 关闭连接
      */
     void close();
+
+    /**
+     * 注册重连回调：传输层重连成功后触发，上层可借此重新拉取配置
+     */
+    default void setOnReconnect(Runnable listener) {}
 }
