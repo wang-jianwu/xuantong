@@ -124,16 +124,13 @@ public class ConfigController {
         if (config == null) {
             return Result.failure("配置不存在");
         }
-        if (brokerMonitor.hasSubscriber(config.getProject(), config.getEnvironment())) {
-            return Result.failure("有客户端正在使用此配置，无法删除");
-        }
 
         ConfigChangeEvent event = configService.deleteConfig(id);
         if (event == null) {
             return Result.failure("删除失败");
         }
         
-        // 删除后自动全量推送通知客户端清除
+        // 删除后自动全量推送，通知客户端清除本地缓存
         return publishAndReturn(event, "all", "", 0, "删除");
     }
 
@@ -200,11 +197,11 @@ public class ConfigController {
     }
 
     private String describeResult(String action, PushMode mode, String targetIp, double percentage) {
-        switch (mode) {
-            case IP:         return action + "成功，灰度推送（指定IP: " + targetIp + "）";
-            case PERCENTAGE: return action + "成功，灰度推送（比例: " + (int)(percentage * 100) + "%）";
-            case GRAY:       return action + "成功，灰度推送（随机1台）";
-            default:         return action + "成功，全量推送";
-        }
+        return switch (mode) {
+            case IP -> action + "成功，灰度推送（指定IP: " + targetIp + "）";
+            case PERCENTAGE -> action + "成功，灰度推送（比例: " + (int) (percentage * 100) + "%）";
+            case GRAY -> action + "成功，灰度推送（随机1台）";
+            default -> action + "成功，全量推送";
+        };
     }
 }

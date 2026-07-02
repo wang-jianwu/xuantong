@@ -105,26 +105,41 @@ public class ConfigService {
 
     public ConfigItem getConfig(String key, String environment, String project) {
         String cacheKey = buildCacheKey(key, environment, project);
-        ConfigItem config = cacheService.get(cacheKey, ConfigItem.class);
+        ConfigItem cached = cacheService.get(cacheKey, ConfigItem.class);
 
-        if (config == null) {
-            config = configRepository.findByKey(key, environment, project);
-            if (config != null) {
-                cacheService.store(cacheKey, config, 30 * 60 * 60);
+        if (cached == null) {
+            cached = configRepository.findByKey(key, environment, project);
+            if (cached != null) {
+                // 缓存存储加密值（原始对象），解密不影响缓存
+                cacheService.store(cacheKey, cached, 30 * 60 * 60);
             }
         }
-        if (config != null && Boolean.TRUE.equals(config.getIsEncrypted())) {
-            config.setValue(getEncryptor().decrypt(config.getValue()));
+
+        if (cached == null) return null;
+
+        // 对加密配置返回解密副本，避免修改缓存中的原始对象
+        if (Boolean.TRUE.equals(cached.getIsEncrypted()) && getEncryptor().isEnabled()) {
+            ConfigItem decrypted = cloneItem(cached);
+            decrypted.setValue(getEncryptor().decrypt(cached.getValue()));
+            return decrypted;
         }
-        return config;
+        return cached;
     }
 
     public ConfigItem getConfigById(Long id) {
-        return configRepository.findById(id);
+        ConfigItem config = configRepository.findById(id);
+        return decryptItem(config);
     }
 
     public EasyPageResult<ConfigItem> getProjectConfigs(String project, String environment, String keyWords, Long pn, Long size) {
-        return configRepository.findByProject(project, environment, keyWords, pn, size);
+        EasyPageResult<ConfigItem> result = configRepository.findByProject(project, environment, keyWords, pn, size);
+        // 对加密配置解密，使管理界面能正常展示和编辑
+        if (result != null && result.getData() != null && getEncryptor().isEnabled()) {
+            for (ConfigItem item : result.getData()) {
+                decryptItem(item);
+            }
+        }
+        return result;
     }
 
     public Map<String, String> findByProjectAndEnvironment(String project, String environment) {
@@ -189,6 +204,25 @@ public class ConfigService {
      */
     @Transaction
     public ConfigChangeEvent saveConfig(ConfigItem config) {
+        // 输入校验
+        if (config == null) return null;
+        if (config.getKey() == null || config.getKey().trim().isEmpty()) {
+            logger.warn("saveConfig rejected: key is empty");
+            return null;
+        }
+        if (config.getProject() == null || config.getProject().trim().isEmpty()) {
+            logger.warn("saveConfig rejected: project is empty");
+            return null;
+        }
+        if (config.getEnvironment() == null || config.getEnvironment().trim().isEmpty()) {
+            logger.warn("saveConfig rejected: environment is empty");
+            return null;
+        }
+        if (config.getKey().length() > 255) {
+            logger.warn("saveConfig rejected: key too long ({})", config.getKey().length());
+            return null;
+        }
+
         ConfigItem existing = configRepository.findByKey(config.getKey(),
                 config.getEnvironment(), config.getProject());
 
@@ -277,13 +311,44 @@ public class ConfigService {
             saveConfigLog(current.getId(), "REVERT", oldValue, newValue,
                     current.getProject(), current.getEnvironment());
             removeCache(current.getKey(), current.getEnvironment(), current.getProject());
-            return new ConfigChangeEvent(current.getKey(), newValue,
+            // 推送事件使用明文值：
+            // config_log.new_value 存储的是加密后的值（密文），
+            // AesEncryptor.decrypt() 对 ENC( 前缀的密文解密，对非密文值透传，所以安全
+            return new ConfigChangeEvent(current.getKey(), getEncryptor().decrypt(newValue),
                     current.getProject(), current.getEnvironment());
         }
         return null;
     }
 
     // ===== 内部方法 =====
+
+    /**
+     * 对加密配置项就地解密 value（原地修改，适用于列表展示场景）
+     */
+    private ConfigItem decryptItem(ConfigItem item) {
+        if (item != null && Boolean.TRUE.equals(item.getIsEncrypted()) && getEncryptor().isEnabled()) {
+            item.setValue(getEncryptor().decrypt(item.getValue()));
+        }
+        return item;
+    }
+
+    /**
+     * 浅拷贝 ConfigItem（避免修改缓存中的原始对象）
+     */
+    private ConfigItem cloneItem(ConfigItem src) {
+        ConfigItem copy = new ConfigItem();
+        copy.setId(src.getId());
+        copy.setKey(src.getKey());
+        copy.setValue(src.getValue());
+        copy.setDescription(src.getDescription());
+        copy.setEnvironment(src.getEnvironment());
+        copy.setProject(src.getProject());
+        copy.setIsEncrypted(src.getIsEncrypted());
+        copy.setValueType(src.getValueType());
+        copy.setVersion(src.getVersion());
+        copy.setUpdatedAt(src.getUpdatedAt());
+        return copy;
+    }
 
     private void saveConfigLog(Long configId, String operation, String oldValue, String newValue,
                                String project, String environment) {

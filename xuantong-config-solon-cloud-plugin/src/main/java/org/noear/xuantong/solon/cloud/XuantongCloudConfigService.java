@@ -65,6 +65,11 @@ public class XuantongCloudConfigService implements CloudConfigService {
         CloudConfigObserverEntity entity = new CloudConfigObserverEntity(group, name, observer);
         //配置监听器
         client.addListener(entity.key, event -> {
+            // 配置被删除时（value=null），不通知 observer（CloudConfig 不支持 null value）
+            if (event.getNewValue() == null) {
+                log.warn("cloud config deleted: {}, observer not notified", entity.key);
+                return;
+            }
             log.info("cloud config change: {} -> {}", entity.key, event.getNewValue());
             entity.handler.handle(new Config(entity.group, entity.key, event.getNewValue(), 0));
         });

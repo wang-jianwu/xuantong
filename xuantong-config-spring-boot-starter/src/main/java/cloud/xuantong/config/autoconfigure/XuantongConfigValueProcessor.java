@@ -4,6 +4,8 @@ import cloud.xuantong.client.XuantongClient;
 import cloud.xuantong.client.annotation.ConfigValue;
 import cloud.xuantong.client.enums.ValueType;
 import cloud.xuantong.client.exception.XuantongException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -21,6 +23,8 @@ import java.util.Map;
  * 处理@ConfigValue注解的Bean后处理器
  */
 public class XuantongConfigValueProcessor implements BeanPostProcessor {
+
+    private static final Logger logger = LoggerFactory.getLogger(XuantongConfigValueProcessor.class);
 
     private final ObjectProvider<XuantongClient> xuantongClientProvider;
 
@@ -174,6 +178,24 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
             field.setAccessible(true);
             ValueType resolvedType = ValueType.inferFromClass(field.getType());
             Object convertedValue;
+
+            // 配置被删除（value=null）时，回退到注解的默认值
+            String effectiveValue = (newValue != null) ? newValue : configValue.defaultValue();
+            if (effectiveValue.isEmpty()) {
+                effectiveValue = null; // "" 视为无默认值
+            }
+
+            if (effectiveValue == null) {
+                // 无默认值可回退：required 字段保留旧值并警告，非 required 字段置 null
+                if (configValue.required()) {
+                    logger.warn("Config deleted but field is required, keeping old value: {}",
+                            configValue.value());
+                    return;
+                }
+                field.set(bean, null);
+                return;
+            }
+
             if (resolvedType == ValueType.JSON) {
                 XuantongClient client = xuantongClientProvider.getIfAvailable();
                 if (client == null) return;
@@ -187,11 +209,9 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
                     convertedValue = client.getObject(configValue.value(), fieldType);
                 }
             } else {
-                convertedValue = convertStringToType(newValue, field.getType(), resolvedType);
+                convertedValue = convertStringToType(effectiveValue, field.getType(), resolvedType);
             }
-            if (convertedValue != null) {
-                field.set(bean, convertedValue);
-            }
+            field.set(bean, convertedValue);
         } catch (IllegalAccessException e) {
             throw new XuantongException("Failed to refresh field value", e);
         }

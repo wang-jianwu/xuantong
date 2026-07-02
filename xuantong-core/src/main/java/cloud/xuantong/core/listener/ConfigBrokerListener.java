@@ -63,19 +63,8 @@ public class ConfigBrokerListener extends BrokerListener implements ConfigPusher
 
     @Override
     public void onOpen(Session session) throws IOException {
-        super.onOpen(session);
-
-        // token 鉴权（如果配置了 secretKey）
-        if (secretKey != null && !secretKey.isEmpty()) {
-            String token = session.param("token");
-            if (!secretKey.equals(token)) {
-                log.warn("Player auth failed: name={}, token={}, ip={}",
-                        session.name(), token, getClientIp(session));
-                session.close();
-                return;
-            }
-        }
-
+        // 先注册到 activePlayers，再调用 super.onOpen
+        // 防止 super.onOpen 触发 onClose 时 activePlayers.remove 找不到条目
         PlayerInfo info = new PlayerInfo();
         info.setSessionId(session.sessionId());
         info.setPlayerName(session.name());
@@ -90,6 +79,20 @@ public class ConfigBrokerListener extends BrokerListener implements ConfigPusher
         }
 
         activePlayers.put(session.sessionId(), info);
+        super.onOpen(session);
+
+        // token 鉴权（如果配置了 secretKey）
+        if (secretKey != null && !secretKey.isEmpty()) {
+            String token = session.param("token");
+            if (!secretKey.equals(token)) {
+                log.warn("Player auth failed: name={}, token={}, ip={}",
+                        session.name(), token, getClientIp(session));
+                activePlayers.remove(session.sessionId());
+                session.close();
+                return;
+            }
+        }
+
         log.info("Player connected: name={}, apps={}, sessionId={}, ip={}",
                 session.name(), appsParam, session.sessionId(), info.getClientIp());
     }

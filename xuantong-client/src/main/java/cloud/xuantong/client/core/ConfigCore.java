@@ -154,45 +154,82 @@ public class ConfigCore implements AutoCloseable {
 
     /**
      * 处理配置推送更新
+     * <p>
+     * value 为 null 表示配置已被删除，需从缓存中移除而非写入 null
+     * （ConcurrentHashMap 不允许 null value，直接 put 会抛 NPE）
      */
     public void handleConfigPush(Map<String, String> newConfigs) {
         if (newConfigs == null || newConfigs.isEmpty()) {
             return;
         }
 
-        // 对比旧值，只触发真正发生变更的监听器
-        Map<String, String> changedConfigs = new java.util.LinkedHashMap<>();
+        // 分离：更新 vs 删除
+        Map<String, String> updates = new java.util.HashMap<>();
+        java.util.List<String> deletions = new java.util.ArrayList<>();
+
         for (Map.Entry<String, String> entry : newConfigs.entrySet()) {
             String key = entry.getKey();
             String newValue = entry.getValue();
             String oldValue = cacheManager.get(key);
-            if (!java.util.Objects.equals(oldValue, newValue)) {
-                changedConfigs.put(key, newValue);
+
+            if (newValue == null) {
+                // 服务端删除：如果本地有这个 key，需要移除
+                if (oldValue != null) {
+                    deletions.add(key);
+                }
+            } else {
+                // 服务端更新：值不同才视为变更
+                if (!java.util.Objects.equals(oldValue, newValue)) {
+                    updates.put(key, newValue);
+                }
             }
         }
 
-        if (changedConfigs.isEmpty()) {
+        if (updates.isEmpty() && deletions.isEmpty()) {
             logger.debug("Received push but no actual changes detected");
             return;
         }
 
         // 更新缓存
-        cacheManager.batchUpdate(changedConfigs);
-        logger.info("Processed config push: {} changed / {} received", changedConfigs.size(), newConfigs.size());
+        if (!updates.isEmpty()) {
+            cacheManager.batchUpdate(updates);
+        }
+        // 删除缓存
+        for (String key : deletions) {
+            cacheManager.remove(key);
+        }
 
-        // 只对变更的 key 触发监听器
-        changedConfigs.forEach((key, value) -> listenerManager.fireEvent(new ConfigChangeEvent(key, value)));
+        logger.info("Processed config push: {} updated, {} deleted / {} received",
+                updates.size(), deletions.size(), newConfigs.size());
+
+        // 对更新的 key 触发监听器
+        updates.forEach((key, value) -> listenerManager.fireEvent(new ConfigChangeEvent(key, value)));
+        // 对删除的 key 也触发监听器（value 为 null，让订阅者感知删除）
+        deletions.forEach(key -> listenerManager.fireEvent(new ConfigChangeEvent(key, null)));
     }
 
     /**
      * 重连后重新拉取全量配置（与 loadInitialConfigs 不同：检测变更并触发监听器）
+     * <p>
+     * 断线期间服务端可能删除了某些配置，全量拉取结果中不包含这些 key。
+     * 需要对比本地缓存，将本地有但服务端没有的 key 主动删除，防止过期缓存残留。
      */
     private void reloadConfigs() {
         try {
             String data = transport.fetchAllForApps(subscribedApps, env);
             if (data == null) return;
             Map<String, String> allConfigs = serializer.deserializeMap(data);
-            if (allConfigs == null || allConfigs.isEmpty()) return;
+            if (allConfigs == null) return;
+
+            // 检测断线期间被删除的 key：本地有但服务端全量中没有
+            Map<String, String> localCache = cacheManager.getAll();
+            for (String localKey : localCache.keySet()) {
+                if (!allConfigs.containsKey(localKey)) {
+                    cacheManager.remove(localKey);
+                    listenerManager.fireEvent(new ConfigChangeEvent(localKey, null));
+                    logger.info("Detected deleted config after reconnect: {}", localKey);
+                }
+            }
 
             // 通过 handleConfigPush 统一做 diff + 缓存更新 + 监听器触发
             handleConfigPush(allConfigs);
