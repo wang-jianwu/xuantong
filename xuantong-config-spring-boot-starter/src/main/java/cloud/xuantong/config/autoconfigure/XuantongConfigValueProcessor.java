@@ -14,6 +14,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author 封于修
@@ -100,6 +101,10 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
                 if (List.class.isAssignableFrom(fieldType)) {
                     yield client.getObjectList(configKey, getComponentType(field));
                 }
+                if (Map.class.isAssignableFrom(fieldType)) {
+                    Type[] mapTypes = getMapGenericTypes(field);
+                    yield client.getObjectMap(configKey, mapTypes[0], mapTypes[1]);
+                }
                 yield client.getObject(configKey, fieldType);
             }
             case BOOLEAN, NUMBER -> {
@@ -149,6 +154,21 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
         return null;
     }
 
+    /**
+     * 提取 Map 的泛型类型 [keyType, valueType]
+     * 如 Map<MyEnum, SomeObject> → [MyEnum.class, SomeObject.class]
+     */
+    private Type[] getMapGenericTypes(Field field) {
+        Type genericType = field.getGenericType();
+        if (genericType instanceof ParameterizedType) {
+            Type[] typeArguments = ((ParameterizedType) genericType).getActualTypeArguments();
+            if (typeArguments.length == 2) {
+                return typeArguments;
+            }
+        }
+        return new Type[]{String.class, Object.class};
+    }
+
     private void refreshFieldValue(Object bean, Field field, ConfigValue configValue, String newValue) {
         try {
             field.setAccessible(true);
@@ -160,6 +180,9 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
                 Class<?> fieldType = field.getType();
                 if (List.class.isAssignableFrom(fieldType)) {
                     convertedValue = client.getObjectList(configValue.value(), getComponentType(field));
+                } else if (Map.class.isAssignableFrom(fieldType)) {
+                    Type[] mapTypes = getMapGenericTypes(field);
+                    convertedValue = client.getObjectMap(configValue.value(), mapTypes[0], mapTypes[1]);
                 } else {
                     convertedValue = client.getObject(configValue.value(), fieldType);
                 }

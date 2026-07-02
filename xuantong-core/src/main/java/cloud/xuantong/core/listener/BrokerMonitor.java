@@ -1,7 +1,7 @@
 package cloud.xuantong.core.listener;
 
-import cloud.xuantong.core.listener.ConfigBrokerListener.PlayerInfo;
-import cloud.xuantong.core.listener.ConfigBrokerListener.PushLog;
+import cloud.xuantong.core.listener.model.PlayerInfo;
+import cloud.xuantong.core.listener.model.PushLog;
 
 import java.util.List;
 

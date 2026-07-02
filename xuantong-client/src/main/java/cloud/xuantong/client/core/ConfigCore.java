@@ -54,7 +54,7 @@ public class ConfigCore implements AutoCloseable {
         }
 
         try {
-            logger.info("Initializing ConfigCore for{} with subscribed apps: {}", env, subscribedApps);
+            logger.info("Initializing ConfigCore for {} with subscribed apps: {}", env, subscribedApps);
 
             // 注册配置变更监听器到传输层（监听主应用）
             transport.connect(serverAddress, subscribedApps, env, secretKey, configData -> {

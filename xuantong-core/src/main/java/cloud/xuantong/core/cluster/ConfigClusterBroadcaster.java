@@ -8,8 +8,7 @@ import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.core.event.EventListener;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Collections;
 
 /**
  * 配置变更广播器（Broker 模式）
@@ -75,9 +74,7 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
      * @param percentage 按比例（0~1）
      */
     public void broadcastConfigChange(ConfigChangeEvent event, boolean gray, String targetIp, double percentage) {
-        Map<String, Object> changeData = new HashMap<>();
-        changeData.put(event.getKey(), event.getValue());
-        String changeJson = ONode.serialize(changeData);
+        String changeJson = buildChangeJson(event);
 
         // 推送给客户端 Player
         pusher.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson, gray, targetIp, percentage);
@@ -102,10 +99,13 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
         log.debug("Handling cluster sync: {}={}", event.getKey(), event.getValue());
 
         // 推送给本地连接的客户端 Player
-        Map<String, Object> changeData = new HashMap<>();
-        changeData.put(event.getKey(), event.getValue());
-        String changeJson = ONode.serialize(changeData);
+        pusher.pushConfigChange(event.getProject(), event.getEnvironment(), buildChangeJson(event));
+    }
 
-        pusher.pushConfigChange(event.getProject(), event.getEnvironment(), changeJson);
+    /**
+     * 构建单 key 变更 JSON（提取公共逻辑，消除重复 Map 创建）
+     */
+    private String buildChangeJson(ConfigChangeEvent event) {
+        return ONode.serialize(Collections.singletonMap(event.getKey(), event.getValue()));
     }
 }

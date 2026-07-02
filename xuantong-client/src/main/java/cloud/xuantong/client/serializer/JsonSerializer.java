@@ -102,4 +102,43 @@ public class JsonSerializer implements Serializer {
         }
     }
 
+    @Override
+    @SuppressWarnings("unchecked")
+    public <K, V> Map<K, V> deserializeMap(String str, Type keyType, Type valueType) {
+        if (str == null || str.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            String jsonStr = str.trim();
+            if (jsonStr.startsWith("\"") && jsonStr.endsWith("\"")) {
+                jsonStr = ONode.ofJson(jsonStr, options).toJson();
+            }
+
+            // 构造 Map<K, V> 的完整泛型 Type，保留 keyType（如 Enum）信息
+            Type mapType = new ParameterizedType() {
+                @Override
+                public Type[] getActualTypeArguments() {
+                    return new Type[]{keyType, valueType};
+                }
+                @Override
+                public Type getRawType() {
+                    return Map.class;
+                }
+                @Override
+                public Type getOwnerType() {
+                    return null;
+                }
+            };
+            return ONode.deserialize(jsonStr, new TypeRef<Map<K, V>>() {
+                @Override
+                public Type getType() {
+                    return mapType;
+                }
+            });
+        } catch (Exception e) {
+            logger.error("Deserialize map with types failed, keyType={}, valueType={}", keyType, valueType, e);
+            throw new XuantongException("Deserialize map with types failed", e);
+        }
+    }
+
 }

@@ -24,6 +24,7 @@ public interface ConfigTransport {
     /**
      * 获取配置变更
      */
+    @Deprecated
     String fetchChanges(String appName, String env);
 
     /**

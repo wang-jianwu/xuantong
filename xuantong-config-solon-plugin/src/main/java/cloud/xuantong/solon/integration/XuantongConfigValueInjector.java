@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.List;
+import java.util.Map;
 
 /**
  * author 封于修
@@ -82,6 +83,10 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
                         Class<?> componentType = getComponentType(varH);
                         return Serializer.defaultSerializer().deserializeToList(value, componentType);
                     }
+                    if (Map.class.isAssignableFrom(targetType)) {
+                        Type[] mapTypes = getMapGenericTypes(varH);
+                        return Serializer.defaultSerializer().deserializeMap(value, mapTypes[0], mapTypes[1]);
+                    }
                     return Serializer.defaultSerializer().deserialize(value, targetType);
                 case STRING:
                 default:
@@ -101,6 +106,21 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
             }
         }
         return Object.class;
+    }
+
+    /**
+     * 提取 Map 的泛型类型 [keyType, valueType]
+     * 如 Map<MyEnum, SomeObject> → [MyEnum.class, SomeObject.class]
+     */
+    private Type[] getMapGenericTypes(VarHolder varH) {
+        Type genericType = varH.getGenericType();
+        if (genericType instanceof ParameterizedType) {
+            Type[] typeArguments = ((ParameterizedType) genericType).getActualTypeArguments();
+            if (typeArguments.length == 2) {
+                return typeArguments;
+            }
+        }
+        return new Type[]{String.class, Object.class};
     }
 
     private void registerAutoRefreshListener(VarHolder varH, ConfigValue configValue, String key) {

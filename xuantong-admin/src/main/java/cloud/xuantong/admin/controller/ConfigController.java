@@ -79,7 +79,7 @@ public class ConfigController {
 
     @Get
     @Mapping("/stats")
-    public Result getConfigStats() {
+    public Result<Map<String, Object>> getConfigStats() {
         Map<String, Object> stats = new HashMap<>();
         stats.put("configCount", configService.getConfigCount());
         stats.put("projectCount", projectService.getProjectCount());

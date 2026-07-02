@@ -5,7 +5,9 @@ import cloud.xuantong.client.listener.ConfigListener;
 import cloud.xuantong.client.serializer.Serializer;
 import cloud.xuantong.client.transport.impl.SocketDTransport;
 
+import java.lang.reflect.Type;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 配置客户端接口 - 实例化客户端（用于依赖注入）
@@ -80,6 +82,16 @@ public class XuantongClient implements AutoCloseable {
     public <T> List<T> getObjectList(String key, Class<T> clazz) {
         String json = get(key, null);
         return Serializer.defaultSerializer().deserializeToList(json, clazz);
+    }
+
+    /**
+     * 获取 Map 配置值（支持 Enum key 等泛型类型）
+     * @param keyType 键类型，如 MyEnum.class
+     * @param valueType 值类型，如 SomeObject.class
+     */
+    public <K, V> Map<K, V> getObjectMap(String key, Type keyType, Type valueType) {
+        String json = get(key, null);
+        return Serializer.defaultSerializer().deserializeMap(json, keyType, valueType);
     }
 
     /**

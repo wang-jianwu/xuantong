@@ -2,7 +2,9 @@ package cloud.xuantong.client;
 
 import cloud.xuantong.client.exception.XuantongException;
 
+import java.lang.reflect.Type;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 静态门面类 - 提供简单的静态API访问方式
@@ -18,21 +20,21 @@ public final class XuantongConfig {
     /**
      * 初始化配置客户端（静态方式）- 支持多应用订阅
      */
-    public static synchronized void init(List<String> serverAddrs, List<String> subscribedApps, String env) {
-        init(serverAddrs, subscribedApps, env, "");
+    public static synchronized void init(List<String> serverAddress, List<String> subscribedApps, String env) {
+        init(serverAddress, subscribedApps, env, "");
     }
 
     /**
      * 初始化配置客户端（静态方式）- 支持多应用订阅 + Broker 鉴权
      */
-    public static synchronized void init(List<String> serverAddrs, List<String> subscribedApps, String env, String secretKey) {
+    public static synchronized void init(List<String> serverAddress, List<String> subscribedApps, String env, String secretKey) {
         if (initialized) {
             throw new XuantongException("XuantongConfig already initialized. Use close() before reinitializing.");
         }
         if (defaultClient != null) {
             throw new XuantongException("XuantongConfig singleton instance already exists");
         }
-        defaultClient = new XuantongClient(serverAddrs, subscribedApps, env, secretKey);
+        defaultClient = new XuantongClient(serverAddress, subscribedApps, env, secretKey);
         initialized = true;
     }
 
@@ -67,7 +69,15 @@ public final class XuantongConfig {
         checkInitialized();
         return defaultClient.getObjectList(key, clazz);
     }
-
+    /**
+     * 获取 Map 配置值（支持 Enum key 等泛型类型）
+     * @param keyType 键类型，如 MyEnum.class
+     * @param valueType 值类型，如 SomeObject.class
+     */
+    public <K, V> Map<K, V> getObjectMap(String key, Type keyType, Type valueType) {
+        String json = get(key, null);
+        return defaultClient.getObjectMap(json, keyType, valueType);
+    }
     /**
      * 设置默认客户端实例（供XuantongClient内部使用）
      */

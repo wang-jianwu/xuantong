@@ -50,14 +50,14 @@ public class AnnotationExamples {
     }
 
     // 示例配置对象类
-    @Data
+    @Getter
     public static class AppConfig {
         private String appId;
         private String appName;
 
     }
 
-    @Data
+    @Getter
     public static class PaymentConfig {
         private String appId;
         private String secret;
