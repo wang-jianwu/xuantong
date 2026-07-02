@@ -89,8 +89,8 @@ public class ConfigClusterBroadcaster implements EventListener<ConfigPushEvent> 
             pusher.broadcastClusterSync(syncJson);
         }
 
-        log.debug("Config change broadcast: {}={} gray={} ip={} pct={}",
-                event.getKey(), event.getValue(), gray, targetIp, percentage);
+        log.debug("Config change broadcast: key={} encrypted={} gray={} ip={} pct={}",
+                event.getKey(), event.getValue() != null && event.getValue().length() > 0, gray, targetIp, percentage);
     }
 
     /**

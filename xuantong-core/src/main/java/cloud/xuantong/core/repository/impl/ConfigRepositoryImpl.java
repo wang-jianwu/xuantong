@@ -57,6 +57,7 @@ public class ConfigRepositoryImpl implements ConfigRepository {
                 .setColumns(cp -> cp.value().set(config.getValue()))
                 .setColumns(cp -> cp.description().set(config.getDescription()))
                 .setColumns(cp -> cp.valueType().set(config.getValueType()))
+                .setColumns(cp -> cp.isEncrypted().set(config.getIsEncrypted()))
                 .setColumns(cp -> cp.version().set(config.getVersion() + 1))
                 .setColumns(cp -> cp.updatedAt().set(new Date()))
                 .where(o -> o.id().eq(config.getId()))

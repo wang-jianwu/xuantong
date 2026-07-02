@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * Failover 策略：
  * 1. 初始化时尝试连接所有 Broker，选第一个可用的
- * 2. 连接断开时，自动切换到下一个可用 Broker
+ * 2. 连接断开时，自动切换到下一个可用 Broker（指数退避）
  * 3. 所有 Broker 都不可用时，后台持续重试
  * <p>
  * 连接 URL 格式:
@@ -37,8 +37,10 @@ public class SocketDTransport implements ConfigTransport {
 
     private static final long HEARTBEAT_INTERVAL = 20_000;  // 20秒心跳
     private static final long CONNECTION_TIMEOUT = 30_000;  // 30秒连接超时
-    private static final int MAX_RETRIES = 3;               // 每个 Broker 最大重试次数
-    private static final long RECONNECT_INTERVAL = 5_000;   // 重连间隔
+    private static final int MAX_RETRIES = 2;               // 每个 Broker 最大重试次数
+    // 指数退避: 1s → 2s → 4s → 8s → 16s → 30s（封顶）
+    private static final long RECONNECT_BASE_INTERVAL = 1_000;
+    private static final long RECONNECT_MAX_INTERVAL = 30_000;
 
     private volatile ClientSession session;
     private ConfigChangeListener configChangeListener;
@@ -111,13 +113,17 @@ public class SocketDTransport implements ConfigTransport {
 
     /**
      * 创建 Socket.D 会话
+     * <p>
+     * 关闭 Socket.D 内置 autoReconnect，完全由 startBackgroundReconnect 管理重连。
+     * 避免 autoReconnect（只能重连同一 Broker）与自定义重连（可切换 Broker）同时触发，
+     * 导致产生两个活跃 session 的冲突问题。
      */
     private ClientSession createSession(String url) {
         try {
             return SocketD.createClient(url)
                     .config(c -> c.heartbeatInterval(HEARTBEAT_INTERVAL)
                             .connectTimeout(CONNECTION_TIMEOUT)
-                            .autoReconnect(true))
+                            .autoReconnect(false))
                     .listen(new EventListener()
                             .doOn("/config-change", (s, m) -> {
                                 if (configChangeListener != null && m != null) {
@@ -153,8 +159,12 @@ public class SocketDTransport implements ConfigTransport {
     }
 
     /**
-     * 启动后台重连线程
-     * 当连接断开时，自动尝试连接下一个可用 Broker
+     * 启动后台重连线程（指数退避 + Broker 轮转）
+     * <p>
+     * 重连策略：
+     * - 每个 Broker 尝试 MAX_RETRIES 次，失败后切换下一个
+     * - 所有 Broker 都失败后，指数退避等待：1s → 2s → 4s → ... → 30s（封顶）
+     * - 连接成功后重置退避计数器
      */
     private synchronized void startBackgroundReconnect() {
         if (closed || reconnectThread != null) {
@@ -163,34 +173,49 @@ public class SocketDTransport implements ConfigTransport {
 
         reconnectThread = new Thread(() -> {
             logger.info("Background reconnect started");
+            int backoffMultiplier = 1;
 
             while (!closed) {
-                // 轮询所有 Broker
+                boolean connected = false;
+
+                // 轮询所有 Broker，每个尝试 MAX_RETRIES 次
                 for (int i = 0; i < brokerUrls.size() && !closed; i++) {
                     int index = (currentBrokerIndex.get() + i) % brokerUrls.size();
                     String url = brokerUrls.get(index);
 
-	                    try {
-                        ClientSession oldSession = this.session;
-                        this.session = createSession(url);
-                        // 关闭旧 session
-                        if (oldSession != null) {
-                            try { oldSession.close(); } catch (Exception ignored) {}
+                    for (int attempt = 1; attempt <= MAX_RETRIES && !closed; attempt++) {
+                        try {
+                            ClientSession oldSession = this.session;
+                            this.session = createSession(url);
+                            if (oldSession != null) {
+                                try { oldSession.close(); } catch (Exception ignored) {}
+                            }
+                            currentBrokerIndex.set(index);
+                            logger.info("Reconnected to Broker ({}): {}", index, url);
+                            connected = true;
+                            break;
+                        } catch (Exception e) {
+                            logger.debug("Reconnect to Broker {} attempt {}/{} failed: {}",
+                                    index, attempt, MAX_RETRIES, e.getMessage());
                         }
-                        currentBrokerIndex.set(index);
-                        logger.info("Reconnected to Broker ({}): {}", index, url);
-                        reconnectThread = null;
-                        return;
-                    } catch (Exception e) {
-                        logger.debug("Reconnect to Broker {} failed: {}", index, e.getMessage());
                     }
+                    if (connected) break;
                 }
 
-                // 所有 Broker 都失败，等待后重试
+                if (connected) {
+                    backoffMultiplier = 1; // 重置退避
+                    reconnectThread = null;
+                    return;
+                }
+
+                // 所有 Broker 都失败，指数退避等待
                 if (!closed) {
+                    long sleepMs = Math.min(RECONNECT_BASE_INTERVAL * backoffMultiplier, RECONNECT_MAX_INTERVAL);
                     try {
-                        logger.debug("All Brokers unreachable, waiting {}ms before retry", RECONNECT_INTERVAL);
-                        Thread.sleep(RECONNECT_INTERVAL);
+                        logger.debug("All Brokers unreachable, waiting {}ms before retry", sleepMs);
+                        Thread.sleep(sleepMs);
+                        backoffMultiplier = Math.min(backoffMultiplier * 2,
+                                (int)(RECONNECT_MAX_INTERVAL / RECONNECT_BASE_INTERVAL));
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         break;
