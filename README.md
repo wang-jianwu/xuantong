@@ -1,51 +1,38 @@
-# 玄同 · Xuantong Config
+# 玄同配置中心
 
 <p align="center">
-  <strong>轻量级、高性能的分布式配置管理平台</strong>
+  <img src="img/img_02.png" alt="玄同配置中心" width="90%">
 </p>
 
-<p align="center">
-  <img src="img/img_01.png" alt="管理后台截图" width="80%">
-</p>
+<p align="center">轻量级分布式配置中心 · 基于 Socket.D 主动推送</p>
 
 ---
 
-## 核心特性
+## 设计理念
 
-| | |
-|---|---|
-| ⚡ **实时推送** | 基于 Socket.D Broker，配置变更毫秒级到达客户端 |
-| 🛡️ **多级容灾** | 内存 → 本地快照 → 远端，断网也能用 |
-| 🔌 **多框架** | 原生客户端 · Solon Server · Solon Cloud · Spring Boot |
-| 🏠 **零依赖启动** | 单机模式无需 Redis，`java -jar` 直接跑 |
-| 📊 **管理后台** | 仪表盘、配置管理、项目管理、环境管理、用户管理、Broker 监控 |
-| 🔒 **安全** | RBAC 权限控制、BCrypt 密码加密 |
-| 🌐 **集群** | 多节点自动发现 + Broker 组播同步，3 节点即可高可用 |
-| 📦 **轻量** | 核心 jar < 5MB，无重型依赖 |
-| 🚀 **灰度发布** | 支持按比例、指定 IP、随机节点灰度推送配置变更 |
-| 📝 **配置回滚** | 完整的变更历史记录，一键回退到任意历史版本 |
+**极简** — 管理后台、Broker、持久化在同一进程。不拆三个服务，不引入额外中间件。一个 jar 包，一条命令，就是一个完整的配置中心。
+
+**轻量** — 不绑死数据库，不强制依赖 Redis。开发用内置 H2，生产用 MySQL、PostgreSQL、达梦——你的环境用什么，玄同就适配什么。
+
+**高效** — 基于 Socket.D 双向长连接，配置变更主动推送。不是客户端定时去问"有没有更新"，是服务端有变更立刻推过去。
+
+**稳定** — 客户端持有内存缓存和本地文件快照。配置中心完全宕机时，业务应用仍能从本地缓存启动并正常运行。基础设施不应成为单点故障。
+
+**可控** — 每个在线连接、每次推送结果、每条配置变更历史都有记录。不是黑盒运行，出问题能查到具体环节。
 
 ## 快速开始
 
-### 启动配置中心
-
 ```bash
-# 1. 准备 MySQL，执行建表脚本
-mysql -u root -p < xuantong-admin/src/main/resources/db/schema.sql
-
-# 2. 启动（单机模式，默认使用本地缓存，无需 Redis）
 java -jar xuantong-admin.jar
-
-# 3. 打开管理后台
-# http://localhost:8088/login
-# 默认账号: admin / admin123
 ```
 
-> 多机部署只需取消注释 `core.yml` 中的 Redis 配置即可启用共享缓存。
+打开 http://localhost:8088 — 账号 `admin` / `admin123`
+
+无需数据库、无需 Redis，开箱即用。
 
 ### 客户端接入
 
-**方式一：原生客户端（推荐新项目）**
+**方式一：原生客户端**
 
 ```xml
 <dependency>
@@ -72,7 +59,7 @@ XuantongConfig.addListener("payment.timeout", event -> {
 });
 ```
 
-**方式二：Solon Server 插件（`@ConfigValue` 注入）**
+**方式二：Solon Plugin（`@ConfigValue` 注入）**
 
 ```xml
 <dependency>
@@ -103,7 +90,7 @@ public class AppConfig {
 }
 ```
 
-**方式三：Solon Cloud 插件**
+**方式三：Solon Cloud Plugin**
 
 ```xml
 <dependency>
@@ -124,19 +111,16 @@ solon.cloud.xuantong:
 ```
 
 ```java
-// 使用 @CloudConfig 注入配置
 @Configuration
 public class AppConfig {
-
     @CloudConfig("app.payment.timeout")
     private String paymentTimeout;
 
     @CloudConfig("app.db.url", autoRefreshed = true)
     private PaymentConfig paymentConfig;
-
 }
 
-// 配置订阅：监听配置实时更新
+// 监听配置实时更新
 @Component
 public class ConfigChangeHandler implements CloudConfigHandler {
     @Override
@@ -175,200 +159,78 @@ public class AppConfig {
 }
 ```
 
-## 部署架构
+## 架构
 
+```mermaid
+graph TB
+    subgraph Admin["玄同 Admin（单进程）"]
+        A[Web 管理台]
+        B[Socket.D Broker]
+        C[ConfigService]
+        D[(数据库)]
+        A --> C
+        C --> D
+        C --> B
+    end
+
+    B <-->"Socket.D 长连接" AppA["App A<br/>内存 + 文件快照"]
+    B <-->"Socket.D 长连接" AppB["App B<br/>内存 + 文件快照"]
+    B <-->"Socket.D 长连接" AppC["App C<br/>内存 + 文件快照"]
 ```
-┌─────────────────────────────────────────────┐
-│               配置中心 (Admin)                │
-│  ┌─────────┐  ┌──────────┐  ┌────────────┐  │
-│  │ 仪表盘   │  │ 配置管理  │  │ 用户管理   │  │
-│  └─────────┘  └──────────┘  └────────────┘  │
-│                    │                         │
-│              Socket.D Broker                 │
-│                    │                         │
-│  ┌─────────────────────────────────────┐    │
-│  │     应用 A      │     应用 B       │    │
-│  │  @=appA:prod   │  @=appB:prod    │    │
-│  └─────────────────────────────────────┘    │
-└─────────────────────────────────────────────┘
-```
 
-| 部署模式 | 配置 | 适用场景 |
-|---------|------|---------|
-| 单机 | 默认（本地缓存），零外部依赖 | 开发、小团队 |
-| 多机 | 取消注释 `core.yml` 中 Redis 配置 | 生产环境 |
+**推送机制** — 配置变更时，Broker 按 `project:env` 精确路由推送到订阅客户端，不是广播。
 
-## 管理后台功能
+**容灾设计** — 客户端保有内存缓存和本地文件快照。配置中心完全不可达时，业务从本地缓存启动并正常运行。
 
-### 界面截图
+**集群同步** — 多个 Admin 节点通过 Broker 互联组播，对等架构，无需选主，无需消息队列。
 
-| 功能   | 截图                                                 |
-|------|----------------------------------------------------|
-| 登录页面 | <img src="img/img_01.png" alt="登录页面" width="100%"> |
-| 配置管理 | <img src="img/img_02.png" alt="配置管理" width="100%"> |
-| 配置变更 | <img src="img/img_03.png" alt="配置管理" width="100%"> |
+## 功能
 
-### 功能模块
+**配置管理**
+- 多项目、多环境隔离
+- 配置值 AES 加密存储
+- 搜索过滤、批量操作
 
-| 模块 | 功能 |
-|------|------|
-| 仪表盘 | 配置总数、项目数、今日变更、最近操作记录 |
-| 配置管理 | 按项目/环境查询、新增/编辑/删除配置、变更历史、灰度推送、全量推送 |
-| 项目管理 | 项目增删改、启用/禁用 |
-| 环境管理 | 环境增删改、默认环境设置 |
-| 用户管理 | 用户增删改、角色分配（admin/user） |
-| Broker 监控 | 连接客户端、推送日志、集群状态（仅 admin 可见） |
+**发布管控**
+- 变更实时推送，毫秒级到达
+- 灰度发布：随机节点 / 指定 IP / 按比例
+- 完整变更历史，一键回滚
 
-## 灰度发布
+**运维监控**
+- 在线客户端、连接状态实时查看
+- 推送日志记录
+- RBAC 权限控制
 
-玄同配置中心支持灰度发布功能，允许你安全地将配置变更逐步推送到生产环境，降低风险。
+## 截图
 
-### 灰度推送方式
-<img src="img/img_04.png" alt="全量推送确认" width="80%">
-支持三种灰度推送策略：
+| 配置编辑 | 灰度推送 |
+|:---:|:---:|
+| <img src="img/img_03.png" width="100%"> | <img src="img/img_04.png" width="100%"> |
 
-| 策略 | 说明 | 适用场景 |
-|------|------|---------|
-| **随机 1 台** | 随机选择一台在线客户端进行推送 | 快速验证配置变更 |
-| **指定 IP** | 从在线客户端列表中选择特定节点 | 精确控制变更范围 |
-| **按比例** | 按指定比例（如 10%、50%）逐步推送 | 大规模渐进式发布 |
+| 版本回滚 | Broker 监控 |
+|:---:|:---:|
+| <img src="img/img_05.png" width="100%"> | <img src="img/img_06.png" width="100%"> |
 
-### 使用步骤
+## 部署
 
-1. 在配置管理页面，点击配置项右侧的 **灰度** 按钮
-2. 在弹出的对话框中选择灰度推送方式
-3. 配置灰度参数（如选择指定 IP 或设置推送比例）
-4. 点击 **确定推送** 完成灰度发布
+| 模式 | 说明 |
+|:---|:---|
+| 单机 | `java -jar` 即可，内置 H2 |
+| 生产 | 修改 `core.yml` 接入任意关系型数据库 |
+| 集群 | 配置多节点地址 + Redis 共享缓存 |
+| Docker | `docker compose up -d` |
 
-### 全量推送
-灰度验证结束，可以点击 **全量** 按钮进行全量推送。
+支持 MySQL、PostgreSQL、达梦、人大金仓等，不做绑定。
 
-### 最佳实践
+## 技术选型
 
-1. **先灰度，后全量**：配置变更先通过灰度推送到少量节点验证，确认无误后再全量推送
-2. **监控推送日志**：通过 Broker 监控页面查看推送状态和目标客户端数
-3. **保留回滚能力**：重要配置变更前，确保有可回退的历史版本
+| | 选型 | 理由 |
+|:---|:---|:---|
+| 框架 | [Solon](https://solon.noear.org/) | 启动快、内存省、原生支持 Socket.D |
+| 通信 | [Socket.D](https://socketd.noear.org/) | 双向长连接，天然适合推送场景 |
+| ORM | EasyQuery | 多数据库方言，一套代码适配多种数据库 |
+| 客户端 | Java 8+ | 兼容老项目 |
 
-## 配置回滚
-
-<img src="img/img_05.png" alt="配置历史版本" width="80%">
-
-### 功能说明
-
-- **完整历史记录**：每次配置变更都会记录操作类型、新旧值、操作人和操作时间
-- **一键回退**：在历史版本列表中点击 **回退** 按钮，即可恢复到指定历史版本
-- **版本对比**：查看不同版本之间的配置值差异
-
-### 使用场景
-
-- 配置误操作需要快速恢复
-- 新配置上线后出现问题需要回滚
-- 审计追踪配置变更历史
-
-## Broker 监控
-
-<img src="img/img_06.png" alt="Broker监控" width="100%">
-
-### 监控指标
-
-| 指标 | 说明 |
-|------|------|
-| 连接的客户端 | 当前在线的客户端数量 |
-| 集群连接数 | 集群节点之间的连接数 |
-| 推送日志数 | 最近推送的配置变更数量 |
-| Broker 状态 | Broker 运行状态（UP/DOWN） |
-
-### 功能说明
-
-- **客户端列表**：查看所有在线客户端的详细信息（Player 名称、Session ID、客户端 IP、订阅的项目、连接时间、最后请求时间、状态）
-- **推送日志**：查看最近 100 条配置推送记录（时间、项目、环境、变更 Key、目标客户端数）
-- **实时刷新**：点击刷新按钮获取最新的监控数据
-
-> 注意：Broker 监控页面仅对 admin 角色用户可见。
-
-## FAQ
-
-**Q: 必须装 Redis 吗？**
-A: 不需要。单机模式默认使用本地内存缓存，零外部依赖。多机集群时才需要 Redis 做共享缓存和共享 Session。
-
-**Q: 配置变更多久生效？**
-A: 毫秒级。基于 Socket.D 长连接推送，配置保存后立刻通知所有订阅客户端。
-
-**Q: 配置中心挂了怎么办？**
-A: 客户端有多级容灾：内存缓存 → 本地文件快照 → 远端。即使配置中心完全不可达，业务应用仍能使用本地缓存的配置正常启动和运行。
-
-**Q: 支持哪些配置格式？**
-A: 字符串、数字、布尔、JSON 对象、JSON 数组/列表。通过 `@ConfigValue` 注解自动类型转换。
-
-**Q: 如何保证多节点一致性？**
-A: 管理后台节点通过 Socket.D Broker 组播自动同步配置变更，无需额外消息队列。
-
-**Q: 灰度推送和全量推送有什么区别？**
-A: 灰度推送只将配置变更发送到部分客户端（随机、指定 IP 或按比例），适合生产环境验证；全量推送将配置变更发送到所有在线客户端，适合确认无误后的最终发布。
-
-**Q: 如何查看配置推送是否成功？**
-A: 通过 Broker 监控页面的推送日志查看推送状态，可以确认目标客户端数和推送时间。
-
-**Q: 配置回滚会影响灰度推送中的配置吗？**
-A: 回滚操作会触发新的配置变更推送，灰度推送中的客户端会收到最新的回滚配置。
-
-## 版本要求
-
-| 组件           | 最低版本 |
-|--------------|------|
-| Java         | 8+   |
-| MySQL（可选）    | 5.7+ |
-| Spring Boot（可选） | 3.x  |
-| Solon（可选）    | 2.x  |
-
-## 许可证
+## License
 
 [Apache License 2.0](LICENSE)
-
----
-
-## Docker 部署
-
-### 先决条件
-- Docker & Docker Compose
-
-### 快速启动
-
-```bash
-# 1. 设置密码
-export DB_PASSWORD=your_password
-
-# 2. 启动全部服务（MySQL + Redis + 配置中心）
-docker compose up -d
-
-# 3. 查看日志
-docker compose logs -f config-center
-```
-
-访问 `http://localhost:8088`，默认账号 `admin` / `admin123`。
-
-### 单独启动
-
-```bash
-# 启动 MySQL 和 Redis
-docker compose up -d mysql redis
-
-# 构建并启动配置中心
-docker compose up -d config-center
-```
-
-### 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DB_PASSWORD` | MySQL 密码 | (必填) |
-| `REDIS_PASSWORD` | Redis 密码 | 空 |
-| `BROKER_SECRET_KEY` | Broker 鉴权密钥 | 空（不校验） |
-
-### 手动构建
-
-```bash
-mvn clean package -DskipTests
-docker compose build config-center
-docker compose up -d config-center
-```
