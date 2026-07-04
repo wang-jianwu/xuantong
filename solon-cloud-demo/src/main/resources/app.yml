@@ -9,21 +9,21 @@ solon.logging:
       level: INFO
     file:
       level: INFO
-xuantong:
-  config:
-    # Broker 地址
-    serverAddresses:
-      - 127.0.0.1:8088
-    appNames:
-      - demo
-      - advert
-    environment: dev
-#solon.cloud:
-#      xuantong:
-#       server: 127.0.0.1:8088 #多个逗号,分隔
-#       namespace: dev:demo
-#       config:
-#      #load: demo.aaa.yml #这个里的配置可以使用@Inject
+#xuantong:
+#  config:
+#    # Broker 地址
+#    serverAddresses:
+#      - 127.0.0.1:8088
+#    appNames:
+#      - demo
+#      - advert
+#    environment: dev
+solon.cloud:
+      xuantong:
+       server: 127.0.0.1:8088 #多个逗号,分隔
+       namespace: dev:demo
+       config:
+        load: demo.aaa.yml #这个里的配置可以使用@Inject
 solon:
   logging:
     appender:

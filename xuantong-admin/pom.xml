@@ -26,6 +26,12 @@
             <groupId>org.noear</groupId>
             <artifactId>solon-view-enjoy</artifactId>
         </dependency>
+        <!-- 测试依赖 -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <finalName>${project.artifactId}</finalName>

@@ -58,7 +58,7 @@
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
-            <optional>true</optional>
+<!--            <optional>true</optional>-->
         </dependency>
         <!-- EasyQuery ORM -->
         <dependency>

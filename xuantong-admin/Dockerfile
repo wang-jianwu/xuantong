@@ -1,12 +1,12 @@
 # 构建阶段
-FROM eclipse-temurin:8 AS builder
+FROM eclipse-temurin:21 AS builder
 
 WORKDIR /build
 COPY . .
 RUN ./mvnw clean package -pl xuantong-admin -am -DskipTests -q
 
 # 运行阶段
-FROM eclipse-temurin:8-jre-alpine
+FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 RUN apk add --no-cache tzdata && \

@@ -202,7 +202,9 @@ public class SocketDTransport implements ConfigTransport {
 
                 if (connected) {
                     backoffMultiplier = 1; // 重置退避
-                    reconnectThread = null;
+                    synchronized (this) {
+                        reconnectThread = null;
+                    }
                     // 重连成功后触发配置重载（在 this.session 已赋值之后，避免 doOnOpen 时序问题）
                     if (initialConnected && onReconnectListener != null) {
                         logger.info("Reconnect succeeded, triggering config reload");
@@ -226,7 +228,9 @@ public class SocketDTransport implements ConfigTransport {
                 }
             }
 
-            reconnectThread = null;
+            synchronized (this) {
+                reconnectThread = null;
+            }
             logger.info("Background reconnect stopped");
         }, "broker-reconnect");
 
@@ -240,12 +244,18 @@ public class SocketDTransport implements ConfigTransport {
             return "{}";
         }
 
+        ClientSession currentSession = this.session;
+        if (currentSession == null) {
+            logger.warn("fetchAllForApps skipped: no active Broker session");
+            return null;
+        }
+
         try {
             Entity request = new StringEntity("{}")
                     .metaPut("apps", String.join(",", appNames))
                     .metaPut("env", env);
 
-            Entity response = session.sendAndRequest("/batch_all", request).await();
+            Entity response = currentSession.sendAndRequest("/batch_all", request).await();
             return response.dataAsString();
         } catch (Exception e) {
             logger.error("Failed to fetch batch configs via Broker", e);
@@ -255,12 +265,18 @@ public class SocketDTransport implements ConfigTransport {
 
     @Override
     public String fetch(String key, String env) {
+        ClientSession currentSession = this.session;
+        if (currentSession == null) {
+            logger.warn("fetch skipped (key={}): no active Broker session", key);
+            return null;
+        }
+
         try {
             Entity request = new StringEntity("{}")
                     .metaPut("env", env)
                     .metaPut("key", key);
 
-            Entity response = session.sendAndRequest("/get", request).await();
+            Entity response = currentSession.sendAndRequest("/get", request).await();
             // 服务端用 meta "found" 区分：配置存在（值为空串）vs 配置不存在
             String found = response.meta("found");
             if ("false".equals(found)) {
@@ -279,12 +295,18 @@ public class SocketDTransport implements ConfigTransport {
             return "{}";
         }
 
+        ClientSession currentSession = this.session;
+        if (currentSession == null) {
+            logger.warn("fetchSpecificKeys skipped: no active Broker session");
+            return "{}";
+        }
+
         try {
             Entity request = new StringEntity(keys)
                     .metaPut("action", "batch_keys")
                     .metaPut("env", env);
 
-            Entity response = session.sendAndRequest("/batch_keys", request).await();
+            Entity response = currentSession.sendAndRequest("/batch_keys", request).await();
             return response.dataAsString();
         } catch (Exception e) {
             logger.error("Failed to fetch specific keys via Broker", e);
@@ -295,12 +317,18 @@ public class SocketDTransport implements ConfigTransport {
     @Deprecated
     @Override
     public String fetchChanges(String appName, String env) {
+        ClientSession currentSession = this.session;
+        if (currentSession == null) {
+            logger.warn("fetchChanges skipped: no active Broker session");
+            return null;
+        }
+
         try {
             Entity request = new StringEntity("{}")
                     .metaPut("app", appName)
                     .metaPut("env", env);
 
-            Entity response = session.sendAndRequest("/changes", request).await();
+            Entity response = currentSession.sendAndRequest("/changes", request).await();
             return response.dataAsString();
         } catch (Exception e) {
             logger.error("Failed to fetch changes via Broker", e);

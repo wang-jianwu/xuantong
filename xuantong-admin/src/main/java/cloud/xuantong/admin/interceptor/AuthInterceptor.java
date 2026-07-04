@@ -56,6 +56,16 @@ public class AuthInterceptor implements RouterInterceptor {
             return;
         }
 
+        // CSRF 防护：对写操作检查 Origin/Referer（SameSite 兜底之外的第二层防护）
+        if (path.startsWith("/api/") && !"GET".equalsIgnoreCase(ctx.method())) {
+            if (!isSameOrigin(ctx)) {
+                log.warn("CSRF check failed: {} {}", ctx.method(), path);
+                ctx.status(403);
+                ctx.output("{\"code\":403,\"message\":\"跨站请求伪造检测\"}");
+                return;
+            }
+        }
+
         // 检查登录状态
         if (ctx.session("user") == null) {
             log.warn("Unauthorized access: {}", path);
@@ -69,9 +79,22 @@ public class AuthInterceptor implements RouterInterceptor {
             return;
         }
 
-        // RBAC 权限检查：非 admin 角色拒绝敏感操作
+        // RBAC 权限检查
         User user = ctx.session("user", User.class);
-        if (user != null && !"admin".equals(user.getRole())) {
+        // 防御性检查：session 中存在 "user" 属性但无法解析为 User 类型，视为会话损坏
+        if (user == null) {
+            log.warn("Session corrupted (user attribute exists but not User type): {}", path);
+            ctx.sessionRemove("user");
+            if (path.startsWith("/api/")) {
+                ctx.status(401);
+                ctx.output("{\"code\":401,\"message\":\"session expired\"}");
+            } else {
+                ctx.redirect("/login");
+            }
+            return;
+        }
+
+        if (!"admin".equals(user.getRole())) {
             // 检查 API 路径
             if (path.startsWith("/api/")) {
                 for (String prefix : ADMIN_API_PREFIXES) {
@@ -82,8 +105,8 @@ public class AuthInterceptor implements RouterInterceptor {
                         return;
                     }
                 }
-                // 对 /api/project 和 /api/env 的写操作也做限制
-                if ((path.startsWith("/api/project") || path.startsWith("/api/env"))
+                // 对 /api/project、/api/env、/api/config 的写操作也做限制
+                if ((path.startsWith("/api/project") || path.startsWith("/api/env") || path.startsWith("/api/config"))
                         && !"GET".equalsIgnoreCase(ctx.method())) {
                     log.warn("Forbidden (non-admin): {} by user {}", path, user.getUsername());
                     ctx.status(403);
@@ -104,5 +127,29 @@ public class AuthInterceptor implements RouterInterceptor {
         }
 
         chain.doIntercept(ctx, mainHandler);
+    }
+
+    /**
+     * 检查请求是否同源（Origin/Referer 与 Host 一致）
+     * 用于 CSRF 防护：浏览器自动附加的 Origin/Referer 无法被跨站脚本伪造
+     */
+    private boolean isSameOrigin(Context ctx) {
+        String host = ctx.header("Host");
+        if (host == null) return false;
+
+        // 优先检查 Origin
+        String origin = ctx.header("Origin");
+        if (origin != null) {
+            return origin.endsWith(host) || origin.contains("://" + host);
+        }
+
+        // 降级检查 Referer
+        String referer = ctx.header("Referer");
+        if (referer != null) {
+            return referer.contains("://" + host + "/");
+        }
+
+        // 无 Origin 也无 Referer：非浏览器请求（如 curl）放行
+        return true;
     }
 }

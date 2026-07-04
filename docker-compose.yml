@@ -3,18 +3,28 @@ services:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: nimbus_config
+      MYSQL_DATABASE: xuantong_config
       MYSQL_CHARACTER_SET_SERVER: utf8mb4
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./xuantong-admin/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   config-center:
     build:
@@ -32,8 +42,16 @@ services:
       REDIS_PASSWORD: ""
       BROKER_SECRET_KEY: ${BROKER_SECRET_KEY}
     depends_on:
-      - mysql
-      - redis
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8088/xuantong-admin/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   mysql_data:

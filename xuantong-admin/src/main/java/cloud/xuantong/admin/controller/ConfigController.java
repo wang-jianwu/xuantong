@@ -168,7 +168,7 @@ public class ConfigController {
             if (msg.startsWith("，")) msg = msg.substring(1);
             return Result.succeed(msg);
         } catch (Exception e) {
-            return Result.succeed("推送失败: " + e.getMessage());
+            return Result.failure("推送失败: " + e.getMessage());
         }
     }
 
@@ -192,7 +192,7 @@ public class ConfigController {
             EventBus.publish(new ConfigPushEvent(event, mode, targetIp, percentage));
             return Result.succeed(describeResult(action, mode, targetIp, percentage));
         } catch (Exception e) {
-            return Result.succeed(action + "成功，但推送失败: " + e.getMessage());
+            return Result.failure(action + "成功，但推送失败: " + e.getMessage());
         }
     }
 

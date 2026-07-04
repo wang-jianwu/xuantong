@@ -5,12 +5,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.*;
 
 /**
@@ -35,7 +36,7 @@ public class ConfigCacheManager {
     private final ConcurrentHashMap<String, Long> lastAccessTimes = new ConcurrentHashMap<>();
     // 清理调度器（定时任务使用单线程）
     private final ScheduledExecutorService cleanupScheduler;
-    // 文件操作执行器
+    // 文件操作使用单线程执行器（确保顺序执行，避免 batchUpdate 和 remove 的竞态）
     private final ExecutorService fileOpsExecutor;
 
     public ConfigCacheManager(String env) {
@@ -54,8 +55,8 @@ public class ConfigCacheManager {
             return thread;
         });
 
-        // 文件操作使用固定大小线程池
-        this.fileOpsExecutor = Executors.newFixedThreadPool(2, r -> {
+        // 文件操作使用单线程（确保 batchUpdate 和 remove 的顺序执行，避免竞态导致文件损坏）
+        this.fileOpsExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "cache-file-ops-thread");
             thread.setDaemon(true);
             return thread;
@@ -208,25 +209,30 @@ public class ConfigCacheManager {
     // ========== 单文件缓存实现 ==========
 
     /**
-     * 加载统一缓存文件 all.properties
+     * 加载统一缓存文件 all.properties（使用 Properties 解析以正确处理转义字符）
      */
     private Map<String, String> loadCacheFile() {
         Map<String, String> cacheMap = new ConcurrentHashMap<>();
         if (Files.exists(cacheFile)) {
-            FileKit.processLines(cacheFile, line -> {
-                int index = line.indexOf('=');
-                if (index > 0) {
-                    String key = line.substring(0, index);
-                    String value = line.substring(index + 1);
-                    cacheMap.put(key, value);
+            try {
+                String content = FileKit.readFile(cacheFile);
+                if (content != null && !content.isEmpty() && !"{}".equals(content)) {
+                    Properties props = new Properties();
+                    props.load(new StringReader(content));
+                    for (String key : props.stringPropertyNames()) {
+                        cacheMap.put(key, props.getProperty(key));
+                    }
                 }
-            });
+            } catch (Exception e) {
+                logger.error("Failed to load cache file, file may be corrupted", e);
+                // 文件损坏则返回空 map，下次推送会全量覆盖
+            }
         }
         return cacheMap;
     }
 
     /**
-     * 写入缓存文件
+     * 写入缓存文件（使用 Properties 格式，正确处理转义字符如换行符）
      * @param configs 新配置
      * @param replace true=全量替换，false=增量合并
      */
@@ -234,22 +240,28 @@ public class ConfigCacheManager {
         try {
             Files.createDirectories(cacheDir);
 
-            Map<String, String> merged;
-            if (replace) {
-                merged = new ConcurrentHashMap<>(configs);
+            Properties props = new Properties();
+            if (!replace && Files.exists(cacheFile)) {
+                // 增量合并：先加载现有文件数据
+                Map<String, String> existing = loadCacheFile();
+                existing.putAll(configs);
+                props.putAll(existing);
             } else {
-                // 增量合并：先加载现有文件数据，再合并新配置
-                merged = loadCacheFile();
-                merged.putAll(configs);
+                props.putAll(configs);
             }
 
-            List<String> lines = new ArrayList<>(merged.size());
-            for (Map.Entry<String, String> entry : merged.entrySet()) {
-                lines.add(entry.getKey() + "=" + entry.getValue());
+            // 使用 Properties.store 确保换行符等特殊字符被正确转义
+            StringWriter sw = new StringWriter();
+            props.store(sw, null);
+            // Properties.store 第一行是注释时间戳，跳过它
+            String content = sw.toString();
+            int firstNewline = content.indexOf('\n');
+            if (firstNewline >= 0) {
+                content = content.substring(firstNewline + 1);
             }
-            FileKit.atomicWriteLines(cacheFile, lines);
 
-            logger.info("Saved {} configs to cache file ({} new, replace={})", merged.size(), configs.size(), replace);
+            FileKit.writeFile(cacheFile, content);
+            logger.info("Saved {} configs to cache file ({} new, replace={})", props.size(), configs.size(), replace);
         } catch (Exception e) {
             logger.error("Failed to write cache file", e);
         }
@@ -263,11 +275,16 @@ public class ConfigCacheManager {
             Map<String, String> currentConfig = loadCacheFile();
             currentConfig.remove(key);
 
-            List<String> lines = new ArrayList<>(currentConfig.size());
-            for (Map.Entry<String, String> entry : currentConfig.entrySet()) {
-                lines.add(entry.getKey() + "=" + entry.getValue());
+            Properties props = new Properties();
+            props.putAll(currentConfig);
+            StringWriter sw = new StringWriter();
+            props.store(sw, null);
+            String content = sw.toString();
+            int firstNewline = content.indexOf('\n');
+            if (firstNewline >= 0) {
+                content = content.substring(firstNewline + 1);
             }
-            FileKit.atomicWriteLines(cacheFile, lines);
+            FileKit.writeFile(cacheFile, content);
         } catch (Exception e) {
             logger.error("Failed to remove key from cache file: {}", key, e);
         }

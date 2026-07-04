@@ -7,6 +7,12 @@ solon:
     name: xuantong-admin
     group: xuantong
 
+  # 会话配置 — SameSite=Lax 防止 CSRF
+  session:
+    cookie:
+      sameSite: Lax
+      httpOnly: true
+
   serialization.json:
     dateAsFormat: 'yyyy-MM-dd HH:mm:ss'
     dateAsTimeZone: 'GMT+8'
