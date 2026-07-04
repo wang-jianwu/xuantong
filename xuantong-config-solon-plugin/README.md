@@ -7,7 +7,7 @@
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-plugin</artifactId>
-    <version>1.3.1</version>
+    <version>1.3.2</version>
 </dependency>
 ```
 
@@ -41,7 +41,7 @@ xuantong:
 
 ```java
 public class DemoApp {
-    public void main(String[] args) {
+    public static void main(String[] args) {
         SolonApp app = Solon.start(DemoApp.class, args);
     }
 }
@@ -77,4 +77,4 @@ public class DemoController{
 
 ### 5、演示项目
 
-* [https://gitee.com/wjw_system/xuantong-config/tree/master/solon-cloud-demo](https://gitee.com/wjw_system/xuantong-config/tree/main/solon-cloud-demo)
+* [https://gitee.com/wjw_system/xuantong-config/tree/master/solon-cloud-demo](https://gitee.com/wjw_system/xuantong-config/tree/master/solon-cloud-demo)

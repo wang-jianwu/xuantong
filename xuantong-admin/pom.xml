@@ -6,7 +6,7 @@
     <parent>
         <groupId>cloud.xuantong</groupId>
         <artifactId>xuantong-config</artifactId>
-        <version>1.3.1</version>
+        <version>1.3.2</version>
     </parent>
 
     <artifactId>xuantong-admin</artifactId>
@@ -17,6 +17,14 @@
             <groupId>cloud.xuantong</groupId>
             <artifactId>xuantong-core</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-cache-jedis</artifactId>
         </dependency>
         <dependency>
             <groupId>org.noear</groupId>

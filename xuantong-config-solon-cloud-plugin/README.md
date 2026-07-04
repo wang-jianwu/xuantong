@@ -6,7 +6,7 @@
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-cloud-plugin</artifactId>
-    <version>1.3.1</version>
+    <version>1.3.2</version>
 </dependency>
 ```
 
@@ -28,7 +28,7 @@
 # app.yml
 solon:
   cloud:
-    xuantong-config:
+    xuantong:
       # Broker 地址（支持多地址，自动 failover，逗号分隔）
       server: node1:8088,node2:8088
       namespace: dev:app1,appName2,appName3
@@ -68,4 +68,4 @@ public class TestConfigHandler implements CloudConfigHandler {
 
 ### 5、演示项目
 
-* [https://gitee.com/wjw_system/xuantong-config/tree/master/solon-cloud-demo](https://gitee.com/wjw_system/xuantong-config/tree/main/solon-cloud-demo)
+* [https://gitee.com/wjw_system/xuantong-config/tree/master/solon-cloud-demo](https://gitee.com/wjw_system/xuantong-config/tree/master/solon-cloud-demo)

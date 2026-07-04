@@ -23,12 +23,14 @@ xuantong:
 # 生产环境 MySQL 配置示例
 #xuantong:
 #  class: "com.zaxxer.hikari.HikariDataSource"
-#  jdbcUrl: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/nimbus_config?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8
+#  jdbcUrl: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/xuantong_config?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8
 #  driverClassName: com.mysql.cj.jdbc.Driver
 #  username: ${DB_USER:root}
 #  password: ${DB_PASSWORD:}
+
 #   #── 缓存（可选，默认本地内存缓存）──
 #   #如需启用 Redis 共享缓存（多机部署），取消下方注释并配置连接信息
+
 #cache:
 #  base:
 #    driverType: "redis"

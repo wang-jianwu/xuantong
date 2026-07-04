@@ -19,7 +19,7 @@
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-spring-boot-starter</artifactId>
-    <version>1.3.1</version>
+    <version>1.3.2</version>
 </dependency>
 ```
 
@@ -76,7 +76,7 @@ public class DatabaseService {
 
 ## 最佳实践
 
-1**配置示例**：
+1. **配置示例**：
    ```yaml
    xuantong:
      config:
@@ -86,7 +86,7 @@ public class DatabaseService {
        environment: "dev"
    ```
 
-2**配置变更监听**：
+2. **配置变更监听**：
    ```java
    // 自动刷新配置，无需手动监听
    @Component

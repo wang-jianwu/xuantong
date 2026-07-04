@@ -1,7 +1,5 @@
 package com.example.controller;
 
-//import cloud.xuantong.client.annotation.ConfigValue;
-
 import lombok.Getter;
 import lombok.ToString;
 import org.noear.solon.annotation.Controller;
