@@ -224,12 +224,12 @@ graph TB
 
 ## 技术选型
 
-| | 选型 | 理由 |
-|:---|:---|:---|
-| 框架 | [Solon](https://solon.noear.org/) | 启动快、内存省、原生支持 Socket.D |
-| 通信 | [Socket.D](https://socketd.noear.org/) | 双向长连接，天然适合推送场景 |
-| ORM | EasyQuery | 多数据库方言，一套代码适配多种数据库 |
-| 客户端 | Java 8+ | 兼容老项目 |
+| | 选型                                                      | 理由 |
+|:---|:--------------------------------------------------------|:---|
+| 框架 | [Solon](https://solon.noear.org/)                       | 启动快、内存省、原生支持 Socket.D |
+| 通信 | [Socket.D](https://socketd.noear.org/)                  | 双向长连接，天然适合推送场景 |
+| ORM | [EasyQuery](https://www.easy-query.com/easy-query-doc/) | 多数据库方言，一套代码适配多种数据库 |
+| 客户端 | Java 8+                                                 | 兼容老项目 |
 
 ## License
 
