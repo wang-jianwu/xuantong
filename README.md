@@ -38,7 +38,7 @@ java -jar xuantong-admin.jar
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-client</artifactId>
-    <version>1.3.0</version>
+    <version>1.3.1</version>
 </dependency>
 ```
 
@@ -65,7 +65,7 @@ XuantongConfig.addListener("payment.timeout", event -> {
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-plugin</artifactId>
-    <version>1.3.0</version>
+    <version>1.3.1</version>
 </dependency>
 ```
 
@@ -96,7 +96,7 @@ public class AppConfig {
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-cloud-plugin</artifactId>
-    <version>1.3.0</version>
+    <version>1.3.1</version>
 </dependency>
 ```
 
@@ -136,7 +136,7 @@ public class ConfigChangeHandler implements CloudConfigHandler {
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-spring-boot-starter</artifactId>
-    <version>1.3.0</version>
+    <version>1.3.1</version>
 </dependency>
 ```
 
@@ -288,4 +288,4 @@ graph TB
 5. **测试补充**：建议为核心模块（`admin`/`core`）补充集成测试，覆盖配置同步与集群切换场景
 
 ---
-*报告生成时间：2026-07-03 | 基于仓库 v1.3.0 代码与架构分析*
+*报告生成时间：2026-07-03 | 基于仓库 v1.3.1 代码与架构分析*
