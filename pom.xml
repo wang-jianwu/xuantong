@@ -47,7 +47,11 @@
                 <artifactId>socketd</artifactId>
                 <version>${socketd.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>socketd-transport-java-websocket</artifactId>
+                <version>${socketd.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.noear</groupId>
                 <artifactId>solon-net</artifactId>

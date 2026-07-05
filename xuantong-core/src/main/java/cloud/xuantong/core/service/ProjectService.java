@@ -21,12 +21,17 @@ public class ProjectService {
     }
 
     public boolean saveProject(Project project) {
-        // 检查项目代码是否已存在
+        // 检查项目代码是否已存在（排除自身）
         Project existing = projectRepository.findByCode(project.getCode());
         if (existing != null && !existing.getId().equals(project.getId())) {
             throw new RuntimeException("项目代码已存在");
         }
-        return projectRepository.save(project) > 0;
+        // 有 ID 说明是编辑，走更新；否则走新增
+        if (project.getId() != null) {
+            return projectRepository.update(project) > 0;
+        } else {
+            return projectRepository.save(project) > 0;
+        }
     }
 
     public boolean updateProject(Project project) {
