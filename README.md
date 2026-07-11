@@ -1,10 +1,19 @@
-# 玄同配置中心
+# 玄同配置中心（Xuantong Config）
+
+<p align="center">
+  <strong>简体中文</strong> ｜ <a href="./README_EN.md">English</a>
+</p>
 
 <p align="center">
   <img src="img/img_02.png" alt="玄同配置中心" width="90%">
 </p>
 
 <p align="center">轻量级分布式配置中心 · 基于 Socket.D 主动推送</p>
+
+<p align="center">
+  <a href="https://github.com/wang-jianwu/xuantong-config">GitHub</a> ·
+  <a href="https://gitee.com/wjw_system/xuantong-config">Gitee</a>
+</p>
 
 ---
 
@@ -161,22 +170,9 @@ public class AppConfig {
 
 ## 架构
 
-```mermaid
-graph TB
-    subgraph Admin["玄同 Admin（单进程）"]
-        A[Web 管理台]
-        B[Socket.D Broker]
-        C[ConfigService]
-        D[(数据库)]
-        A --> C
-        C --> D
-        C --> B
-    end
-
-    B <-->"Socket.D 长连接" AppA["App A<br/>内存 + 文件快照"]
-    B <-->"Socket.D 长连接" AppB["App B<br/>内存 + 文件快照"]
-    B <-->"Socket.D 长连接" AppC["App C<br/>内存 + 文件快照"]
-```
+<p align="center">
+  <img src="img/architecture.png" alt="玄同配置中心架构图" width="100%">
+</p>
 
 **推送机制** — 配置变更时，Broker 按 `project:env` 精确路由推送到订阅客户端，不是广播。
 

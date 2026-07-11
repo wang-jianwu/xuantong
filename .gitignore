@@ -11,3 +11,7 @@ core.yml.local
 
 # H2 embedded database
 data/
+docs/
+bin/
+company-website/
+.soloncode/
