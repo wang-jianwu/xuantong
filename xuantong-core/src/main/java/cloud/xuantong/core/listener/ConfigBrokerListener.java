@@ -85,8 +85,8 @@ public class ConfigBrokerListener extends BrokerListener implements ConfigPusher
         if (secretKey != null && !secretKey.isEmpty()) {
             String token = session.param("token");
             if (!secretKey.equals(token)) {
-                log.warn("Player auth failed: name={}, token={}, ip={}",
-                        session.name(), token, getClientIp(session));
+                log.warn("Player auth failed: name={}, ip={}",
+                        session.name(), getClientIp(session));
                 activePlayers.remove(session.sessionId());
                 session.close();
                 return;

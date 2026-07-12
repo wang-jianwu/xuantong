@@ -61,7 +61,8 @@ public class AesEncryptor {
             return "ENC(" + Base64.getEncoder().encodeToString(combined) + ")";
         } catch (Exception e) {
             log.error("Encryption failed", e);
-            return plainText;
+            // 标记为加密的配置绝不能在异常时降级为明文落库。
+            throw new IllegalStateException("Failed to encrypt configuration value", e);
         }
     }
 
@@ -90,7 +91,7 @@ public class AesEncryptor {
             byte[] decrypted = cipher.doFinal(encrypted);
             return new String(decrypted, StandardCharsets.UTF_8);
         } catch (Exception e) {
-            log.error("Decryption failed", e);
+            log.warn("Decryption failed: encrypted value or key is invalid");
             return cipherText;
         }
     }

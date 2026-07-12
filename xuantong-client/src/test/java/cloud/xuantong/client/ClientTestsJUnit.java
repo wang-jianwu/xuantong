@@ -12,6 +12,8 @@ import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -20,10 +22,18 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class ClientTestsJUnit {
 
+    @Test
+    @DisplayName("XuantongConfig Map API 保持静态门面契约")
+    void objectMapApiIsStatic() throws Exception {
+        Method method = XuantongConfig.class.getMethod(
+                "getObjectMap", String.class, java.lang.reflect.Type.class, java.lang.reflect.Type.class);
+        assertTrue(Modifier.isStatic(method.getModifiers()));
+    }
+
     // ===== ValueType 推断测试 =====
     @Nested
     @DisplayName("ValueType 推断")
-    public static class ValueTypeTests {
+    public class ValueTypeTests {
 
         @Test @DisplayName("boolean/Boolean → BOOLEAN")
         void booleanType() {
@@ -73,7 +83,7 @@ public class ClientTestsJUnit {
     // ===== ConfigListenerManager 测试 =====
     @Nested
     @DisplayName("ConfigListenerManager")
-    public static class ListenerManagerTests {
+    public class ListenerManagerTests {
 
         @Test @DisplayName("添加监听器并触发事件")
         void fireEvent() throws Exception {

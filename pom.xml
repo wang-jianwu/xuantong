@@ -6,7 +6,7 @@
 
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config</artifactId>
-    <version>1.3.2</version>
+    <version>1.3.3</version>
     <packaging>pom</packaging>
     <name>Xuantong Config</name>
     <parent>
@@ -16,8 +16,12 @@
     </parent>
 
     <modules>
-        <module>xuantong-admin</module>
         <module>xuantong-core</module>
+        <module>xuantong-admin</module>
+        <module>xuantong-client</module>
+        <module>xuantong-config-solon-plugin</module>
+        <module>xuantong-config-solon-cloud-plugin</module>
+        <module>xuantong-config-spring-boot-starter</module>
     </modules>
 
     <properties>

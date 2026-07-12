@@ -74,9 +74,9 @@ public final class XuantongConfig {
      * @param keyType 键类型，如 MyEnum.class
      * @param valueType 值类型，如 SomeObject.class
      */
-    public <K, V> Map<K, V> getObjectMap(String key, Type keyType, Type valueType) {
-        String json = get(key, null);
-        return defaultClient.getObjectMap(json, keyType, valueType);
+    public static <K, V> Map<K, V> getObjectMap(String key, Type keyType, Type valueType) {
+        checkInitialized();
+        return defaultClient.getObjectMap(key, keyType, valueType);
     }
     /**
      * 设置默认客户端实例（供XuantongClient内部使用）

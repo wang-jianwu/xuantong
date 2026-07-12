@@ -47,7 +47,7 @@ java -jar xuantong-admin.jar
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-client</artifactId>
-    <version>1.3.2</version>
+    <version>1.3.3</version>
 </dependency>
 ```
 
@@ -74,7 +74,7 @@ XuantongConfig.addListener("payment.timeout", event -> {
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-plugin</artifactId>
-    <version>1.3.2</version>
+    <version>1.3.3</version>
 </dependency>
 ```
 
@@ -105,7 +105,7 @@ public class AppConfig {
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-cloud-plugin</artifactId>
-    <version>1.3.2</version>
+    <version>1.3.3</version>
 </dependency>
 ```
 
@@ -145,7 +145,7 @@ public class ConfigChangeHandler implements CloudConfigHandler {
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-spring-boot-starter</artifactId>
-    <version>1.3.2</version>
+    <version>1.3.3</version>
 </dependency>
 ```
 

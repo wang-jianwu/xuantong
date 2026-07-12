@@ -114,5 +114,10 @@ public class XuantongClient implements AutoCloseable {
     @Override
     public void close() {
         configCore.close();
+        synchronized (LOCK) {
+            if (defaultInstance == this) {
+                defaultInstance = null;
+            }
+        }
     }
 }

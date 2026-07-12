@@ -17,11 +17,18 @@ public class ClusterConfig {
     @Inject("${config.center.cluster.nodes}")
     private List<String> clusterNodes;
 
+    @Inject("${config.broker.secretKey:}")
+    private String brokerSecretKey;
+
     /** 当前节点唯一标识，集群同步防环用 */
     private final String nodeId = UUID.randomUUID().toString().substring(0, 8);
 
     public String getNodeId() {
         return nodeId;
+    }
+
+    public String getBrokerSecretKey() {
+        return brokerSecretKey;
     }
 
     /**

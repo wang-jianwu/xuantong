@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.net.URI;
 
 /**
  * 全局鉴权拦截器 — 含 RBAC 权限控制
@@ -140,16 +141,25 @@ public class AuthInterceptor implements RouterInterceptor {
         // 优先检查 Origin
         String origin = ctx.header("Origin");
         if (origin != null) {
-            return origin.endsWith(host) || origin.contains("://" + host);
+            return hasSameAuthority(origin, host);
         }
 
         // 降级检查 Referer
         String referer = ctx.header("Referer");
         if (referer != null) {
-            return referer.contains("://" + host + "/");
+            return hasSameAuthority(referer, host);
         }
 
         // 无 Origin 也无 Referer：非浏览器请求（如 curl）放行
         return true;
+    }
+
+    private boolean hasSameAuthority(String url, String host) {
+        try {
+            URI uri = URI.create(url);
+            return uri.getRawAuthority() != null && uri.getRawAuthority().equalsIgnoreCase(host);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 }

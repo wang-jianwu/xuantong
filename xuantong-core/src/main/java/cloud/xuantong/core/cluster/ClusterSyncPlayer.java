@@ -11,6 +11,8 @@ import org.noear.solon.annotation.Destroy;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Init;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -129,9 +131,16 @@ public class ClusterSyncPlayer implements ClusterMonitor {
             address = "sd:ws://" + address;
         }
 
-        // 添加 @=name 参数
+        // 添加节点身份和 Broker 鉴权参数。集群连接与普通客户端使用同一鉴权规则。
         String separator = address.contains("?") ? "&" : "?";
-        return address + separator + "@=config-node-" + clusterConfig.getNodeId();
+        StringBuilder params = new StringBuilder("@=config-node-")
+                .append(clusterConfig.getNodeId());
+        String secretKey = clusterConfig.getBrokerSecretKey();
+        if (secretKey != null && !secretKey.isEmpty()) {
+            params.append("&token=")
+                    .append(URLEncoder.encode(secretKey, StandardCharsets.UTF_8));
+        }
+        return address + separator + params;
     }
 
     /**

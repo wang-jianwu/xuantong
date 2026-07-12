@@ -6,7 +6,7 @@
 <dependency>
     <groupId>cloud.xuantong</groupId>
     <artifactId>xuantong-config-solon-cloud-plugin</artifactId>
-    <version>1.3.2</version>
+    <version>1.3.3</version>
 </dependency>
 ```
 

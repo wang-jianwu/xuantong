@@ -9,8 +9,11 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 文件操作工具类
@@ -92,6 +95,7 @@ public class FileKit {
                     writer.write(content);
                 }
             }
+            restrictToOwner(path);
         } catch (IOException e) {
             logger.error("Write file failed: {}", path, e);
             throw new XuantongException("Write file failed", e);
@@ -109,6 +113,7 @@ public class FileKit {
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
                 writer.write(content);
             }
+            restrictToOwner(path);
         } catch (IOException e) {
             logger.error("Stream write file failed: {}", path, e);
             throw new XuantongException("Write file failed", e);
@@ -161,6 +166,22 @@ public class FileKit {
      */
     public static void createDirectories(Path path) throws IOException {
         Files.createDirectories(path);
+    }
+
+    /**
+     * 配置快照可能包含敏感值。在支持 POSIX 权限的系统上将文件限制为仅属主可读写。
+     */
+    private static void restrictToOwner(Path path) {
+        try {
+            Set<PosixFilePermission> permissions = EnumSet.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE);
+            Files.setPosixFilePermissions(path, permissions);
+        } catch (UnsupportedOperationException ignored) {
+            // Windows 等非 POSIX 文件系统不支持；沿用系统默认 ACL。
+        } catch (IOException e) {
+            logger.warn("Failed to restrict file permissions: {}", path, e);
+        }
     }
 
     /**
