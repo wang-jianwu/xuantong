@@ -22,13 +22,11 @@ services:
     ports:
       - "8088:8088"
     environment:
-      DB_HOST: mysql
-      DB_PORT: 3306
-      DB_USER: root
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_URL: jdbc:mysql://mysql:3306/xuantong_config?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8
-      DB_DRIVER: com.mysql.cj.jdbc.Driver
-      DB_DIALECT: mysql
+      XUANTONG_DB_USER: root
+      XUANTONG_DB_PASSWORD: ${DB_PASSWORD}
+      XUANTONG_DB_URL: jdbc:mysql://mysql:3306/xuantong_config?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8
+      XUANTONG_DB_DRIVER: com.mysql.cj.jdbc.Driver
+      XUANTONG_DB_DIALECT: mysql
       BROKER_SECRET_KEY: ${BROKER_SECRET_KEY:?BROKER_SECRET_KEY must be set}
       CONFIG_ENCRYPT_KEY: ${CONFIG_ENCRYPT_KEY:?CONFIG_ENCRYPT_KEY must be set}
     depends_on:

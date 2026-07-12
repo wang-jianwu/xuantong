@@ -11,13 +11,13 @@ config:
       nodes:
         #- sd:ws://127.0.0.1:8088/config
 # ── 数据源 ──
-# 默认 H2 内嵌数据库，零配置启动；生产环境通过 DB_* 环境变量切换数据库。
+# 默认 H2 内嵌数据库，零配置启动；生产环境通过 XUANTONG_DB_* 环境变量切换数据库。
 xuantong:
   class: "com.zaxxer.hikari.HikariDataSource"
-  jdbcUrl: ${DB_URL:jdbc:h2:file:./data/xuantong;MODE=MySQL;AUTO_SERVER=TRUE;DATABASE_TO_UPPER=FALSE}
-  driverClassName: ${DB_DRIVER:org.h2.Driver}
-  username: ${DB_USER:sa}
-  password: ${DB_PASSWORD:}
+  jdbcUrl: ${XUANTONG_DB_URL:jdbc:h2:file:./data/xuantong;MODE=MySQL;AUTO_SERVER=TRUE;DATABASE_TO_UPPER=FALSE}
+  driverClassName: ${XUANTONG_DB_DRIVER:org.h2.Driver}
+  username: ${XUANTONG_DB_USER:sa}
+  password: ${XUANTONG_DB_PASSWORD:}
 
 #   #── 缓存（可选，默认本地内存缓存）──
 #   #如需启用 Redis 共享缓存（多机部署），取消下方注释并配置连接信息
@@ -33,7 +33,7 @@ xuantong:
 easy-query:
   xuantong:
     # 数据库方言：h2（默认） / mysql / pgsql / mssql / dameng / kingbase_es
-    database: ${DB_DIALECT:h2}
+    database: ${XUANTONG_DB_DIALECT:h2}
     name-conversion: underlined
     # 物理删除时抛出异常 不包括手写sql的情况
     delete-throw: true
