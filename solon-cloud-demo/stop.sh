@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Solon服务停止脚本
-APP_NAME="xuantong-admin"
+APP_NAME="xuantong-server"
 APP_JAR="$APP_NAME.jar"
 
 echo "Stopping $APP_NAME..."

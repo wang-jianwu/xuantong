@@ -1,0 +1,37 @@
+#set(activeMenu = "dashboard")
+#set(pageHeading = "运行概览")
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>#(pageTitle)</title><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <link href="/lib/bootstrap/5.3.8/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css"><link rel="stylesheet" href="/css/admin.css?v=2.0.0-20260713-connection">
+</head>
+<body><div class="app-container">#include("_sidebar.shtm")<div class="main-content">#include("_header.shtm")
+    <div class="content">
+        <div class="page-intro"><div><h2>控制面运行状态</h2><p>配置、服务发现、安全与运行时指标的统一视图。</p></div><button class="btn btn-outline-secondary" onclick="loadOverview()"><i class="fas fa-rotate"></i> 刷新</button></div>
+        <div class="stats-grid" id="metricCards">
+            <div class="stat-card"><div class="stat-icon bg-success-subtle text-success"><i class="fas fa-heart-pulse"></i></div><div><div class="stat-label">系统状态</div><div class="stat-value" id="systemStatus">加载中</div></div></div>
+            <div class="stat-card"><div class="stat-icon bg-primary-subtle text-primary"><i class="fas fa-cloud-arrow-up"></i></div><div><div class="stat-label">配置发布</div><div class="stat-value" id="publishTotal">0</div></div></div>
+            <div class="stat-card"><div class="stat-icon bg-secondary-subtle text-secondary"><i class="fas fa-plug"></i></div><div><div class="stat-label">配置客户端 / 连接</div><div class="stat-value" id="configConnections">0 / 0</div></div></div>
+            <div class="stat-card"><div class="stat-icon bg-info-subtle text-info"><i class="fas fa-network-wired"></i></div><div><div class="stat-label">服务 / 实例</div><div class="stat-value" id="serviceInstances">0 / 0</div></div></div>
+            <div class="stat-card"><div class="stat-icon bg-warning-subtle text-warning"><i class="fas fa-shield-halved"></i></div><div><div class="stat-label">鉴权失败</div><div class="stat-value" id="authFailures">0</div></div></div>
+        </div>
+        <div class="dashboard-grid">
+            <div class="card"><div class="card-heading"><div><h3>组件健康</h3><p>来自实时健康检查</p></div><span class="badge badge-info" id="versionBadge">-</span></div><div id="componentHealth" class="health-list"></div></div>
+            <div class="card"><div class="card-heading"><div><h3>运行信息</h3><p>进程与控制面计数</p></div></div>
+                <dl class="metric-list"><div><dt>运行时长</dt><dd id="uptime">-</dd></div><div><dt>JVM 内存</dt><dd id="memory">-</dd></div><div><dt>实例注册</dt><dd id="registerTotal">0</dd></div><div><dt>Token 签发 / 吊销</dt><dd id="tokenTotals">0 / 0</dd></div></dl>
+            </div>
+        </div>
+        <div class="card"><div class="card-heading"><div><h3>快捷入口</h3><p>常用控制面操作</p></div></div><div class="quick-links">
+            <a href="/config"><i class="fas fa-file-code"></i><span>管理配置</span></a><a href="/service"><i class="fas fa-server"></i><span>查看服务实例</span></a><a href="/namespace"><i class="fas fa-layer-group"></i><span>管理命名空间</span></a>
+            #if(user?? && user.role == 'SYSTEM_ADMIN')<a href="/connection"><i class="fas fa-plug"></i><span>查看客户端连接</span></a><a href="/token"><i class="fas fa-key"></i><span>签发访问令牌</span></a><a href="/audit"><i class="fas fa-clipboard-list"></i><span>查看审计日志</span></a>#end
+        </div></div>
+    </div>
+</div></div><script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script><script src="/js/common.js?v=2.0.0-20260713"></script><script>
+let overviewTimer;
+async function loadOverview(){try{const [health,metricsText]=await Promise.all([apiGet('/health'),apiGetText('/metrics')]);const metrics=parsePrometheus(metricsText);setText('systemStatus',health.status==='UP'?'正常':'异常');document.getElementById('systemStatus').className='stat-value '+(health.status==='UP'?'text-success':'text-danger');setText('versionBadge',health.version||'-');setText('publishTotal',number(metrics.xuantong_config_publish_total)+number(metrics.xuantong_config_batch_release_total));setText('configConnections',number(metrics.xuantong_config_clients)+' / '+number(metrics.xuantong_config_sessions));setText('serviceInstances',number(metrics.xuantong_discovery_services)+' / '+number(metrics.xuantong_discovery_instances));setText('authFailures',number(metrics.xuantong_client_auth_failure_total));setText('uptime',formatDuration(number(metrics.process_uptime_seconds)));setText('memory',formatBytes(number(metrics.jvm_memory_used_bytes)));setText('registerTotal',number(metrics.xuantong_discovery_register_total));setText('tokenTotals',number(metrics.xuantong_client_token_issued_total)+' / '+number(metrics.xuantong_client_token_revoked_total));const components=health.components||{};document.getElementById('componentHealth').innerHTML=Object.keys(components).map(name=>`<div class="health-item"><span>${escapeHtml(componentName(name))}</span><span class="status-dot ${components[name]==='UP'?'up':'down'}"></span><strong>${escapeHtml(components[name])}</strong></div>`).join('');}catch(e){showToast(e.message||'概览加载失败','error')}}
+function setText(id,value){document.getElementById(id).textContent=value}function number(value){return Number(value||0)}function componentName(name){return {database:'数据库',configBroker:'配置 Broker',discoveryBroker:'Discovery Broker'}[name]||name}function formatDuration(seconds){const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60);return (d?d+'天 ':'')+h+'小时 '+m+'分钟'}
+document.addEventListener('DOMContentLoaded',()=>{loadOverview();overviewTimer=setInterval(loadOverview,10000)});window.addEventListener('beforeunload',()=>clearInterval(overviewTimer));
+</script></body></html>

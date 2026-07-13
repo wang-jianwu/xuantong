@@ -1,0 +1,37 @@
+{
+  "properties": [
+    {
+      "name": "xuantong.config.server-addresses",
+      "type": "java.util.List<java.lang.String>",
+      "description": "玄同配置服务地址列表。"
+    },
+    {
+      "name": "xuantong.config.namespace",
+      "type": "java.lang.String",
+      "defaultValue": "public",
+      "description": "配置所属 Namespace。"
+    },
+    {
+      "name": "xuantong.config.group",
+      "type": "java.lang.String",
+      "defaultValue": "DEFAULT_GROUP",
+      "description": "配置所属 Group。"
+    },
+    {
+      "name": "xuantong.config.access-token",
+      "type": "java.lang.String",
+      "defaultValue": "",
+      "description": "连接 /config-v2 使用的客户端访问令牌。"
+    },
+    {
+      "name": "xuantong.config.application-name",
+      "type": "java.lang.String",
+      "description": "管理端连接视图中的应用名称；默认使用 spring.application.name。"
+    },
+    {
+      "name": "xuantong.config.client-id",
+      "type": "java.lang.String",
+      "description": "稳定的客户端实例标识；留空时按应用名和当前 JVM 进程生成。"
+    }
+  ]
+}

@@ -20,11 +20,11 @@
   </defs>
 
   <rect width="1400" height="760" fill="#f8fafc"/>
-  <text x="700" y="54" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#0f172a">Xuantong Config Architecture</text>
-  <text x="700" y="84" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#64748b">Lightweight distributed configuration center with active push and local failover</text>
+  <text x="700" y="54" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#0f172a">Xuantong Architecture</text>
+  <text x="700" y="84" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#64748b">Socket.D multi-broker control plane with client-side failover and discovery aggregation</text>
 
   <rect x="70" y="120" width="820" height="300" rx="24" fill="url(#adminGradient)" stroke="#4f46e5" stroke-width="2.5" filter="url(#shadow)"/>
-  <text x="100" y="160" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#312e81">Xuantong Admin - Single Process</text>
+  <text x="100" y="160" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#312e81">Xuantong Server - Single Process</text>
   <text x="100" y="187" font-family="Arial, sans-serif" font-size="15" fill="#6366f1">One JAR · No mandatory external middleware</text>
 
   <rect x="110" y="225" width="185" height="92" rx="14" fill="#ffffff" stroke="#93c5fd" stroke-width="2"/>
@@ -48,19 +48,22 @@
 
   <rect x="1030" y="155" width="300" height="205" rx="22" fill="#ffffff" stroke="#8b5cf6" stroke-width="2.5" filter="url(#shadow)"/>
   <text x="1180" y="202" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#5b21b6">Peer Admin Node</text>
-  <text x="1180" y="235" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#7c3aed">Active-Active Cluster</text>
+  <text x="1180" y="235" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#7c3aed">Independent Socket.D Broker</text>
   <rect x="1080" y="270" width="200" height="52" rx="12" fill="#f3e8ff" stroke="#c4b5fd" stroke-width="1.8"/>
   <text x="1180" y="302" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#6b21a8">Broker + Config Service</text>
 
-  <line x1="900" y1="255" x2="1020" y2="255" stroke="#7c3aed" stroke-width="2.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-  <text x="960" y="235" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#6d28d9">Full Mesh Sync</text>
-  <text x="960" y="282" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#7c3aed">No Leader · No MQ</text>
+  <line x1="900" y1="255" x2="1020" y2="255" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8 7"/>
+  <text x="960" y="235" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#475569">No Broker Sync</text>
+  <text x="960" y="282" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#64748b">Shared DB Facts Only</text>
 
-  <text x="700" y="472" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#2563eb">Socket.D Long-Lived Connections · project:env Precise Routing · Real-Time Active Push</text>
+  <text x="700" y="472" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#2563eb">Every Client Connects to Every Broker · Independent Reconnect · Merged Discovery View</text>
 
   <line x1="757" y1="318" x2="255" y2="525" stroke="#2563eb" stroke-width="2.4" marker-end="url(#arrowBlue)"/>
   <line x1="757" y1="318" x2="700" y2="525" stroke="#2563eb" stroke-width="2.4" marker-end="url(#arrowBlue)"/>
   <line x1="757" y1="318" x2="1145" y2="525" stroke="#2563eb" stroke-width="2.4" marker-end="url(#arrowBlue)"/>
+  <line x1="1180" y1="322" x2="275" y2="525" stroke="#7c3aed" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#arrow)"/>
+  <line x1="1180" y1="322" x2="720" y2="525" stroke="#7c3aed" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#arrow)"/>
+  <line x1="1180" y1="322" x2="1165" y2="525" stroke="#7c3aed" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#arrow)"/>
 
   <rect x="80" y="535" width="350" height="145" rx="20" fill="url(#clientGradient)" stroke="#14b8a6" stroke-width="2.2" filter="url(#shadow)"/>
   <text x="255" y="579" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#115e59">Application A</text>

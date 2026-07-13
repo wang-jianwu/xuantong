@@ -1,0 +1,27 @@
+# 玄同 Server 配置
+server:
+  port: 8088
+solon:
+  app:
+    name: xuantong-server
+    group: xuantong
+    version: ${XUANTONG_VERSION:2.0.0-SNAPSHOT}
+
+  # 会话配置 — SameSite=Lax 防止 CSRF
+  session:
+    cookie:
+      sameSite: Lax
+      httpOnly: true
+
+  serialization.json:
+    dateAsFormat: 'yyyy-MM-dd HH:mm:ss'
+    dateAsTimeZone: 'GMT+8'
+    dateAsTicks: false
+    longAsString: false
+    boolAsInt: false
+    nullStringAsEmpty: true
+    nullBoolAsFalse: true
+    nullNumberAsZero: true
+    nullArrayAsEmpty: true
+    nullAsWriteable: true
+    enumAsName: true

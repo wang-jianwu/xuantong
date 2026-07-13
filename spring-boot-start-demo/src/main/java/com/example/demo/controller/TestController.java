@@ -26,13 +26,13 @@ public class TestController {
     /**
      * json [{"name":"德莱厄斯","age":18},{"name":"锐雯","age":18}]
      */
-    @ConfigValue(value = "demo.list")
+    @ConfigValue(value = "demo.list", required = false)
     private List<User> list;
 
     /**
      * json {"MALE":[{"name":"德莱厄斯","age":18}],"FEMALE":[{"name":"锐雯","age":18}]}
      */
-    @ConfigValue(value = "demo.map", required = true)
+    @ConfigValue(value = "demo.map", required = false)
     private Map<Gender, List<User>> map;
 
     @GetMapping("/")

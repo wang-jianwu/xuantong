@@ -1,0 +1,38 @@
+{
+  "properties": [
+    {
+      "name": "xuantong.config.serverAddresses",
+      "type": "java.util.List",
+      "description": "服务地址 - 127.0.0.1:8080"
+    },
+    {
+      "name": "xuantong.config.namespace",
+      "type": "java.lang.String",
+      "defaultValue": "public",
+      "description": "配置所属 Namespace"
+    },
+    {
+      "name": "xuantong.config.group",
+      "type": "java.lang.String",
+      "defaultValue": "DEFAULT_GROUP",
+      "description": "配置所属 Group"
+    },
+    {
+      "name": "xuantong.config.accessToken",
+      "type": "java.lang.String",
+      "defaultValue": "",
+      "description": "客户端访问令牌"
+    },
+    {
+      "name": "xuantong.config.applicationName",
+      "type": "java.lang.String",
+      "defaultValue": "solon-application",
+      "description": "管理端连接视图中的应用名称"
+    },
+    {
+      "name": "xuantong.config.clientId",
+      "type": "java.lang.String",
+      "description": "稳定的客户端实例标识；留空时按应用名和当前 JVM 进程生成"
+    }
+  ]
+}

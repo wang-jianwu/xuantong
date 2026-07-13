@@ -1,9 +1,13 @@
 server.port: 8081
 spring:
   application:
-    name: demo
+    name: spring-boot-demo
 xuantong:
   config:
     server-addresses: ["127.0.0.1:8088"]
-    app-name: ["demo", "social", "advert"]
-    environment: "dev"
+    namespace: public
+    group: DEFAULT_GROUP
+    # Production must inject this through the environment; never commit a token.
+    access-token: ${XUANTONG_ACCESS_TOKEN:xt_vG70NFWd0yLBlI6aS4teH78Q5vIH_bpdrA-KcaRRYYY}
+    application-name: ${spring.application.name}
+    client-id: ${XUANTONG_CLIENT_ID:spring-boot-demo}

@@ -1,0 +1,298 @@
+#set(activeMenu = "service")
+#set(pageHeading = "服务管理")
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>#(pageTitle)</title>
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <link href="/lib/bootstrap/5.3.8/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/css/admin.css?v=2.0.0-20260713-connection">
+</head>
+<body>
+<div class="app-container">
+    #include("_sidebar.shtm")
+    <div class="main-content">
+        #include("_header.shtm")
+        <div class="content">
+            <div class="card">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label">命名空间</label>
+                        <select id="namespace" class="form-select"></select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">资源组</label>
+                        <select id="group" class="form-select"></select>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="toolbar-actions justify-content-md-end">
+                        <button class="btn btn-outline-secondary" onclick="loadServices()"><i class="fas fa-rotate"></i> 刷新</button>
+                        <button class="btn btn-primary" onclick="newService()"><i class="fas fa-plus"></i> 新建服务</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead><tr><th>服务名称</th><th>描述</th><th>创建者</th><th>更新时间</th><th class="text-end">操作</th></tr></thead>
+                        <tbody id="service-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="serviceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="serviceModalTitle">新建服务</h5><button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+        <div class="modal-body">
+            <label class="form-label">服务名称</label>
+            <input id="serviceName" class="form-control mb-3" placeholder="order-service">
+            <label class="form-label">描述</label>
+            <input id="serviceDescription" class="form-control mb-3" placeholder="订单服务">
+            <label class="form-label">元数据（JSON）</label>
+            <textarea id="serviceMetadata" class="form-control font-monospace" rows="8" placeholder='{"owner":"order-team"}'></textarea>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary" onclick="saveService()">保存</button></div>
+    </div></div>
+</div>
+
+<div class="modal fade" id="instanceModal" tabindex="-1">
+    <div class="modal-dialog modal-xl"><div class="modal-content">
+        <div class="modal-header"><div><h5 class="modal-title">实例列表：<code id="instanceServiceName"></code></h5><small class="text-muted">Revision: <span id="instanceRevision">0</span></small></div><button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+        <div class="modal-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="form-check"><input id="onlyAvailable" class="form-check-input" type="checkbox"><label class="form-check-label" for="onlyAvailable">仅显示健康且启用的实例</label></div>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadInstances()"><i class="fas fa-rotate"></i> 刷新</button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>地址</th><th>状态</th><th>权重</th><th>Instance ID</th><th>最后心跳</th><th>Metadata</th><th class="text-end">操作</th></tr></thead>
+                    <tbody id="instance-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div></div>
+</div>
+
+<script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
+<script src="/js/common.js?v=2.0.0-20260713"></script>
+<script>
+const serviceModal = new bootstrap.Modal(document.getElementById('serviceModal'));
+const instanceModalElement = document.getElementById('instanceModal');
+const instanceModal = new bootstrap.Modal(instanceModalElement);
+const nsSelect = document.getElementById('namespace');
+const groupSelect = document.getElementById('group');
+let editingServiceName = null;
+let selectedServiceName = null;
+let instanceRefreshTimer = null;
+
+function requireSuccess(result) {
+    if (!result || Number(result.code) !== 200) {
+        throw new Error((result && result.description) || '请求失败');
+    }
+    return result.data;
+}
+
+async function init() {
+    const namespaces = requireSuccess(await apiGet('/api/v2/namespaces')) || [];
+    nsSelect.innerHTML = namespaces.map(n => `<option value="${escapeHtml(n.namespaceId)}">${escapeHtml(n.name)} (${escapeHtml(n.namespaceId)})</option>`).join('');
+    nsSelect.onchange = loadGroups;
+    groupSelect.onchange = loadServices;
+    document.getElementById('onlyAvailable').onchange = loadInstances;
+    instanceModalElement.addEventListener('shown.bs.modal', startInstanceRefresh);
+    instanceModalElement.addEventListener('hidden.bs.modal', stopInstanceRefresh);
+    await loadGroups();
+}
+
+async function loadGroups() {
+    if (!nsSelect.value) {
+        groupSelect.innerHTML = '';
+        renderEmptyServices('请先创建 Namespace');
+        return;
+    }
+    const groups = requireSuccess(await apiGet(`/api/v2/namespaces/${encodeURIComponent(nsSelect.value)}/groups`)) || [];
+    groupSelect.innerHTML = groups.map(g => `<option value="${escapeHtml(g.groupName)}">${escapeHtml(g.groupName)}</option>`).join('');
+    await loadServices();
+}
+
+function servicesUrl() {
+    return `/api/v2/namespaces/${encodeURIComponent(nsSelect.value)}/groups/${encodeURIComponent(groupSelect.value)}/services`;
+}
+
+async function loadServices() {
+    if (!nsSelect.value || !groupSelect.value) {
+        renderEmptyServices('当前 Namespace 下没有 Group');
+        return;
+    }
+    const services = requireSuccess(await apiGet(servicesUrl())) || [];
+    const body = document.getElementById('service-body');
+    if (!services.length) {
+        renderEmptyServices('暂无服务，应用首次注册时也会自动创建');
+        return;
+    }
+    body.innerHTML = services.map(service => `<tr>
+        <td><code>${escapeHtml(service.serviceName)}</code></td>
+        <td>${escapeHtml(service.description || '-')}</td>
+        <td>${escapeHtml(service.createdBy || '-')}</td>
+        <td>${escapeHtml(service.updatedAt || '-')}</td>
+        <td class="text-end text-nowrap">
+            <button class="btn btn-sm btn-primary" data-action="instances" data-service="${escapeHtml(service.serviceName)}"><i class="fas fa-server"></i> 实例</button>
+            <button class="btn btn-sm btn-outline-secondary" data-action="edit" data-service="${escapeHtml(service.serviceName)}">编辑</button>
+            <button class="btn btn-sm btn-outline-danger" data-action="delete" data-service="${escapeHtml(service.serviceName)}">删除</button>
+        </td></tr>`).join('');
+    body.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', handleServiceAction));
+}
+
+function renderEmptyServices(message) {
+    document.getElementById('service-body').innerHTML = `<tr><td colspan="5" class="text-center text-muted">${escapeHtml(message)}</td></tr>`;
+}
+
+function handleServiceAction(event) {
+    const button = event.currentTarget;
+    const serviceName = button.dataset.service;
+    if (button.dataset.action === 'instances') openInstances(serviceName);
+    if (button.dataset.action === 'edit') editService(serviceName);
+    if (button.dataset.action === 'delete') deleteService(serviceName);
+}
+
+function newService() {
+    if (!nsSelect.value || !groupSelect.value) return showToast('请先选择 Namespace 和 Group', 'warning');
+    editingServiceName = null;
+    document.getElementById('serviceModalTitle').textContent = '新建服务';
+    document.getElementById('serviceName').disabled = false;
+    document.getElementById('serviceName').value = '';
+    document.getElementById('serviceDescription').value = '';
+    document.getElementById('serviceMetadata').value = '';
+    serviceModal.show();
+}
+
+async function editService(serviceName) {
+    try {
+        const service = requireSuccess(await apiGet(`${servicesUrl()}/${encodeURIComponent(serviceName)}`));
+        editingServiceName = serviceName;
+        document.getElementById('serviceModalTitle').textContent = '编辑服务';
+        document.getElementById('serviceName').disabled = true;
+        document.getElementById('serviceName').value = service.serviceName;
+        document.getElementById('serviceDescription').value = service.description || '';
+        document.getElementById('serviceMetadata').value = prettyMetadata(service.metadata);
+        serviceModal.show();
+    } catch (error) {
+        showToast(error.message || '加载服务失败', 'error');
+    }
+}
+
+function normalizeMetadata(value) {
+    const text = value.trim();
+    if (!text) return '';
+    return JSON.stringify(JSON.parse(text));
+}
+
+function prettyMetadata(value) {
+    if (!value) return '';
+    try { return JSON.stringify(JSON.parse(value), null, 2); } catch (e) { return value; }
+}
+
+async function saveService() {
+    const serviceName = document.getElementById('serviceName').value.trim();
+    if (!serviceName) return showToast('Service Name 不能为空', 'error');
+    let metadata;
+    try {
+        metadata = normalizeMetadata(document.getElementById('serviceMetadata').value);
+    } catch (error) {
+        return showToast('Metadata 必须是合法 JSON', 'error');
+    }
+    const payload = {serviceName, description: document.getElementById('serviceDescription').value.trim(), metadata};
+    try {
+        const result = editingServiceName
+            ? await apiPut(`${servicesUrl()}/${encodeURIComponent(editingServiceName)}`, payload)
+            : await apiPost(servicesUrl(), payload);
+        requireSuccess(result);
+        serviceModal.hide();
+        showToast(editingServiceName ? '服务已更新' : '服务已创建', 'success');
+        await loadServices();
+    } catch (error) {
+        showToast(error.message || '保存服务失败', 'error');
+    }
+}
+
+async function deleteService(serviceName) {
+    const confirmed = await showConfirm('删除服务', `确认删除 ${serviceName}？存在注册实例时服务不能删除。`, '删除');
+    if (!confirmed) return;
+    try {
+        requireSuccess(await apiDelete(`${servicesUrl()}/${encodeURIComponent(serviceName)}`));
+        showToast('服务已删除', 'success');
+        await loadServices();
+    } catch (error) {
+        showToast(error.message || '删除服务失败', 'error');
+    }
+}
+
+async function openInstances(serviceName) {
+    selectedServiceName = serviceName;
+    document.getElementById('instanceServiceName').textContent = serviceName;
+    document.getElementById('onlyAvailable').checked = false;
+    instanceModal.show();
+    await loadInstances();
+}
+
+async function loadInstances() {
+    if (!selectedServiceName) return;
+    try {
+        const onlyAvailable = document.getElementById('onlyAvailable').checked;
+        const snapshot = requireSuccess(await apiGet(`${servicesUrl()}/${encodeURIComponent(selectedServiceName)}/instances?onlyAvailable=${onlyAvailable}`));
+        document.getElementById('instanceRevision').textContent = snapshot.revision;
+        const instances = snapshot.instances || [];
+        const body = document.getElementById('instance-body');
+        body.innerHTML = instances.length ? instances.map(instance => `<tr>
+            <td><code>${escapeHtml(instance.ip)}:${escapeHtml(instance.port)}</code></td>
+            <td><span class="badge ${instance.healthy && instance.enabled ? 'text-bg-success' : 'text-bg-danger'}">${instance.healthy ? '健康' : '异常'}</span>${instance.enabled ? '' : ' <span class="badge text-bg-secondary">禁用</span>'}</td>
+            <td>${escapeHtml(instance.weight)}</td>
+            <td><code title="${escapeHtml(instance.instanceId)}">${escapeHtml(instance.instanceId)}</code></td>
+            <td>${escapeHtml(formatTime(instance.lastHeartbeatAt))}</td>
+            <td><code title="${escapeHtml(instance.metadata || '')}">${escapeHtml(shortMetadata(instance.metadata))}</code></td>
+            <td class="text-end"><button class="btn btn-sm btn-outline-danger" data-action="deregister" data-instance="${escapeHtml(instance.instanceId)}">摘除</button></td>
+        </tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted">暂无注册实例</td></tr>';
+        body.querySelectorAll('[data-action="deregister"]').forEach(button => button.addEventListener('click', () => deregisterInstance(button.dataset.instance)));
+    } catch (error) {
+        showToast(error.message || '加载实例失败', 'error');
+    }
+}
+
+function shortMetadata(metadata) {
+    if (!metadata) return '-';
+    return metadata.length > 48 ? metadata.substring(0, 48) + '…' : metadata;
+}
+
+async function deregisterInstance(instanceId) {
+    const confirmed = await showConfirm('摘除实例', `确认摘除 ${instanceId}？客户端仍在运行时可能会重新注册。`, '摘除');
+    if (!confirmed) return;
+    try {
+        requireSuccess(await apiDelete(`${servicesUrl()}/${encodeURIComponent(selectedServiceName)}/instances/${encodeURIComponent(instanceId)}`));
+        showToast('实例已摘除', 'success');
+        await loadInstances();
+    } catch (error) {
+        showToast(error.message || '摘除实例失败', 'error');
+    }
+}
+
+function startInstanceRefresh() {
+    if (instanceRefreshTimer) window.clearInterval(instanceRefreshTimer);
+    instanceRefreshTimer = window.setInterval(loadInstances, 5000);
+}
+
+function stopInstanceRefresh() {
+    if (instanceRefreshTimer) window.clearInterval(instanceRefreshTimer);
+    instanceRefreshTimer = null;
+    selectedServiceName = null;
+}
+
+init().catch(error => showToast(error.message || '加载失败', 'error'));
+</script>
+</body>
+</html>

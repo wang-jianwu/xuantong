@@ -1,0 +1,54 @@
+config:
+  maxSessions: 1000
+  # 配置值加密密钥（不配置则不加密）
+  encryptKey: ${CONFIG_ENCRYPT_KEY:}
+
+security:
+  clientAuthRequired: ${XUANTONG_CLIENT_AUTH_REQUIRED:false}
+  production: ${XUANTONG_PRODUCTION:false}
+  # 周期复核长连接 Token，覆盖其他控制节点上的吊销和 Token 自然过期
+  clientSessionRevalidateMs: ${XUANTONG_CLIENT_SESSION_REVALIDATE_MS:5000}
+
+discovery:
+  # 实例超过该时间没有心跳即自动摘除
+  instanceTimeoutMs: ${XUANTONG_INSTANCE_TIMEOUT_MS:30000}
+  # 过期实例扫描周期
+  cleanupIntervalMs: ${XUANTONG_INSTANCE_CLEANUP_MS:5000}
+
+broker:
+  nodeId: ${XUANTONG_NODE_ID:}
+  # 安全停止时先发送 Socket.D preclose，再等待存量消息处理完成
+  shutdownGraceMs: ${XUANTONG_BROKER_SHUTDOWN_GRACE_MS:1000}
+# ── 数据源 ──
+# 默认 H2 内嵌数据库，零配置启动；生产环境通过 XUANTONG_DB_* 环境变量切换数据库。
+xuantong:
+  class: "com.zaxxer.hikari.HikariDataSource"
+  # 2.0 使用独立数据文件，不读取或迁移 1.x 的 ./data/xuantong
+  jdbcUrl: ${XUANTONG_DB_URL:jdbc:h2:file:./data/xuantong-2;MODE=MySQL;DATABASE_TO_UPPER=FALSE}
+  driverClassName: ${XUANTONG_DB_DRIVER:org.h2.Driver}
+  username: ${XUANTONG_DB_USER:sa}
+  password: ${XUANTONG_DB_PASSWORD:}
+
+easy-query:
+  xuantong:
+    # 数据库方言：h2（默认） / mysql / pgsql（也接受 postgres、postgresql）
+    database: ${XUANTONG_DB_DIALECT:h2}
+    name-conversion: underlined
+    # 物理删除时抛出异常 不包括手写sql的情况
+    delete-throw: true
+    insert-strategy: only_not_null_columns
+    # 更新列策略 all_columns only_not_null_columns only_null_columns
+    update-strategy: only_not_null_columns
+
+# 记录器级别的配置示例
+solon.logging.logger:
+  "root": #默认记录器配置
+    level: INFO
+  "com.zaxxer.hikari":
+    level: WARN
+  "com.easy.query":
+    level: WARN
+  "org.noear.solon":
+    level: INFO
+  "com.xuantong":
+    level: INFO

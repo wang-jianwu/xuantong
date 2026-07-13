@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Solon服务启动脚本
-APP_NAME="xuantong-admin"
+APP_NAME="xuantong-server"
 APP_JAR="$APP_NAME.jar"
 LOG_FILE="logs/$APP_NAME.log"
 
@@ -9,9 +9,9 @@ echo "Starting $APP_NAME..."
 #!/bin/bash
 
 # 配置参数
-APP_NAME="xuantong-admin"
-APP_JAR="xuantong-admin.jar"
-LOG_FILE="./logs/xuantong-admin.log"
+APP_NAME="xuantong-server"
+APP_JAR="xuantong-server.jar"
+LOG_FILE="./logs/xuantong-server.log"
 PORT=${1:-8088}
 
 # 检查是否已运行（基于端口检查）

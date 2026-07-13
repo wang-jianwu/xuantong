@@ -1,0 +1,13 @@
+<header class="header">
+    <h1 class="header-title">#(pageHeading)</h1>
+    <div class="user-area">
+        <button class="theme-toggle" type="button" onclick="toggleTheme()"
+                title="切换明暗主题" aria-label="切换明暗主题">
+            <i class="fas fa-moon" aria-hidden="true"></i>
+        </button>
+        <span class="user-name">#if(user??)#(user.realName)#end</span>
+        <button class="logout-btn" type="button" onclick="logout()">
+            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> 退出
+        </button>
+    </div>
+</header>

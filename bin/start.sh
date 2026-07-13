@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# 玄同配置中心 - 启动脚本 v1.3.2
+# 玄同 - 启动脚本 v2.0.0
 # 部署路径: /home/xuantong
 # ============================================================
 
@@ -8,7 +8,7 @@ set -e
 
 # -------------------- 路径配置 --------------------
 APP_HOME="/home/xuantong"
-APP_NAME="xuantong-admin"
+APP_NAME="xuantong-server"
 JAR_FILE="${APP_HOME}/${APP_NAME}.jar"
 PID_FILE="${APP_HOME}/bin/${APP_NAME}.pid"
 LOG_FILE="${APP_HOME}/logs/${APP_NAME}.log"
@@ -38,7 +38,7 @@ fi
 # 创建所需目录
 mkdir -p "${APP_HOME}/logs" "${APP_HOME}/bin"
 
-echo "🚀 Starting ${APP_NAME} v1.3.2 on port ${SERVER_PORT} (env: ${SOLON_ENV})..."
+echo "🚀 Starting ${APP_NAME} v2.0.0 on port ${SERVER_PORT} (env: ${SOLON_ENV})..."
 
 nohup java ${JAVA_OPTS} \
     -Dserver.port=${SERVER_PORT} \

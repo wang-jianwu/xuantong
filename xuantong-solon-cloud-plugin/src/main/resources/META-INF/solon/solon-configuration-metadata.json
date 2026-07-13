@@ -1,0 +1,54 @@
+{
+  "properties": [
+    {
+      "name": "solon.cloud.xuantong.server",
+      "type": "java.lang.String",
+      "description": "服务地址 127.0.0.1:8080，多个用逗号分隔"
+    },
+    {
+      "name": "solon.cloud.xuantong.namespace",
+      "type": "java.lang.String",
+      "defaultValue": "public",
+      "description": "配置所属 Namespace"
+    },
+    {
+      "name": "solon.cloud.xuantong.token",
+      "type": "java.lang.String",
+      "defaultValue": "",
+      "description": "客户端访问令牌"
+    },
+    {
+      "name": "solon.cloud.xuantong.config.server",
+      "type": "java.lang.String",
+      "description": "配置中心地址；为空时使用 solon.cloud.xuantong.server"
+    },
+    {
+      "name": "solon.cloud.xuantong.config.enable",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "玄同配置服务是否启用，默认 true"
+    },
+    {
+      "name": "solon.cloud.xuantong.config.load",
+      "type": "java.lang.String",
+      "description": "启动时加载的 dataId 列表，逗号分隔"
+    },
+    {
+      "name": "solon.cloud.xuantong.discovery.server",
+      "type": "java.lang.String",
+      "description": "服务注册发现地址；为空时使用 solon.cloud.xuantong.server"
+    },
+    {
+      "name": "solon.cloud.xuantong.discovery.enable",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "是否启用服务注册与发现"
+    },
+    {
+      "name": "solon.cloud.xuantong.discovery.healthCheckInterval",
+      "type": "java.lang.String",
+      "defaultValue": "10s",
+      "description": "本地服务实例心跳周期，支持 ms、s、m"
+    }
+  ]
+}

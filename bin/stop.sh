@@ -1,11 +1,11 @@
 #!/bin/bash
 # ============================================================
-# 玄同配置中心 - 停止脚本 v1.3.2
+# 玄同 - 停止脚本 v2.0.0
 # 部署路径: /home/xuantong
 # ============================================================
 
 APP_HOME="/home/xuantong"
-APP_NAME="xuantong-admin"
+APP_NAME="xuantong-server"
 PID_FILE="${APP_HOME}/bin/${APP_NAME}.pid"
 
 if [ ! -f "$PID_FILE" ]; then

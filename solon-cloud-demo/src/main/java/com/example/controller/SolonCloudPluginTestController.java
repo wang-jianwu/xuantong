@@ -24,27 +24,27 @@ public class SolonCloudPluginTestController {
     /**
      * 测试conf load
      */
-    @Inject(value = "${solon.cloud.xxx.namespace}", autoRefreshed = true)
-    private String string;
+    @Inject("${solon.cloud.xuantong.namespace:public}")
+    private String namespace;
 
     //==========测试非load========
     /**
      * json [{"name":"德莱厄斯","age":18},{"name":"锐雯","age":18}]
      */
-    @CloudConfig(value = "demo.list", autoRefreshed = true)
+    @CloudConfig(value = "demo.list", required = false, autoRefreshed = true)
     private List<User> list;
 
     /**
      * json {"MALE":[{"name":"德莱厄斯","age":18}],"FEMALE":[{"name":"锐雯","age":18}]}
      */
-    @CloudConfig(value = "demo.map", autoRefreshed = true)
+    @CloudConfig(value = "demo.map", required = false, autoRefreshed = true)
     private Map<String, List<User>> map;
 
     @Mapping("/")
     public Result<String> test() {
-        String value = this.string + "\n"
+        String value = "namespace=" + this.namespace + "\n"
                 + this.list + "\n"
-                + this.map.get(Gender.MALE.name());
+                + (this.map == null ? null : this.map.get(Gender.MALE.name()));
         logger.info("test() 方法被调用，当前 test 字段值: {}", value);
         return Result.succeed(value);
     }
