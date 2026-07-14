@@ -44,8 +44,7 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
 
         String token = cloudProps.getToken();
         this.accessToken = token == null ? "" : token.trim();
-        this.clientIdentity = new ClientIdentity(
-                Solon.cfg().appName(), System.getProperty("xuantong.client.id"));
+        this.clientIdentity = new ClientIdentity(Solon.cfg().appName(), null);
     }
 
     @Override

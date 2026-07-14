@@ -83,7 +83,7 @@ class SocketDMultiBrokerTransportTest {
             for (String url : transport.openedUrls) {
                 assertFalse(url.contains("token="));
                 assertFalse(url.contains("secret-token"));
-                assertTrue(url.contains("clientId=test-client"));
+                assertTrue(url.contains("clientInstanceId=test-client"));
                 assertTrue(url.contains("applicationName=test-app"));
                 assertTrue(url.contains("clientVersion=2.0.0-SNAPSHOT"));
             }

@@ -62,12 +62,12 @@ public class BrokerClientSessionRegistry
         if (session == null) {
             return false;
         }
-        String clientId = normalized(session.param("clientId"), 256);
+        String clientInstanceId = normalized(session.param("clientInstanceId"), 256);
         String applicationName = normalized(session.param("applicationName"), 128);
-        if (clientId == null || applicationName == null) {
-            String missingFields = clientId == null && applicationName == null
-                    ? "clientId,applicationName"
-                    : clientId == null ? "clientId" : "applicationName";
+        if (clientInstanceId == null || applicationName == null) {
+            String missingFields = clientInstanceId == null && applicationName == null
+                    ? "clientInstanceId,applicationName"
+                    : clientInstanceId == null ? "clientInstanceId" : "applicationName";
             log.warn("Rejecting Broker session without 2.0 client identity: sessionId={}, channel={}, "
                             + "missing={}; upgrade to xuantong-client-core / xuantong-spring-boot-starter 2.0",
                     session.sessionId(), channel, missingFields);
@@ -77,7 +77,7 @@ public class BrokerClientSessionRegistry
         sessions.put(session.sessionId(), new TrackedSession(
                 channel,
                 tokenService.fingerprint(rawToken),
-                clientId,
+                clientInstanceId,
                 applicationName,
                 normalized(session.param("clientVersion"), 64),
                 session.param("namespace"),
@@ -102,13 +102,13 @@ public class BrokerClientSessionRegistry
     }
 
     public long logicalClientCount(Channel channel) {
-        Set<String> clientIds = new HashSet<>();
+        Set<String> clientInstanceIds = new HashSet<>();
         for (TrackedSession tracked : sessions.values()) {
             if (tracked.channel == channel && isActive(tracked.session)) {
-                clientIds.add(tracked.clientId);
+                clientInstanceIds.add(tracked.clientInstanceId);
             }
         }
-        return clientIds.size();
+        return clientInstanceIds.size();
     }
 
     public long sessionCount(Channel channel) {
@@ -125,7 +125,7 @@ public class BrokerClientSessionRegistry
         for (TrackedSession tracked : sessions.values()) {
             if (!isActive(tracked.session)) continue;
             result.add(new ClientConnectionView(
-                    tracked.session.sessionId(), tracked.channel.name(), tracked.clientId,
+                    tracked.session.sessionId(), tracked.channel.name(), tracked.clientInstanceId,
                     tracked.applicationName, tracked.clientVersion, tracked.namespaceId,
                     tracked.groupName, tracked.serviceName, currentNodeId,
                     tracked.connectedAt, tracked.lastActiveAt));
@@ -239,7 +239,7 @@ public class BrokerClientSessionRegistry
     public record ClientConnectionView(
             String sessionId,
             String channel,
-            String clientId,
+            String clientInstanceId,
             String applicationName,
             String clientVersion,
             String namespaceId,
@@ -253,7 +253,7 @@ public class BrokerClientSessionRegistry
     private static final class TrackedSession {
         private final Channel channel;
         private final String tokenHash;
-        private final String clientId;
+        private final String clientInstanceId;
         private final String applicationName;
         private final String clientVersion;
         private final String namespaceId;
@@ -266,7 +266,7 @@ public class BrokerClientSessionRegistry
         private TrackedSession(
                 Channel channel,
                 String tokenHash,
-                String clientId,
+                String clientInstanceId,
                 String applicationName,
                 String clientVersion,
                 String namespaceId,
@@ -277,7 +277,7 @@ public class BrokerClientSessionRegistry
                 Session session) {
             this.channel = channel;
             this.tokenHash = tokenHash;
-            this.clientId = clientId;
+            this.clientInstanceId = clientInstanceId;
             this.applicationName = applicationName;
             this.clientVersion = clientVersion;
             this.namespaceId = namespaceId;

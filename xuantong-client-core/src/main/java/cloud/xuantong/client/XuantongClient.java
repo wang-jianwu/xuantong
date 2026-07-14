@@ -31,10 +31,20 @@ public class XuantongClient implements AutoCloseable {
             String namespace,
             String group,
             String accessToken,
-            String applicationName,
-            String clientId) {
+            String applicationName) {
         this(serverAddresses, namespace, group, accessToken,
-                new ClientIdentity(applicationName, clientId));
+                new ClientIdentity(applicationName, null));
+    }
+
+    public XuantongClient(
+            List<String> serverAddresses,
+            String namespace,
+            String group,
+            String accessToken,
+            String applicationName,
+            String clientInstanceId) {
+        this(serverAddresses, namespace, group, accessToken,
+                new ClientIdentity(applicationName, clientInstanceId));
     }
 
     public XuantongClient(

@@ -502,10 +502,10 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
                 + "&namespace=" + encode(namespace)
                 + "&group=" + encode(group)
                 + "&serviceName=" + encode(serviceName)
-                + "&clientId=" + encode(identity.getClientId())
+                + "&clientInstanceId=" + encode(identity.getClientInstanceId())
                 + "&applicationName=" + encode(identity.getApplicationName())
                 + "&clientVersion=" + encode(ClientIdentity.CLIENT_VERSION);
-        Set<String> unique = new LinkedHashSet<String>();
+        Set<String> unique = new LinkedHashSet<>();
         for (String rawAddress : addresses) {
             if (rawAddress == null || rawAddress.trim().isEmpty()) {
                 continue;

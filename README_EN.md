@@ -41,7 +41,7 @@ See [PLAN_2.0.md](PLAN_2.0.md) for the design and current progress, and [RELEASE
 - The unified admin UI opens on a runtime dashboard with health, release, service-instance, token, security, and JVM metrics.
 - Config operations include release/audit history, rollback from any immutable release, and deletion of unpublished drafts.
 - Security operations include client-token issue/revoke, global audit logs, and visual Namespace/Group user-scope management.
-- Connection observability separates Config and Discovery sessions, deduplicates logical clients by `clientId`, and retains the physical Socket.D connection view for the current Broker.
+- Connection observability separates Config and Discovery sessions, deduplicates logical clients by the automatically generated `clientInstanceId`, and retains the physical Socket.D connection view for the current Broker.
 - The responsive UI provides one shared sidebar, persistent theme controls, custom confirmation dialogs, and table-contained scrolling on mobile screens.
 
 ## Start the server
@@ -65,7 +65,7 @@ The admin plane uses four roles: `SYSTEM_ADMIN`, `NAMESPACE_ADMIN`, `DEVELOPER`,
 
 `/health` reports database and discovery-cleanup status. `/metrics` exposes Prometheus text metrics for configuration releases, logical Config clients and physical sessions, token authentication, service registration and heartbeats, JVM memory, and process uptime.
 
-Config clients submit `applicationName`, `clientId`, and client version during the Socket.D handshake. The `/connection` admin page displays them separately from service-discovery instances, so applications using Config only are still visible. In Multi-Broker deployments, logical clients are deduplicated by `clientId`, while each Broker page reports the physical sessions held by that node.
+Config clients submit `applicationName`, `clientInstanceId`, and client version during the Socket.D handshake. `applicationName` identifies the logical service and is shared by all replicas, while `clientInstanceId` identifies one running process and is generated automatically from the Pod UID or host, process, and JVM startup information. In Multi-Broker deployments, one process keeps the same `clientInstanceId` across Brokers while every Socket.D connection still has its own `sessionId`.
 
 If the Server logs `Rejecting Broker session without 2.0 client identity`, the running application is still loading the pre-refactor `xuantong-client` or `xuantong-config-spring-boot-starter` artifact. Version 2.0 requires `xuantong-client-core` / `xuantong-spring-boot-starter`. Reload all Maven projects in IntelliJ IDEA, stop the old process, and start it again. Use `mvn dependency:tree -Dincludes=cloud.xuantong` to verify that the runtime dependency tree no longer contains either legacy artifactId.
 
@@ -101,8 +101,7 @@ XuantongClient client = new XuantongClient(
     "public",
     "DEFAULT_GROUP",
     System.getenv("XUANTONG_ACCESS_TOKEN"),
-    "order-service",
-    System.getenv("XUANTONG_CLIENT_ID")
+    "order-service"
 );
 
 String timeout = client.get("payment.timeout", "5000");
@@ -144,8 +143,9 @@ xuantong:
     group: DEFAULT_GROUP
     access-token: ${XUANTONG_ACCESS_TOKEN:}
     application-name: ${spring.application.name}
-    client-id: ${XUANTONG_CLIENT_ID:}
 ```
+
+The client instance ID is generated automatically. Configure `xuantong.config.client-instance-id` or `XUANTONG_CLIENT_INSTANCE_ID` only when the same instance identity must survive JVM restarts; simultaneous running instances must never share that value.
 
 ## Solon Plugin
 
@@ -157,7 +157,6 @@ xuantong.config:
   group: DEFAULT_GROUP
   accessToken: ${XUANTONG_ACCESS_TOKEN:}
   applicationName: ${solon.app.name}
-  clientId: ${XUANTONG_CLIENT_ID:}
 ```
 
 ## Solon Cloud Plugin

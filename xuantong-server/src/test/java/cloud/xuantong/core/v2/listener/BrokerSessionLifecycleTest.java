@@ -33,7 +33,7 @@ class BrokerSessionLifecycleTest {
         inject(registry, "tokenService", new AllowAllTokenService());
 
         Map<String, String> params = discoveryParams();
-        params.remove("clientId");
+        params.remove("clientInstanceId");
         params.remove("applicationName");
 
         assertFalse(registry.register(BrokerClientSessionRegistry.Channel.CONFIG,
@@ -63,7 +63,7 @@ class BrokerSessionLifecycleTest {
         assertEquals(1L, sessionRegistry.sessionCount(
                 BrokerClientSessionRegistry.Channel.DISCOVERY));
         assertEquals("order-service", sessionRegistry.connections().get(0).applicationName());
-        assertEquals("order-service@node-1", sessionRegistry.connections().get(0).clientId());
+        assertEquals("order-service@node-1", sessionRegistry.connections().get(0).clientInstanceId());
 
         ServiceInstance request = new ServiceInstance();
         request.setInstanceId("order-node-1");
@@ -113,7 +113,7 @@ class BrokerSessionLifecycleTest {
         params.put("group", "DEFAULT_GROUP");
         params.put("serviceName", "order-service");
         params.put("token", "token-hash");
-        params.put("clientId", "order-service@node-1");
+        params.put("clientInstanceId", "order-service@node-1");
         params.put("applicationName", "order-service");
         params.put("clientVersion", "2.0.0-test");
         return params;

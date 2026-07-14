@@ -30,9 +30,9 @@
       "description": "管理端连接视图中的应用名称"
     },
     {
-      "name": "xuantong.config.clientId",
+      "name": "xuantong.config.clientInstanceId",
       "type": "java.lang.String",
-      "description": "稳定的客户端实例标识；留空时按应用名和当前 JVM 进程生成"
+      "description": "可选的客户端运行实例标识；默认由客户端按运行环境自动生成"
     }
   ]
 }

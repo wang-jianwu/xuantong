@@ -15,7 +15,7 @@ public class XuantongConfigProperties {
     private String group = "DEFAULT_GROUP";
     private String accessToken = "";
     private String applicationName = "solon-application";
-    private String clientId;
+    private String clientInstanceId;
 
     public List<String> getServerAddresses() {
         return serverAddresses;
@@ -57,11 +57,11 @@ public class XuantongConfigProperties {
         this.applicationName = applicationName;
     }
 
-    public String getClientId() {
-        return clientId;
+    public String getClientInstanceId() {
+        return clientInstanceId;
     }
 
-    public void setClientId(String clientId) {
-        this.clientId = clientId;
+    public void setClientInstanceId(String clientInstanceId) {
+        this.clientInstanceId = clientInstanceId;
     }
 }

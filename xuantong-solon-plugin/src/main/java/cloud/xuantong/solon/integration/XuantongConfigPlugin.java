@@ -39,7 +39,7 @@ public class XuantongConfigPlugin implements Plugin {
                     configBindings.getGroup(),
                     configBindings.getAccessToken(),
                     applicationName,
-                    configBindings.getClientId());
+                    configBindings.getClientInstanceId());
         } catch (Exception e) {
             logger.error("XuantongConfig init failed, config will not be available: {}", e.getMessage());
             // 不抛出异常，让应用继续启动。配置注入会在配置中心可用后获取到值

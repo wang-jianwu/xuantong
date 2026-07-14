@@ -35,10 +35,20 @@ public final class XuantongConfig {
             String namespace,
             String group,
             String accessToken,
-            String applicationName,
-            String clientId) {
+            String applicationName) {
         init(serverAddresses, namespace, group, accessToken,
-                new ClientIdentity(applicationName, clientId));
+                new ClientIdentity(applicationName, null));
+    }
+
+    public static synchronized void init(
+            List<String> serverAddresses,
+            String namespace,
+            String group,
+            String accessToken,
+            String applicationName,
+            String clientInstanceId) {
+        init(serverAddresses, namespace, group, accessToken,
+                new ClientIdentity(applicationName, clientInstanceId));
     }
 
     private static synchronized void init(

@@ -30,8 +30,8 @@ public class XuantongConfigProperties {
     /** 应用名称；留空时使用 spring.application.name。 */
     private String applicationName;
 
-    /** 客户端实例标识；留空时按应用名和 JVM 进程自动生成。 */
-    private String clientId;
+    /** 客户端运行实例标识；通常无需配置，由客户端自动生成。 */
+    private String clientInstanceId;
 
     // Getters and Setters
 
@@ -75,11 +75,11 @@ public class XuantongConfigProperties {
         this.applicationName = applicationName;
     }
 
-    public String getClientId() {
-        return clientId;
+    public String getClientInstanceId() {
+        return clientInstanceId;
     }
 
-    public void setClientId(String clientId) {
-        this.clientId = clientId;
+    public void setClientInstanceId(String clientInstanceId) {
+        this.clientInstanceId = clientInstanceId;
     }
 }

@@ -24,7 +24,7 @@ namespace + group + resourceName
 - Spring Boot、Solon、Solon Cloud 2.0 集成。
 - `/health` 与 Prometheus `/metrics`。
 - 新管理仪表盘，聚合组件健康、配置发布、服务实例、鉴权失败、Token 和 JVM 运行指标。
-- Config/Discovery 客户端握手新增 `applicationName`、`clientId` 和版本；Dashboard 与连接页面分别展示逻辑客户端和当前 Broker 物理连接。
+- Config/Discovery 客户端握手使用 `applicationName`、自动生成的 `clientInstanceId` 和版本；同一服务副本共享应用名，但每个运行实例拥有独立实例 ID，Dashboard 与连接页面分别展示逻辑客户端和当前 Broker 物理连接。
 - 新 Token 管理与全局审计页面，支持范围、过期时间、一次性明文展示、吊销、筛选和详情查看。
 - 配置页面新增发布/审计历史、历史 Release 回滚和未发布草稿删除。
 - 用户授权范围与 Namespace 下 Group 管理改为可视化弹窗，不再使用浏览器原生 `prompt`、`alert` 或 `confirm`。

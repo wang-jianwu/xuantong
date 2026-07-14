@@ -273,7 +273,7 @@ public class SocketDTransport implements ConfigTransport {
         String params = "@=" + encode(subscriber)
                 + "&namespace=" + encode(namespace)
                 + "&group=" + encode(group)
-                + "&clientId=" + encode(identity.getClientId())
+                + "&clientInstanceId=" + encode(identity.getClientInstanceId())
                 + "&applicationName=" + encode(identity.getApplicationName())
                 + "&clientVersion=" + encode(ClientIdentity.CLIENT_VERSION);
         Set<String> unique = new LinkedHashSet<String>();

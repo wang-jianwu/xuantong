@@ -23,8 +23,9 @@ xuantong.config:
   group: DEFAULT_GROUP
   accessToken: ${XUANTONG_ACCESS_TOKEN:}
   applicationName: ${solon.app.name}
-  clientId: ${XUANTONG_CLIENT_ID:}
 ```
+
+客户端实例 ID 默认由运行环境自动生成。只有需要跨重启保持固定实例身份时，才配置 `xuantong.config.clientInstanceId` 或环境变量 `XUANTONG_CLIENT_INSTANCE_ID`，且不同运行实例不得使用相同值。
 
 ## 使用
 

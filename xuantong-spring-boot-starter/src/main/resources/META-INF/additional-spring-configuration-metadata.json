@@ -29,9 +29,9 @@
       "description": "管理端连接视图中的应用名称；默认使用 spring.application.name。"
     },
     {
-      "name": "xuantong.config.client-id",
+      "name": "xuantong.config.client-instance-id",
       "type": "java.lang.String",
-      "description": "稳定的客户端实例标识；留空时按应用名和当前 JVM 进程生成。"
+      "description": "可选的客户端运行实例标识；默认由客户端按运行环境自动生成。仅在需要跨重启保持固定实例身份时配置。"
     }
   ]
 }

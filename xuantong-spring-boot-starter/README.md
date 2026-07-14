@@ -22,10 +22,19 @@ xuantong:
     group: DEFAULT_GROUP
     access-token: ${XUANTONG_ACCESS_TOKEN:}
     application-name: ${spring.application.name}
-    client-id: ${XUANTONG_CLIENT_ID:}
 ```
 
 `namespace` 默认是 `public`，`group` 默认是 `DEFAULT_GROUP`。生产环境建议通过环境变量提供 Token。
+
+客户端实例 ID 默认自动生成，同一服务部署多份 JAR 或多个 Pod 时不需要修改配置。只有需要跨重启维持固定实例身份时才使用高级覆盖：
+
+```yaml
+xuantong:
+  config:
+    client-instance-id: ${XUANTONG_CLIENT_INSTANCE_ID}
+```
+
+显式值在同时运行的不同实例之间必须唯一。
 
 ## 使用
 

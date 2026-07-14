@@ -28,7 +28,7 @@ public class XuantongConfigAutoConfiguration {
                 properties.getGroup(),
                 properties.getAccessToken(),
                 applicationName,
-                properties.getClientId()
+                properties.getClientInstanceId()
         );
     }
 

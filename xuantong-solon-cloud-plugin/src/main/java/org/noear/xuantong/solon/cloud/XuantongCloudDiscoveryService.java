@@ -47,8 +47,7 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
         this.accessToken = token == null ? "" : token.trim();
         this.heartbeatIntervalMs = parseDurationMillis(
                 cloudProps.getDiscoveryHealthCheckInterval("10s"));
-        this.clientIdentity = new ClientIdentity(
-                Solon.cfg().appName(), System.getProperty("xuantong.client.id"));
+        this.clientIdentity = new ClientIdentity(Solon.cfg().appName(), null);
     }
 
     @Override

@@ -45,7 +45,7 @@ Namespace
 - 统一管理端：登录后进入运行概览，集中展示健康状态、配置发布、服务实例、Token、安全和 JVM 指标。
 - 配置运维：可视化查看发布与审计历史，从任意历史 Release 回滚，并管理未发布草稿。
 - 安全运维：提供客户端 Token 签发/吊销、全局审计日志和用户 Namespace/Group 授权范围管理。
-- 连接观测：Config 与 Discovery 会话独立统计，按 `clientId` 展示逻辑客户端，并保留当前 Broker 的物理 Socket.D 连接视图。
+- 连接观测：Config 与 Discovery 会话独立统计，按自动生成的 `clientInstanceId` 展示逻辑客户端，并保留当前 Broker 的物理 Socket.D 连接视图。
 - 响应式界面：统一侧栏、主题切换、非原生确认框和桌面/手机布局；宽表只在表格容器内部滚动。
 
 ## 启动服务端
@@ -76,7 +76,7 @@ export XUANTONG_CLIENT_AUTH_REQUIRED=true
 
 健康检查位于 `/health`，包含数据库与 Discovery 清理任务状态；Prometheus 文本指标位于 `/metrics`，覆盖配置发布、Config 逻辑客户端与物理连接、Token 鉴权、实例注册/心跳/摘除、JVM 内存和进程运行时间。
 
-配置客户端会在 Socket.D 握手中提交 `applicationName`、`clientId` 和客户端版本。管理端 `/connection` 页面将配置客户端与服务发现实例分开显示，因此只使用配置中心、不使用服务发现的应用也能正常出现在面板中。Multi-Broker 下逻辑客户端按 `clientId` 去重；每个 Broker 页面展示该节点实际持有的物理连接。
+配置客户端会在 Socket.D 握手中提交 `applicationName`、`clientInstanceId` 和客户端版本。`applicationName` 表示逻辑服务，同一服务的所有副本相同；`clientInstanceId` 表示当前运行实例，默认由客户端根据 Pod UID 或主机、进程和 JVM 启动信息自动生成，无需写入基础配置。管理端 `/connection` 页面将配置客户端与服务发现实例分开显示。Multi-Broker 下，同一个运行实例连接不同 Broker 时保持相同的 `clientInstanceId`，每个 Broker 的 Socket.D `sessionId` 仍各自独立。
 
 如果 Server 日志出现 `Rejecting Broker session without 2.0 client identity`，说明运行中的应用仍加载了重构前的 `xuantong-client` 或 `xuantong-config-spring-boot-starter`。2.0 必须使用 `xuantong-client-core` / `xuantong-spring-boot-starter`。在 IntelliJ IDEA 中重新加载全部 Maven 项目、停止旧进程并重新启动；可用 `mvn dependency:tree -Dincludes=cloud.xuantong` 核对实际依赖，运行 classpath 中不应再出现旧 artifactId。
 
@@ -112,8 +112,7 @@ XuantongClient client = new XuantongClient(
     "public",
     "DEFAULT_GROUP",
     System.getenv("XUANTONG_ACCESS_TOKEN"),
-    "order-service",
-    System.getenv("XUANTONG_CLIENT_ID")
+    "order-service"
 );
 
 String timeout = client.get("payment.timeout", "5000");
@@ -164,8 +163,9 @@ xuantong:
     group: DEFAULT_GROUP
     access-token: ${XUANTONG_ACCESS_TOKEN:}
     application-name: ${spring.application.name}
-    client-id: ${XUANTONG_CLIENT_ID:}
 ```
+
+客户端实例 ID 默认自动生成。只有需要跨 JVM 重启维持固定实例身份时，才配置 `xuantong.config.client-instance-id` 或环境变量 `XUANTONG_CLIENT_INSTANCE_ID`；该值在同一时刻的不同运行实例之间必须唯一。
 
 ```java
 @Component
@@ -193,7 +193,6 @@ xuantong.config:
   group: DEFAULT_GROUP
   accessToken: ${XUANTONG_ACCESS_TOKEN:}
   applicationName: ${solon.app.name}
-  clientId: ${XUANTONG_CLIENT_ID:}
 ```
 
 ## Solon Cloud Plugin
