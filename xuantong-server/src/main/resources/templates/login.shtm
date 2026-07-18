@@ -265,7 +265,7 @@
     </div>
 
     <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
-    <script src="/js/common.js?v=2.0.0-20260713"></script>
+    <script src="/js/common.js?v=2.0.0-20260718-config-state"></script>
     <script>
         // 密码显隐切换
         document.getElementById('toggle-password').addEventListener('click', function() {

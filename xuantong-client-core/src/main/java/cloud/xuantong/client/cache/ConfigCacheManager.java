@@ -20,7 +20,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,19 +31,12 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class ConfigCacheManager {
     private static final Logger logger = LoggerFactory.getLogger(ConfigCacheManager.class);
-    private static final long DEFAULT_CACHE_EXPIRE_TIME = 24 * 60 * 60 * 1000; // 24小时
-    private static final long CLEANUP_INTERVAL = 60 * 60 * 1000; // 1小时
-
     // 内存缓存
     private final ConcurrentHashMap<String, String> memoryCache = new ConcurrentHashMap<>();
     // 缓存目录
     private final Path cacheDir;
     // 统一缓存文件
     private final Path cacheFile;
-    // 缓存访问时间记录
-    private final ConcurrentHashMap<String, Long> lastAccessTimes = new ConcurrentHashMap<>();
-    // 清理调度器（定时任务使用单线程）
-    private final ScheduledExecutorService cleanupScheduler;
     // 文件操作使用单线程执行器（确保顺序执行，避免 batchUpdate 和 remove 的竞态）
     private final ExecutorService fileOpsExecutor;
     // 仅保留最新待落盘快照，连续推送时合并磁盘写入
@@ -65,13 +57,6 @@ public class ConfigCacheManager {
             logger.error("Failed to create cache directory", e);
         }
 
-        // 清理任务使用单线程（确保顺序执行）
-        this.cleanupScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread thread = new Thread(r, "cache-cleanup-thread");
-            thread.setDaemon(true);
-            return thread;
-        });
-
         // 文件操作使用单线程（确保 batchUpdate 和 remove 的顺序执行，避免竞态导致文件损坏）
         this.fileOpsExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "cache-file-ops-thread");
@@ -80,7 +65,6 @@ public class ConfigCacheManager {
         });
 
         loadFromFileCache();
-        startCleanupTask();
     }
 
     // 启动时从文件缓存加载
@@ -89,8 +73,6 @@ public class ConfigCacheManager {
             Map<String, String> fileConfigs = loadCacheFile();
             if (!fileConfigs.isEmpty()) {
                 memoryCache.putAll(fileConfigs);
-                long loadedAt = System.currentTimeMillis();
-                fileConfigs.keySet().forEach(key -> lastAccessTimes.put(key, loadedAt));
             }
             logger.info("Loaded {} configs from local file cache", memoryCache.size());
         } catch (Exception e) {
@@ -100,12 +82,7 @@ public class ConfigCacheManager {
 
     // 获取配置
     public String get(String key) {
-        String value = memoryCache.get(key);
-        if (value != null) {
-            lastAccessTimes.put(key, System.currentTimeMillis());
-            return value;
-        }
-        return null;
+        return memoryCache.get(key);
     }
 
     // 批量更新缓存 - 内存同步，快照异步（合并模式：推送增量更新时使用）
@@ -129,10 +106,8 @@ public class ConfigCacheManager {
         synchronized (memoryCache) {
             if (replace) {
                 memoryCache.clear();
-                lastAccessTimes.clear();
             }
             memoryCache.putAll(configs);
-            configs.keySet().forEach(key -> lastAccessTimes.put(key, System.currentTimeMillis()));
             snapshot = new HashMap<>(memoryCache);
         }
 
@@ -145,49 +120,18 @@ public class ConfigCacheManager {
         Map<String, String> snapshot;
         synchronized (memoryCache) {
             memoryCache.remove(key);
-            lastAccessTimes.remove(key);
             snapshot = new HashMap<>(memoryCache);
         }
         persistSnapshotAsync(snapshot);
     }
 
-    // 清理过期缓存
-    private void cleanupExpiredCache() {
-        cleanupExpiredCache(System.currentTimeMillis());
-    }
-
+    /**
+     * Last-known-good config does not expire by wall clock. This method remains
+     * package-visible only so older cache tests fail explicitly by behavior rather
+     * than by linkage while the 2.0 cache contract is exercised.
+     */
     void cleanupExpiredCache(long now) {
-        Map<String, String> snapshot = null;
-        synchronized (memoryCache) {
-            for (String key : memoryCache.keySet()) {
-                Long lastAccess = lastAccessTimes.get(key);
-                if (lastAccess == null || now - lastAccess > DEFAULT_CACHE_EXPIRE_TIME) {
-                    memoryCache.remove(key);
-                    lastAccessTimes.remove(key);
-                    if (snapshot == null) {
-                        snapshot = new HashMap<>();
-                    }
-                }
-            }
-            if (snapshot != null) {
-                snapshot.putAll(memoryCache);
-            }
-        }
-        if (snapshot != null) {
-            persistSnapshotAsync(snapshot);
-        }
-    }
-
-    // 启动清理任务
-    private void startCleanupTask() {
-        cleanupScheduler.scheduleAtFixedRate(() -> {
-            try {
-                cleanupExpiredCache();
-                logger.debug("Cache cleanup completed, remaining items: {}", memoryCache.size());
-            } catch (Exception e) {
-                logger.error("Cache cleanup failed", e);
-            }
-        }, CLEANUP_INTERVAL, CLEANUP_INTERVAL, TimeUnit.MILLISECONDS);
+        // Intentionally no-op: only an authoritative higher decision may replace LKG.
     }
 
     // 关闭所有线程池
@@ -195,16 +139,6 @@ public class ConfigCacheManager {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        cleanupScheduler.shutdown();
-        try {
-            if (!cleanupScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                cleanupScheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            cleanupScheduler.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-
         fileOpsExecutor.shutdown();
         try {
             if (!fileOpsExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -221,7 +155,6 @@ public class ConfigCacheManager {
         ensureOpen();
         synchronized (memoryCache) {
             memoryCache.clear();
-            lastAccessTimes.clear();
         }
         persistSnapshotAsync(Collections.emptyMap());
     }

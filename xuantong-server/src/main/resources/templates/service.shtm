@@ -1,6 +1,5 @@
 #set(activeMenu = "service")
 #set(pageHeading = "服务管理")
-<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -38,7 +37,7 @@
             <div class="card">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle">
-                        <thead><tr><th>服务名称</th><th>描述</th><th>创建者</th><th>更新时间</th><th class="text-end">操作</th></tr></thead>
+                        <thead><tr><th>服务名称</th><th>生命周期</th><th>描述</th><th>创建者</th><th>更新时间</th><th class="text-end">操作</th></tr></thead>
                         <tbody id="service-body"></tbody>
                     </table>
                 </div>
@@ -72,7 +71,7 @@
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
-                    <thead><tr><th>地址</th><th>状态</th><th>权重</th><th>Instance ID</th><th>最后心跳</th><th>Metadata</th><th class="text-end">操作</th></tr></thead>
+                    <thead><tr><th>地址</th><th>状态</th><th>权重</th><th>Instance ID</th><th>Lease Fence</th><th>最后续租 / 到期</th><th>Metadata</th><th class="text-end">操作</th></tr></thead>
                     <tbody id="instance-body"></tbody>
                 </table>
             </div>
@@ -81,7 +80,7 @@
 </div>
 
 <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
-<script src="/js/common.js?v=2.0.0-20260713"></script>
+<script src="/js/common.js?v=2.0.0-20260718-config-state"></script>
 <script>
 const serviceModal = new bootstrap.Modal(document.getElementById('serviceModal'));
 const instanceModalElement = document.getElementById('instanceModal');
@@ -133,11 +132,12 @@ async function loadServices() {
     const services = requireSuccess(await apiGet(servicesUrl())) || [];
     const body = document.getElementById('service-body');
     if (!services.length) {
-        renderEmptyServices('暂无服务，应用首次注册时也会自动创建');
+        renderEmptyServices('暂无服务，请先创建服务定义再启动 Provider');
         return;
     }
     body.innerHTML = services.map(service => `<tr>
         <td><code>${escapeHtml(service.serviceName)}</code></td>
+        <td><span class="badge ${service.lifecycleState === 'ACTIVE' ? 'text-bg-success' : 'text-bg-warning'}" title="${escapeHtml(service.lifecycleError || '')}">${escapeHtml(service.lifecycleState || 'UNKNOWN')}</span><div><small class="text-muted">Generation ${escapeHtml(service.serviceGeneration || 0)}</small></div></td>
         <td>${escapeHtml(service.description || '-')}</td>
         <td>${escapeHtml(service.createdBy || '-')}</td>
         <td>${escapeHtml(service.updatedAt || '-')}</td>
@@ -150,7 +150,7 @@ async function loadServices() {
 }
 
 function renderEmptyServices(message) {
-    document.getElementById('service-body').innerHTML = `<tr><td colspan="5" class="text-center text-muted">${escapeHtml(message)}</td></tr>`;
+    document.getElementById('service-body').innerHTML = `<tr><td colspan="6" class="text-center text-muted">${escapeHtml(message)}</td></tr>`;
 }
 
 function handleServiceAction(event) {
@@ -254,10 +254,11 @@ async function loadInstances() {
             <td><span class="badge ${instance.healthy && instance.enabled ? 'text-bg-success' : 'text-bg-danger'}">${instance.healthy ? '健康' : '异常'}</span>${instance.enabled ? '' : ' <span class="badge text-bg-secondary">禁用</span>'}</td>
             <td>${escapeHtml(instance.weight)}</td>
             <td><code title="${escapeHtml(instance.instanceId)}">${escapeHtml(instance.instanceId)}</code></td>
-            <td>${escapeHtml(formatTime(instance.lastHeartbeatAt))}</td>
+            <td><code title="Service generation / Lease epoch / Recovery epoch / Renew sequence">${escapeHtml(instance.serviceGeneration || 0)} / ${escapeHtml(instance.leaseEpoch || 0)} / ${escapeHtml(instance.recoveryEpoch || 0)} / ${escapeHtml(instance.renewSequence || 0)}</code></td>
+            <td><div>${escapeHtml(formatTime(instance.lastHeartbeatAt))}</div><small class="text-muted">${escapeHtml(formatTime(instance.expiresAt))}</small></td>
             <td><code title="${escapeHtml(instance.metadata || '')}">${escapeHtml(shortMetadata(instance.metadata))}</code></td>
             <td class="text-end"><button class="btn btn-sm btn-outline-danger" data-action="deregister" data-instance="${escapeHtml(instance.instanceId)}">摘除</button></td>
-        </tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted">暂无注册实例</td></tr>';
+        </tr>`).join('') : '<tr><td colspan="8" class="text-center text-muted">暂无注册实例</td></tr>';
         body.querySelectorAll('[data-action="deregister"]').forEach(button => button.addEventListener('click', () => deregisterInstance(button.dataset.instance)));
     } catch (error) {
         showToast(error.message || '加载实例失败', 'error');

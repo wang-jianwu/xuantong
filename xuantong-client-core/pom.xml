@@ -36,15 +36,21 @@
     </scm>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <snack-json.version>4.0.48</snack-json.version>
         <socketd.version>2.6.0</socketd.version>
+        <slf4j.version>2.0.17</slf4j.version>
         <logback.version>1.5.34</logback.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>cloud.xuantong</groupId>
+            <artifactId>xuantong-protocol</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.noear</groupId>
             <artifactId>snack4-jsonpath</artifactId>
@@ -53,13 +59,19 @@
         <!-- Socket.D 实时通信 -->
         <dependency>
             <groupId>org.noear</groupId>
-            <artifactId>socketd-transport-java-websocket</artifactId>
+            <artifactId>socketd-transport-netty</artifactId>
             <version>${socketd.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
+            <scope>test</scope>
         </dependency>
         <!-- 测试依赖 -->
         <dependency>
@@ -86,8 +98,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.8.1</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
+                    <release>21</release>
                 </configuration>
             </plugin>
             <plugin>
@@ -119,7 +130,7 @@
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>3.6.0</version>
                 <configuration>
-                    <source>8</source>
+                    <source>21</source>
                     <encoding>UTF-8</encoding>
                     <doclint>none</doclint>
                 </configuration>

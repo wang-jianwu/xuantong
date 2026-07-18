@@ -1,6 +1,91 @@
 # 玄同 Server 配置
 server:
-  port: 8088
+  # 管理端 HTTP 端口。
+  port: ${XUANTONG_SERVER_PORT:8088}
+  socket:
+    ssl:
+      enable: ${XUANTONG_CONTROL_TLS_ENABLED:false}
+      keyStore: ${XUANTONG_CONTROL_TLS_KEY_STORE:}
+      keyStoreType: ${XUANTONG_CONTROL_TLS_KEY_STORE_TYPE:PKCS12}
+      keyStorePassword: ${XUANTONG_CONTROL_TLS_KEY_STORE_PASSWORD:}
+      trustStore: ${XUANTONG_CONTROL_TLS_TRUST_STORE:}
+      trustStoreType: ${XUANTONG_CONTROL_TLS_TRUST_STORE_TYPE:PKCS12}
+      trustStorePassword: ${XUANTONG_CONTROL_TLS_TRUST_STORE_PASSWORD:}
+
+# 原生 Socket.D TCP/Netty 控制面。它与管理 HTTP 使用独立端口和生命周期。
+controlPlane:
+  host: ${XUANTONG_CONTROL_HOST:0.0.0.0}
+  port: ${XUANTONG_CONTROL_PORT:8090}
+  clusterId: ${XUANTONG_CLUSTER_ID:xuantong-local}
+  gatewayId: ${XUANTONG_GATEWAY_ID:}
+  transportGeneration: ${XUANTONG_TRANSPORT_GENERATION:1}
+  maxRequestBudgetMs: ${XUANTONG_MAX_REQUEST_BUDGET_MS:10000}
+  maxRequestBytes: ${XUANTONG_MAX_REQUEST_BYTES:1048576}
+  maxInFlightRequests: ${XUANTONG_MAX_IN_FLIGHT_REQUESTS:1024}
+  maxSessions: ${XUANTONG_MAX_SESSIONS:20000}
+  maxSessionsPerTenant: ${XUANTONG_MAX_SESSIONS_PER_TENANT:10000}
+  maxSessionsPerCredential: ${XUANTONG_MAX_SESSIONS_PER_CREDENTIAL:1000}
+  maxSubscriptions: ${XUANTONG_MAX_SUBSCRIPTIONS:10000}
+  maxSubscriptionsPerTenant: ${XUANTONG_MAX_SUBSCRIPTIONS_PER_TENANT:2000}
+  tenantRequestRatePerSecond: ${XUANTONG_TENANT_REQUEST_RATE_PER_SECOND:2000}
+  tenantRequestBurst: ${XUANTONG_TENANT_REQUEST_BURST:4000}
+  authFailureLimit: ${XUANTONG_AUTH_FAILURE_LIMIT:20}
+  authFailureWindowMs: ${XUANTONG_AUTH_FAILURE_WINDOW_MS:60000}
+  watchPollIntervalMs: ${XUANTONG_WATCH_POLL_INTERVAL_MS:250}
+  watchIdlePollMaxIntervalMs: ${XUANTONG_WATCH_IDLE_POLL_MAX_INTERVAL_MS:5000}
+  watchAckTimeoutMs: ${XUANTONG_WATCH_ACK_TIMEOUT_MS:15000}
+  watchStreamMaxLifetimeMs: ${XUANTONG_WATCH_STREAM_MAX_LIFETIME_MS:900000}
+  authRevalidateIntervalMs: ${XUANTONG_AUTH_REVALIDATE_INTERVAL_MS:5000}
+  helloTimeoutMs: ${XUANTONG_HELLO_TIMEOUT_MS:5000}
+  overloadRetryAfterMs: ${XUANTONG_OVERLOAD_RETRY_AFTER_MS:100}
+  workThreads: ${XUANTONG_CONTROL_WORK_THREADS:0}
+  workQueueCapacity: ${XUANTONG_CONTROL_WORK_QUEUE_CAPACITY:4096}
+  stateCallbackThreads: ${XUANTONG_STATE_CALLBACK_THREADS:0}
+  stateCallbackQueueCapacity: ${XUANTONG_STATE_CALLBACK_QUEUE_CAPACITY:1024}
+  idleTimeoutMs: ${XUANTONG_CONTROL_IDLE_TIMEOUT_MS:60000}
+  drainTimeoutMs: ${XUANTONG_CONTROL_DRAIN_TIMEOUT_MS:5000}
+  tls:
+    # NONE / WANT / REQUIRE。REQUIRE 时必须同时配置 server.socket.ssl trustStore。
+    clientAuth: ${XUANTONG_CONTROL_TLS_CLIENT_AUTH:NONE}
+
+# Config 权威状态面。默认关闭，避免在未明确配置 3/5 个 voter 时误启动伪集群。
+statePlane:
+  config:
+    enabled: ${XUANTONG_CONFIG_STATE_ENABLED:false}
+    localNodeId: ${XUANTONG_STATE_NODE_ID:}
+    groupId: ${XUANTONG_CONFIG_GROUP_ID:config-default}
+    # 格式：state-1@10.0.0.11:9101,state-2@10.0.0.12:9101,state-3@10.0.0.13:9101
+    peers: ${XUANTONG_CONFIG_STATE_PEERS:}
+    # Config/Registry Group 共用此物理 State Node 存储根目录，各 Group 在其下使用独立目录。
+    storageDirectory: ${XUANTONG_STATE_DIR:./data/state}
+    # 只允许本地开发显式开启；生产必须保持 false 并配置 3 或 5 个 voter。
+    allowSingleNode: ${XUANTONG_CONFIG_STATE_ALLOW_SINGLE_NODE:false}
+    electionTimeoutMinMs: ${XUANTONG_CONFIG_STATE_ELECTION_MIN_MS:1000}
+    electionTimeoutMaxMs: ${XUANTONG_CONFIG_STATE_ELECTION_MAX_MS:2000}
+    requestTimeoutMs: ${XUANTONG_CONFIG_STATE_REQUEST_TIMEOUT_MS:5000}
+    clientMaxAttempts: ${XUANTONG_CONFIG_STATE_CLIENT_MAX_ATTEMPTS:5}
+    snapshotAutoTriggerThreshold: ${XUANTONG_CONFIG_STATE_SNAPSHOT_THRESHOLD:10000}
+    snapshotOnShutdown: ${XUANTONG_CONFIG_STATE_SNAPSHOT_ON_SHUTDOWN:true}
+    maxInlineContentBytes: ${XUANTONG_CONFIG_MAX_INLINE_BYTES:1048576}
+    changeLogCapacity: ${XUANTONG_CONFIG_CHANGE_LOG_CAPACITY:10000}
+    maxOperationRecords: ${XUANTONG_CONFIG_OPERATION_CAPACITY:100000}
+    maxRulesPerDecision: ${XUANTONG_CONFIG_MAX_RULES:128}
+    operationRecoveryIntervalMs: ${XUANTONG_CONFIG_OPERATION_RECOVERY_MS:1000}
+  registry:
+    # 与 Config Group 复用同一批 State voter 和物理 Ratis Server，但使用独立 Group/WAL/Snapshot。
+    enabled: ${XUANTONG_REGISTRY_STATE_ENABLED:false}
+    groupId: ${XUANTONG_REGISTRY_GROUP_ID:registry-default}
+    minLeaseTtlMs: ${XUANTONG_REGISTRY_MIN_LEASE_TTL_MS:3000}
+    maxLeaseTtlMs: ${XUANTONG_REGISTRY_MAX_LEASE_TTL_MS:120000}
+    maxServices: ${XUANTONG_REGISTRY_MAX_SERVICES:1000000}
+    maxInstances: ${XUANTONG_REGISTRY_MAX_INSTANCES:1000000}
+    maxRenewBatchSize: ${XUANTONG_REGISTRY_MAX_RENEW_BATCH_SIZE:1000}
+    changeLogCapacity: ${XUANTONG_REGISTRY_CHANGE_LOG_CAPACITY:100000}
+    maxOperationRecords: ${XUANTONG_REGISTRY_OPERATION_CAPACITY:200000}
+    expirationIntervalMs: ${XUANTONG_REGISTRY_EXPIRATION_INTERVAL_MS:1000}
+    expirationBatchSize: ${XUANTONG_REGISTRY_EXPIRATION_BATCH_SIZE:1000}
+    lifecycleRecoveryIntervalMs: ${XUANTONG_SERVICE_LIFECYCLE_RECOVERY_MS:5000}
+
 solon:
   app:
     name: xuantong-server

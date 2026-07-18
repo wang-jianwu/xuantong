@@ -349,11 +349,22 @@ async function apiGetText(url) {
     }
 }
 
-async function apiPost(url, data) {
+function newXuantongOperationId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+    }
+    var random = Math.random().toString(16).slice(2);
+    return Date.now().toString(16) + '-' + random + '-' + random.slice(0, 8);
+}
+
+async function apiPost(url, data, operationId) {
     try {
         var response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Xuantong-Operation-Id': operationId || newXuantongOperationId()
+            },
             body: JSON.stringify(data)
         });
         if (response.status === 401) {

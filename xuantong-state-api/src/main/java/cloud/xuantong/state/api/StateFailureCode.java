@@ -1,0 +1,16 @@
+package cloud.xuantong.state.api;
+
+public enum StateFailureCode {
+    DEADLINE_EXCEEDED,
+    NOT_LEADER,
+    STATE_UNAVAILABLE,
+    NO_QUORUM,
+    STALE_REPLICA,
+    REVISION_COMPACTED,
+    OPERATION_CONFLICT,
+    LEASE_FENCED,
+    LEASE_EXPIRED,
+    UNAUTHORIZED,
+    RATE_LIMITED,
+    INTERNAL_ERROR
+}

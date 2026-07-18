@@ -1,0 +1,345 @@
+syntax = "proto3";
+
+package xuantong.control.v2;
+
+option java_package = "cloud.xuantong.protocol.v2";
+option java_multiple_files = true;
+option java_outer_classname = "ControlPlaneProtocolSchema";
+option optimize_for = SPEED;
+
+// Revision values may only be compared inside the scope documented by the enum value.
+enum RevisionType {
+  REVISION_TYPE_UNSPECIFIED = 0;
+  CONFIG_DECISION = 1;
+  CONFIG_EVENT = 2;
+  REGISTRY = 3;
+}
+
+enum ResponseCode {
+  RESPONSE_CODE_UNSPECIFIED = 0;
+  OK = 1;
+  NOT_MODIFIED = 2;
+  INVALID_ARGUMENT = 3;
+  FAILED_PRECONDITION = 4;
+  UNSUPPORTED_PROTOCOL = 5;
+  CLUSTER_MISMATCH = 6;
+  TRANSPORT_GENERATION_MISMATCH = 7;
+  DEADLINE_EXCEEDED = 8;
+  NOT_LEADER = 9;
+  STATE_UNAVAILABLE = 10;
+  NO_QUORUM = 11;
+  DRAINING = 12;
+  STALE_REPLICA = 13;
+  REVISION_COMPACTED = 14;
+  OPERATION_CONFLICT = 15;
+  LEASE_FENCED = 16;
+  LEASE_EXPIRED = 17;
+  UNAUTHORIZED = 18;
+  RATE_LIMITED = 19;
+  INTERNAL_ERROR = 20;
+  SERVICE_FENCED = 21;
+}
+
+enum CommitStatus {
+  COMMIT_STATUS_UNSPECIFIED = 0;
+  NOT_APPLICABLE = 1;
+  UNKNOWN = 2;
+}
+
+message ResponseStatus {
+  ResponseCode code = 1;
+  string message = 2;
+  bool retryable = 3;
+  uint64 retry_after_ms = 4;
+  string group_id = 5;
+  RevisionType revision_type = 6;
+  uint64 observed_revision = 7;
+  CommitStatus commit_status = 8;
+}
+
+// Socket.D owns framing and stream lifecycle. This envelope owns the versioned
+// Xuantong business protocol carried in a Socket.D Entity payload.
+message Envelope {
+  uint32 protocol_version = 1;
+  string cluster_id = 2;
+  uint64 transport_generation = 3;
+  string request_id = 4;
+  string operation_id = 5;
+  string trace_id = 6;
+  string tenant = 7;
+  string namespace_id = 8;
+  uint64 remaining_budget_ms = 9;
+  RevisionType revision_type = 10;
+  string group_id = 11;
+  uint64 known_revision = 12;
+  uint64 min_revision = 13;
+  string payload_type = 14;
+  bytes payload = 15;
+  ResponseStatus response_status = 16;
+}
+
+message HelloRequest {
+  // A process-instance identity. Multiple replicas of one application must not share it.
+  string client_instance_id = 1;
+  string application_name = 2;
+  string client_version = 3;
+  string sdk_name = 4;
+  repeated uint32 supported_protocol_versions = 5;
+  repeated string capabilities = 6;
+  string transport_pool = 7;
+  // The exact resource group bound to this physical Session.
+  string group_name = 8;
+  // Application credential is carried only by Hello. It must not be placed in
+  // the Socket.D URL or Connect MetaString, which may be rendered by transport logs.
+  string credential = 9;
+}
+
+message HelloResponse {
+  uint32 selected_protocol_version = 1;
+  string cluster_id = 2;
+  uint64 transport_generation = 3;
+  string gateway_id = 4;
+  uint64 connection_generation = 5;
+  repeated string capabilities = 6;
+  uint64 max_request_budget_ms = 7;
+  uint64 server_time_epoch_ms = 8;
+  string transport_schema = 9;
+}
+
+message ProbeRequest {
+  string nonce = 1;
+  uint64 client_send_epoch_ms = 2;
+}
+
+message ProbeResponse {
+  string nonce = 1;
+  string gateway_id = 2;
+  uint64 connection_generation = 3;
+  uint64 server_receive_epoch_ms = 4;
+  uint64 server_send_epoch_ms = 5;
+}
+
+message ConfigCoordinate {
+  string namespace_id = 1;
+  string group_name = 2;
+  string data_id = 3;
+}
+
+message ConfigFetchRequest {
+  string group_name = 1;
+  string data_id = 2;
+}
+
+message ConfigContentValue {
+  uint64 content_revision = 1;
+  string content_hash = 2;
+  string content_type = 3;
+  uint32 schema_version = 4;
+  bytes payload = 5;
+  string blob_reference = 6;
+}
+
+message ConfigFetchResponse {
+  bool found = 1;
+  ConfigCoordinate config = 2;
+  uint64 decision_revision = 3;
+  ConfigContentValue content = 4;
+  string matched_rule_id = 5;
+}
+
+message ConfigRuleSummary {
+  string rule_id = 1;
+  uint64 rule_generation = 2;
+  uint64 target_content_revision = 3;
+  bool active = 4;
+}
+
+message ConfigDecisionSummary {
+  ConfigCoordinate config = 1;
+  uint64 decision_revision = 2;
+  uint64 stable_content_revision = 3;
+  repeated ConfigRuleSummary rules = 4;
+}
+
+message ConfigSnapshotRequest {
+  repeated ConfigCoordinate configs = 1;
+}
+
+message ConfigSnapshotResponse {
+  uint64 event_revision = 1;
+  uint64 compaction_revision = 2;
+  repeated ConfigDecisionSummary decisions = 3;
+}
+
+// One authoritative resumable batch. A later long-lived Socket.D Watch uses
+// the same payload and watermark contract for each Reply frame.
+message ConfigWatchBatchRequest {
+  uint64 after_event_revision = 1;
+  repeated ConfigCoordinate configs = 2;
+  uint32 max_batch_size = 3;
+  // Required scope. Empty configs means all dataIds in this namespace/group.
+  string group_name = 4;
+}
+
+message ConfigInvalidation {
+  uint64 event_revision = 1;
+  ConfigCoordinate config = 2;
+  uint64 decision_revision = 3;
+}
+
+message ConfigWatchBatchResponse {
+  uint64 requested_after_revision = 1;
+  uint64 covered_through_revision = 2;
+  uint64 compaction_revision = 3;
+  bool reset_required = 4;
+  repeated ConfigInvalidation events = 5;
+}
+
+// Acknowledges that one SubscribeStream Reply was applied by the client.
+// The subscription request id, rather than the Socket.D sid, is used because
+// it is part of the versioned Xuantong envelope and can be validated end to end.
+message WatchAckRequest {
+  string subscription_request_id = 1;
+  uint64 committed_revision = 2;
+}
+
+message WatchAckResponse {
+  string subscription_request_id = 1;
+  uint64 accepted_revision = 2;
+}
+
+message ServiceCoordinate {
+  string namespace_id = 1;
+  string group_name = 2;
+  string service_name = 3;
+}
+
+message ServiceInstanceCoordinate {
+  ServiceCoordinate service = 1;
+  string instance_id = 2;
+}
+
+message DiscoveryServiceInstance {
+  ServiceInstanceCoordinate instance = 1;
+  string ip = 2;
+  uint32 port = 3;
+  double weight = 4;
+  bool enabled = 5;
+  string metadata = 6;
+  string lease_id = 7;
+  uint64 lease_epoch = 8;
+  uint64 recovery_epoch = 9;
+  uint64 renew_sequence = 10;
+  string owner_client_instance_id = 11;
+  string owner_application_name = 12;
+  uint64 registered_at_epoch_ms = 13;
+  uint64 last_renewed_at_epoch_ms = 14;
+  uint64 expires_at_epoch_ms = 15;
+  uint64 service_generation = 16;
+}
+
+message DiscoveryRegisterRequest {
+  string group_name = 1;
+  string service_name = 2;
+  string instance_id = 3;
+  string ip = 4;
+  uint32 port = 5;
+  double weight = 6;
+  bool enabled = 7;
+  string metadata = 8;
+  uint64 ttl_ms = 9;
+  // Zero binds an initial registration to the currently active generation.
+  // Lease recovery must send the generation returned by the first register.
+  uint64 expected_service_generation = 10;
+}
+
+message DiscoveryLeaseReference {
+  ServiceInstanceCoordinate instance = 1;
+  string lease_id = 2;
+  uint64 lease_epoch = 3;
+  uint64 recovery_epoch = 4;
+}
+
+message DiscoveryLeaseRenewal {
+  DiscoveryLeaseReference lease = 1;
+  uint64 renew_sequence = 2;
+  uint64 ttl_ms = 3;
+}
+
+message DiscoveryRenewBatchRequest {
+  repeated DiscoveryLeaseRenewal renewals = 1;
+}
+
+message DiscoveryDeregisterRequest {
+  DiscoveryLeaseReference lease = 1;
+}
+
+message DiscoveryTakeoverRequest {
+  DiscoveryLeaseReference expected_lease = 1;
+  uint64 ttl_ms = 2;
+}
+
+message DiscoveryMutationResponse {
+  string action = 1;
+  uint64 registry_revision = 2;
+  uint64 server_time_epoch_ms = 3;
+  repeated DiscoveryServiceInstance instances = 4;
+  repeated ServiceInstanceCoordinate removed_instances = 5;
+}
+
+message DiscoverySnapshotRequest {
+  string group_name = 1;
+  repeated string service_names = 2;
+}
+
+message DiscoverySnapshotResponse {
+  uint64 registry_revision = 1;
+  uint64 compaction_revision = 2;
+  uint64 server_time_epoch_ms = 3;
+  repeated DiscoveryServiceInstance instances = 4;
+}
+
+message DiscoveryWatchBatchRequest {
+  uint64 after_registry_revision = 1;
+  string group_name = 2;
+  repeated string service_names = 3;
+  uint32 max_batch_size = 4;
+}
+
+message DiscoveryChange {
+  uint64 registry_revision = 1;
+  string event_type = 2;
+  ServiceInstanceCoordinate instance = 3;
+  DiscoveryServiceInstance value = 4;
+}
+
+message DiscoveryWatchBatchResponse {
+  uint64 requested_after_revision = 1;
+  uint64 covered_through_revision = 2;
+  uint64 compaction_revision = 3;
+  bool reset_required = 4;
+  repeated DiscoveryChange events = 5;
+}
+
+message DiscoveryGetLeaseStateRequest {
+  ServiceInstanceCoordinate instance = 1;
+}
+
+message DiscoveryGetLeaseStateResponse {
+  bool found = 1;
+  uint64 registry_revision = 2;
+  uint64 server_time_epoch_ms = 3;
+  DiscoveryServiceInstance instance = 4;
+}
+
+message DiscoveryResolveOperationRequest {
+  string operation_id = 1;
+}
+
+message DiscoveryResolveOperationResponse {
+  bool found = 1;
+  bool applied = 2;
+  string error_code = 3;
+  string error_message = 4;
+  DiscoveryMutationResponse result = 5;
+}

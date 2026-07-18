@@ -3,7 +3,7 @@
     {
       "name": "solon.cloud.xuantong.server",
       "type": "java.lang.String",
-      "description": "服务地址 127.0.0.1:8080，多个用逗号分隔"
+      "description": "服务地址，多个用逗号分隔；Config 2.0 使用原生控制面端口，例如 127.0.0.1:8090"
     },
     {
       "name": "solon.cloud.xuantong.namespace",
@@ -34,6 +34,36 @@
       "description": "启动时加载的 dataId 列表，逗号分隔"
     },
     {
+      "name": "solon.cloud.xuantong.config.stateGroupId",
+      "type": "java.lang.String",
+      "defaultValue": "config-default",
+      "description": "Config State 权威组标识"
+    },
+    {
+      "name": "solon.cloud.xuantong.clusterId",
+      "type": "java.lang.String",
+      "defaultValue": "",
+      "description": "控制面集群标识；留空时由首次成功 Hello 自动锁定"
+    },
+    {
+      "name": "solon.cloud.xuantong.transportGeneration",
+      "type": "java.lang.Long",
+      "defaultValue": 0,
+      "description": "控制面传输代次；0 表示自动锁定"
+    },
+    {
+      "name": "solon.cloud.xuantong.transportPool",
+      "type": "java.lang.String",
+      "defaultValue": "tcp-default",
+      "description": "基础设施兼容池"
+    },
+    {
+      "name": "solon.cloud.xuantong.tenant",
+      "type": "java.lang.String",
+      "defaultValue": "default",
+      "description": "控制面租户标识"
+    },
+    {
       "name": "solon.cloud.xuantong.discovery.server",
       "type": "java.lang.String",
       "description": "服务注册发现地址；为空时使用 solon.cloud.xuantong.server"
@@ -49,6 +79,12 @@
       "type": "java.lang.String",
       "defaultValue": "10s",
       "description": "本地服务实例心跳周期，支持 ms、s、m"
+    },
+    {
+      "name": "solon.cloud.xuantong.discovery.stateGroupId",
+      "type": "java.lang.String",
+      "defaultValue": "registry-default",
+      "description": "Registry State 权威组标识"
     }
   ]
 }

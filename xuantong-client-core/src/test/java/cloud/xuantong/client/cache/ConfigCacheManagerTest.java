@@ -76,7 +76,7 @@ class ConfigCacheManagerTest {
     }
 
     @Test
-    void loadedEntriesReceiveFreshAccessTimeAndExpirationIsPersisted() {
+    void lastKnownGoodDoesNotExpireByWallClock() {
         ConfigCacheManager seed = new ConfigCacheManager(NAMESPACE, GROUP, tempDir);
         seed.batchUpdate(Collections.singletonMap("app.yml", "cached"));
         seed.shutdown();
@@ -87,12 +87,12 @@ class ConfigCacheManagerTest {
         assertEquals("cached", cache.getAll().get("app.yml"));
 
         cache.cleanupExpiredCache(loadedAt + 24L * 60 * 60 * 1000 + 1);
-        assertTrue(cache.getAll().isEmpty());
+        assertEquals("cached", cache.getAll().get("app.yml"));
         cache.shutdown();
 
         ConfigCacheManager reloaded = new ConfigCacheManager(NAMESPACE, GROUP, tempDir);
         try {
-            assertTrue(reloaded.getAll().isEmpty());
+            assertEquals("cached", reloaded.getAll().get("app.yml"));
         } finally {
             reloaded.shutdown();
         }

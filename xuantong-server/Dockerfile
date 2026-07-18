@@ -15,13 +15,6 @@ RUN apk add --no-cache tzdata && \
 
 COPY --from=builder /build/xuantong-server/target/xuantong-server.jar /app/
 
-EXPOSE 8088
-
-ENV DB_HOST=127.0.0.1 \
-    DB_PORT=3306 \
-    DB_USER=root \
-    DB_PASSWORD= \
-    XUANTONG_CLIENT_AUTH_REQUIRED=false \
-    XUANTONG_PRODUCTION=false
+EXPOSE 8088 8090 9101
 
 ENTRYPOINT ["java", "-jar", "/app/xuantong-server.jar"]

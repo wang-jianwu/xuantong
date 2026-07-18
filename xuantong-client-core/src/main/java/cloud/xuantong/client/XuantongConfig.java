@@ -10,7 +10,7 @@ import java.util.Map;
  * 静态门面类 - 提供简单的静态API访问方式
  */
 public final class XuantongConfig {
-    private static XuantongClient defaultClient = null;
+    private static XuantongConfigClient defaultClient = null;
     private static volatile boolean initialized = false;
 
     private XuantongConfig() {
@@ -63,7 +63,8 @@ public final class XuantongConfig {
         if (defaultClient != null) {
             throw new XuantongException("XuantongConfig singleton instance already exists");
         }
-        defaultClient = new XuantongClient(serverAddresses, namespace, group, accessToken, identity);
+        defaultClient = new XuantongConfigClient(
+                serverAddresses, namespace, group, accessToken, identity);
         initialized = true;
     }
 
@@ -108,9 +109,9 @@ public final class XuantongConfig {
         return defaultClient.getObjectMap(dataId, keyType, valueType);
     }
     /**
-     * 设置默认客户端实例（供XuantongClient内部使用）
+     * 设置默认配置客户端实例（供 XuantongConfigClient 内部使用）
      */
-    static synchronized void setClient(XuantongClient client) {
+    static synchronized void setClient(XuantongConfigClient client) {
         if (defaultClient != null && defaultClient != client) {
             throw new IllegalStateException("Default client already set");
         }
@@ -118,7 +119,7 @@ public final class XuantongConfig {
         initialized = true;
     }
 
-    static synchronized void clearClient(XuantongClient client) {
+    static synchronized void clearClient(XuantongConfigClient client) {
         if (defaultClient == client) {
             defaultClient = null;
             initialized = false;

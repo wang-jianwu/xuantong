@@ -1,4 +1,0 @@
-interface:
-  display_name: "Socket.D 架构评审"
-  short_description: "Review Socket.D and Solon transport architecture"
-  default_prompt: "Use $socketd-architecture-review to diagnose Socket.D timeouts and review the Solon transport architecture."

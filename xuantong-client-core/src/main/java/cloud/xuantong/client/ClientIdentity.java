@@ -5,7 +5,7 @@ import java.net.InetAddress;
 import java.util.UUID;
 
 /**
- * Stable identity for one application process connecting to Xuantong Brokers.
+ * Stable identity for one application process connecting to Xuantong Gateways.
  * Multiple namespace/group subscriptions in the same JVM share the same
  * clientInstanceId.
  */

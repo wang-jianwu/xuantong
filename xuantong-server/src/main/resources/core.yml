@@ -1,13 +1,10 @@
 config:
-  maxSessions: 1000
   # 配置值加密密钥（不配置则不加密）
   encryptKey: ${CONFIG_ENCRYPT_KEY:}
 
 security:
   clientAuthRequired: ${XUANTONG_CLIENT_AUTH_REQUIRED:false}
   production: ${XUANTONG_PRODUCTION:false}
-  # 周期复核长连接 Token，覆盖其他控制节点上的吊销和 Token 自然过期
-  clientSessionRevalidateMs: ${XUANTONG_CLIENT_SESSION_REVALIDATE_MS:5000}
 
 discovery:
   # 实例超过该时间没有心跳即自动摘除
@@ -15,10 +12,6 @@ discovery:
   # 过期实例扫描周期
   cleanupIntervalMs: ${XUANTONG_INSTANCE_CLEANUP_MS:5000}
 
-broker:
-  nodeId: ${XUANTONG_NODE_ID:}
-  # 安全停止时先发送 Socket.D preclose，再等待存量消息处理完成
-  shutdownGraceMs: ${XUANTONG_BROKER_SHUTDOWN_GRACE_MS:1000}
 # ── 数据源 ──
 # 默认 H2 内嵌数据库，零配置启动；生产环境通过 XUANTONG_DB_* 环境变量切换数据库。
 xuantong:

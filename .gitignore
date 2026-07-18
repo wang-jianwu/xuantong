@@ -1,18 +1,48 @@
-target/
+# Maven / Java build outputs
+**/target/
 *.class
 *.jar
 *.war
-*.iml
-.idea/
-*.log
-.xuantong-cache/
-core.yml.local
-*.tmp
-.env
+dependency-reduced-pom.xml
 
-# H2 embedded database
+# Runtime data and diagnostics
 data/
-docs/
-bin/
-company-website/
-.soloncode/
+logs/
+.xuantong-cache/
+*.log
+*.pid
+*.hprof
+*.tmp
+hs_err_pid*
+replay_pid*
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+core.yml.local
+application-local.yml
+application-local.yaml
+app-local.yml
+app-local.yaml
+
+# IDE and editor files
+.idea/
+.vscode/
+.settings/
+*.iml
+.classpath
+.project
+.factorypath
+*.swp
+*~
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Local tools and personal workspace; not part of the Xuantong repository
+/.soloncode/
+/docs/
+/output/
+/company-website/

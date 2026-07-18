@@ -1,1 +1,1 @@
-cloud.xuantong.config.autoconfigure.XuantongConfigAutoConfiguration
+cloud.xuantong.integration.spring.boot.autoconfigure.XuantongConfigAutoConfiguration

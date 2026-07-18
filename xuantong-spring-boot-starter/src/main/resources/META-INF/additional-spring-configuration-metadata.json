@@ -3,7 +3,7 @@
     {
       "name": "xuantong.config.server-addresses",
       "type": "java.util.List<java.lang.String>",
-      "description": "玄同配置服务地址列表。"
+      "description": "玄同 2.0 原生 Socket.D TCP 控制面地址列表，例如 127.0.0.1:8090。"
     },
     {
       "name": "xuantong.config.namespace",
@@ -21,7 +21,7 @@
       "name": "xuantong.config.access-token",
       "type": "java.lang.String",
       "defaultValue": "",
-      "description": "连接 /config-v2 使用的客户端访问令牌。"
+      "description": "控制面握手元数据中的客户端访问令牌；不会放入 URL。"
     },
     {
       "name": "xuantong.config.application-name",
@@ -32,6 +32,36 @@
       "name": "xuantong.config.client-instance-id",
       "type": "java.lang.String",
       "description": "可选的客户端运行实例标识；默认由客户端按运行环境自动生成。仅在需要跨重启保持固定实例身份时配置。"
+    },
+    {
+      "name": "xuantong.config.state-group-id",
+      "type": "java.lang.String",
+      "defaultValue": "config-default",
+      "description": "Config State 权威组标识；必须与 Server 的 XUANTONG_CONFIG_GROUP_ID 一致。"
+    },
+    {
+      "name": "xuantong.config.cluster-id",
+      "type": "java.lang.String",
+      "defaultValue": "",
+      "description": "控制面集群标识；留空时由首次成功 Hello 自动锁定。"
+    },
+    {
+      "name": "xuantong.config.transport-generation",
+      "type": "java.lang.Long",
+      "defaultValue": 0,
+      "description": "控制面传输代次；0 表示由首次成功 Hello 自动锁定。"
+    },
+    {
+      "name": "xuantong.config.transport-pool",
+      "type": "java.lang.String",
+      "defaultValue": "tcp-default",
+      "description": "基础设施兼容池；自动故障切换不会跨池或跨传输代次。"
+    },
+    {
+      "name": "xuantong.config.tenant",
+      "type": "java.lang.String",
+      "defaultValue": "default",
+      "description": "控制面租户标识。"
     }
   ]
 }

@@ -61,6 +61,11 @@ public class ConfigListenerManager {
         }
     }
 
+    public boolean hasListeners(String dataId) {
+        List<ConfigListener> listeners = listenersMap.get(dataId);
+        return listeners != null && !listeners.isEmpty();
+    }
+
     // 触发配置变更事件（支持超时控制和并行执行）
     public void fireEvent(ConfigChangeEvent event) {
         List<ConfigListener> listeners = listenersMap.get(event.getDataId());

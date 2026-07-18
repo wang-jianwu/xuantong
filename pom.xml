@@ -39,6 +39,11 @@
     <modules>
         <module>xuantong-common</module>
         <module>xuantong-protocol</module>
+        <module>xuantong-gateway</module>
+        <module>xuantong-state-api</module>
+        <module>xuantong-config-state</module>
+        <module>xuantong-registry-state</module>
+        <module>xuantong-raft-core</module>
         <module>xuantong-config-core</module>
         <module>xuantong-discovery-core</module>
         <module>xuantong-security</module>
@@ -47,6 +52,7 @@
         <module>xuantong-solon-plugin</module>
         <module>xuantong-solon-cloud-plugin</module>
         <module>xuantong-spring-boot-starter</module>
+        <module>xuantong-spring-cloud-starter</module>
     </modules>
 
     <properties>
@@ -56,6 +62,7 @@
         <postgresql.version>42.7.7</postgresql.version>
         <protobuf.version>4.35.1</protobuf.version>
         <socketd.version>2.6.0</socketd.version>
+        <ratis.version>3.2.2</ratis.version>
         <hutool.version>5.8.46</hutool.version>
         <logback.version>1.5.37</logback.version>
         <h2.version>2.4.240</h2.version>
@@ -79,8 +86,28 @@
             </dependency>
             <dependency>
                 <groupId>org.noear</groupId>
-                <artifactId>socketd-transport-java-websocket</artifactId>
+                <artifactId>socketd-transport-netty</artifactId>
                 <version>${socketd.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.ratis</groupId>
+                <artifactId>ratis-server</artifactId>
+                <version>${ratis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.ratis</groupId>
+                <artifactId>ratis-client</artifactId>
+                <version>${ratis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.ratis</groupId>
+                <artifactId>ratis-grpc</artifactId>
+                <version>${ratis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.ratis</groupId>
+                <artifactId>ratis-metrics-default</artifactId>
+                <version>${ratis.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.noear</groupId>

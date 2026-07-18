@@ -1,72 +1,84 @@
 package cloud.xuantong.client.transport.impl;
 
 import cloud.xuantong.client.ClientIdentity;
+import cloud.xuantong.client.ControlPlaneOptions;
+import cloud.xuantong.client.exception.DiscoveryLeaseException;
 import cloud.xuantong.client.exception.XuantongException;
-import cloud.xuantong.client.model.ControlPlaneEvent;
 import cloud.xuantong.client.model.ServiceInstance;
+import cloud.xuantong.client.model.ServiceInvalidation;
 import cloud.xuantong.client.model.ServiceSnapshot;
-import cloud.xuantong.client.serializer.Serializer;
+import cloud.xuantong.client.model.ServiceWatchBatch;
 import cloud.xuantong.client.transport.DiscoveryTransport;
-import org.noear.socketd.SocketD;
-import org.noear.socketd.transport.client.ClientSession;
-import org.noear.socketd.transport.core.Entity;
-import org.noear.socketd.transport.core.entity.StringEntity;
-import org.noear.socketd.transport.core.listener.EventListener;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import cloud.xuantong.client.transport.WatchBatchHandler;
+import cloud.xuantong.client.transport.WatchSubscription;
+import cloud.xuantong.protocol.v2.ControlPlaneProtocol;
+import cloud.xuantong.protocol.v2.DiscoveryChange;
+import cloud.xuantong.protocol.v2.DiscoveryDeregisterRequest;
+import cloud.xuantong.protocol.v2.DiscoveryLeaseReference;
+import cloud.xuantong.protocol.v2.DiscoveryLeaseRenewal;
+import cloud.xuantong.protocol.v2.DiscoveryMutationResponse;
+import cloud.xuantong.protocol.v2.DiscoveryRegisterRequest;
+import cloud.xuantong.protocol.v2.DiscoveryRenewBatchRequest;
+import cloud.xuantong.protocol.v2.DiscoveryResolveOperationRequest;
+import cloud.xuantong.protocol.v2.DiscoveryResolveOperationResponse;
+import cloud.xuantong.protocol.v2.DiscoveryServiceInstance;
+import cloud.xuantong.protocol.v2.DiscoverySnapshotRequest;
+import cloud.xuantong.protocol.v2.DiscoverySnapshotResponse;
+import cloud.xuantong.protocol.v2.DiscoveryWatchBatchRequest;
+import cloud.xuantong.protocol.v2.DiscoveryWatchBatchResponse;
+import cloud.xuantong.protocol.v2.Envelope;
+import cloud.xuantong.protocol.v2.ResponseCode;
+import cloud.xuantong.protocol.v2.RevisionType;
+import cloud.xuantong.protocol.v2.ServiceCoordinate;
+import cloud.xuantong.protocol.v2.ServiceInstanceCoordinate;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletionService;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
-/**
- * Socket.D multi-broker discovery transport.
- *
- * Providers register and renew the same lease on every active Broker. All Broker
- * operations execute concurrently, while Socket.D independently reconnects each link.
- */
+/** Discovery protocol adapter reusing the single-active-Gateway control runtime. */
 public class SocketDDiscoveryTransport implements DiscoveryTransport {
-    private static final Logger logger = LoggerFactory.getLogger(SocketDDiscoveryTransport.class);
-    private static final long HEARTBEAT_INTERVAL = 20_000L;
-    private static final long CONNECTION_TIMEOUT = 5_000L;
-    private static final long REQUEST_TIMEOUT = 5_000L;
-    private static final long OPERATION_TIMEOUT = REQUEST_TIMEOUT * 2L + 1_000L;
+    private static final int DEFAULT_WATCH_BATCH_SIZE = 256;
+    private static final long DEFAULT_LEASE_TTL_MS = 30_000L;
 
-    private final ClientIdentity identity;
-
-    private final Serializer serializer = Serializer.defaultSerializer();
-    private final MultiBrokerServiceState serviceState = new MultiBrokerServiceState();
-    private final Map<Integer, ClientSession> sessions =
-            new ConcurrentHashMap<Integer, ClientSession>();
-    private volatile List<String> discoveryUrls = Collections.emptyList();
-    private volatile String subscriberName = "";
-    private volatile String accessToken = "";
-    private volatile ServiceChangeListener changeListener;
-    private volatile ServiceInstance registration;
-    private volatile boolean closed;
-    private ExecutorService operationExecutor;
+    private final SocketDTransport controlTransport;
+    private final long leaseTtlMs;
+    private volatile String namespace = "";
+    private volatile String group = "";
+    private volatile String serviceName = "";
 
     public SocketDDiscoveryTransport() {
-        this(ClientIdentity.defaultIdentity());
+        this(ClientIdentity.defaultIdentity(), ControlPlaneOptions.registryDefaults(),
+                DEFAULT_LEASE_TTL_MS);
     }
 
     public SocketDDiscoveryTransport(ClientIdentity identity) {
-        if (identity == null) throw new IllegalArgumentException("identity must not be null");
-        this.identity = identity;
+        this(identity, ControlPlaneOptions.registryDefaults(), DEFAULT_LEASE_TTL_MS);
+    }
+
+    public SocketDDiscoveryTransport(
+            ClientIdentity identity, ControlPlaneOptions options) {
+        this(identity, options, DEFAULT_LEASE_TTL_MS);
+    }
+
+    public SocketDDiscoveryTransport(
+            ClientIdentity identity,
+            ControlPlaneOptions options,
+            long leaseTtlMs) {
+        this(SocketDTransport.discovery(identity, options), leaseTtlMs);
+    }
+
+    SocketDDiscoveryTransport(SocketDTransport controlTransport, long leaseTtlMs) {
+        if (controlTransport == null) {
+            throw new IllegalArgumentException("controlTransport must not be null");
+        }
+        if (leaseTtlMs < 1_000L) {
+            throw new IllegalArgumentException("leaseTtlMs must be at least 1000");
+        }
+        this.controlTransport = controlTransport;
+        this.leaseTtlMs = leaseTtlMs;
     }
 
     @Override
@@ -75,74 +87,112 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
             String namespace,
             String group,
             String serviceName,
-            String accessToken,
-            ServiceChangeListener listener) {
-        if (serverAddresses == null || serverAddresses.isEmpty()) {
-            throw new IllegalArgumentException("serverAddresses must not be empty");
-        }
-        this.changeListener = listener;
-        this.accessToken = accessToken == null ? "" : accessToken;
-        this.subscriberName = "discovery:" + namespace + ":" + group + ":" + serviceName;
-        this.discoveryUrls = buildDiscoveryUrls(
-                serverAddresses, namespace, group, serviceName);
-        this.operationExecutor = newDaemonPool(
-                Math.min(16, Math.max(4, discoveryUrls.size() * 2)),
-                "xuantong-discovery-broker-operation");
-        openAllSessions();
-        if (availableSessions().isEmpty()) {
-            logger.warn("All discovery-v2 Brokers are unavailable; Socket.D will reconnect in background");
-        }
+            String accessToken) {
+        this.namespace = requireName("namespace", namespace);
+        this.group = requireName("group", group);
+        this.serviceName = requireName("serviceName", serviceName);
+        controlTransport.connect(
+                serverAddresses,
+                this.namespace,
+                this.group,
+                accessToken == null ? "" : accessToken);
     }
 
     @Override
     public ServiceSnapshot fetchInstances() {
-        List<BrokerResult<ServiceSnapshot>> results = executeAcross(
-                availableSessions(), new BrokerOperation<ServiceSnapshot>() {
-                    @Override
-                    public ServiceSnapshot execute(int brokerIndex, ClientSession session)
-                            throws Exception {
-                        return fetchBrokerSnapshot(session);
-                    }
-                }, REQUEST_TIMEOUT + 1_000L);
-        for (BrokerResult<ServiceSnapshot> result : results) {
-            if (result.error == null) {
-                serviceState.replaceBroker(
-                        brokerId(result.brokerIndex),
-                        result.value.getRevision(),
-                        result.value.getInstances());
-            } else {
-                logger.warn("Failed to fetch instances from discovery Broker {}",
-                        result.brokerIndex, result.error);
-            }
-        }
-        return serviceState.snapshot();
+        DiscoverySnapshotResponse snapshot = snapshot(List.of(serviceName), 0L);
+        List<ServiceInstance> instances = snapshot.getInstancesList().stream()
+                .map(value -> toClientInstance(value, true))
+                .toList();
+        return new ServiceSnapshot(
+                snapshot.getRegistryRevision(),
+                snapshot.getCompactionRevision(),
+                snapshot.getServerTimeEpochMs(),
+                instances);
     }
 
     @Override
     public List<String> fetchServices() {
-        List<BrokerResult<List<String>>> results = executeAcross(
-                availableSessions(), new BrokerOperation<List<String>>() {
-                    @Override
-                    public List<String> execute(int brokerIndex, ClientSession session)
-                            throws Exception {
-                        return fetchServicesFromSession(session);
-                    }
-                }, REQUEST_TIMEOUT + 1_000L);
-        Set<String> services = new TreeSet<String>();
-        int successes = 0;
-        for (BrokerResult<List<String>> result : results) {
-            if (result.error == null) {
-                services.addAll(result.value);
-                successes++;
-            } else {
-                logger.warn("Failed to fetch services from discovery Broker {}",
-                        result.brokerIndex, result.error);
+        DiscoverySnapshotResponse snapshot = snapshot(List.of(), 0L);
+        Set<String> services = new LinkedHashSet<>();
+        for (DiscoveryServiceInstance instance : snapshot.getInstancesList()) {
+            validateScope(instance.getInstance().getService(), false);
+            services.add(instance.getInstance().getService().getServiceName());
+        }
+        return services.stream().sorted().toList();
+    }
+
+    @Override
+    public ServiceWatchBatch watchBatch(long afterRegistryRevision, int maxBatchSize) {
+        try {
+            int batchSize = maxBatchSize <= 0 ? DEFAULT_WATCH_BATCH_SIZE : maxBatchSize;
+            DiscoveryWatchBatchRequest payload = DiscoveryWatchBatchRequest.newBuilder()
+                    .setAfterRegistryRevision(Math.max(0L, afterRegistryRevision))
+                    .setGroupName(group)
+                    .addServiceNames(serviceName)
+                    .setMaxBatchSize(batchSize)
+                    .build();
+            Envelope envelope = controlTransport.invokeControlPlane(
+                    "discovery/watch-batch",
+                    ControlPlaneProtocol.DISCOVERY_WATCH_BATCH,
+                    RevisionType.REGISTRY,
+                    Math.max(0L, afterRegistryRevision),
+                    Math.max(0L, afterRegistryRevision),
+                    "",
+                    ControlPlaneProtocol.DISCOVERY_WATCH_BATCH_REQUEST_TYPE,
+                    payload.toByteString(),
+                    ControlPlaneProtocol.DISCOVERY_WATCH_BATCH_RESPONSE_TYPE);
+            return decodeWatchBatch(envelope, afterRegistryRevision);
+        } catch (Exception e) {
+            throw translate("Discovery Watch-Batch failed", e);
+        }
+    }
+
+    @Override
+    public WatchSubscription subscribe(
+            long afterRegistryRevision,
+            WatchBatchHandler<ServiceWatchBatch> handler) {
+        return controlTransport.subscribeDiscovery(
+                group,
+                List.of(serviceName),
+                afterRegistryRevision,
+                handler,
+                this::decodeWatchBatch);
+    }
+
+    private ServiceWatchBatch decodeWatchBatch(
+            Envelope envelope, long expectedCursor) throws Exception {
+        controlTransport.requireOk(
+                envelope, ControlPlaneProtocol.DISCOVERY_WATCH_BATCH_RESPONSE_TYPE);
+        DiscoveryWatchBatchResponse response = DiscoveryWatchBatchResponse.parseFrom(
+                envelope.getPayload());
+        if (response.getRequestedAfterRevision() != expectedCursor
+                || response.getCoveredThroughRevision() < expectedCursor) {
+            throw new XuantongException("Discovery Watch cursor moved backwards");
+        }
+        List<ServiceInvalidation> events = new ArrayList<>();
+        long previous = expectedCursor;
+        for (DiscoveryChange event : response.getEventsList()) {
+            if (event.getRegistryRevision() <= previous
+                    || event.getRegistryRevision()
+                    > response.getCoveredThroughRevision()) {
+                throw new XuantongException(
+                        "Discovery Watch event revisions are not monotonic");
             }
+            validateCoordinate(event.getInstance(), true);
+            previous = event.getRegistryRevision();
+            events.add(new ServiceInvalidation(
+                    event.getRegistryRevision(),
+                    event.getEventType(),
+                    event.getInstance().getInstanceId(),
+                    event.hasValue() ? toClientInstance(event.getValue(), true) : null));
         }
-        if (successes == 0) {
-            throw new XuantongException("Discovery Brokers are unavailable");
-        }
-        return Collections.unmodifiableList(new ArrayList<String>(services));
+        return new ServiceWatchBatch(
+                response.getRequestedAfterRevision(),
+                response.getCoveredThroughRevision(),
+                response.getCompactionRevision(),
+                response.getResetRequired(),
+                events);
     }
 
     @Override
@@ -150,541 +200,304 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
         if (instance == null) {
             throw new IllegalArgumentException("instance must not be null");
         }
-        registration = copy(instance);
-        final ServiceInstance requested = copy(instance);
-        List<BrokerResult<ServiceInstance>> results = executeAcross(
-                availableSessions(), new BrokerOperation<ServiceInstance>() {
-                    @Override
-                    public ServiceInstance execute(int brokerIndex, ClientSession session)
-                            throws Exception {
-                        return registerOnSession(session, requested);
-                    }
-                }, REQUEST_TIMEOUT + 1_000L);
-        ServiceInstance representative = null;
-        int successes = 0;
-        for (BrokerResult<ServiceInstance> result : results) {
-            if (result.error == null && result.value != null) {
-                if (representative == null || isNewerLease(result.value, representative)) {
-                    representative = result.value;
-                }
-                successes++;
-            } else if (result.error != null) {
-                logger.warn("Registration failed on discovery Broker {}",
-                        result.brokerIndex, result.error);
-            }
+        String instanceId = requireText("instanceId", instance.getInstanceId());
+        DiscoveryRegisterRequest payload = DiscoveryRegisterRequest.newBuilder()
+                .setGroupName(group)
+                .setServiceName(serviceName)
+                .setInstanceId(instanceId)
+                .setIp(requireText("ip", instance.getIp()))
+                .setPort(requirePort(instance.getPort()))
+                .setWeight(instance.getWeight() == null ? 1D : instance.getWeight())
+                .setEnabled(instance.getEnabled() == null || instance.getEnabled())
+                .setMetadata(instance.getMetadata() == null ? "" : instance.getMetadata())
+                .setTtlMs(leaseTtlMs(instance))
+                .setExpectedServiceGeneration(
+                        instance.getServiceGeneration() == null
+                                ? 0L : instance.getServiceGeneration())
+                .build();
+        DiscoveryMutationResponse response = mutate(
+                "discovery/register",
+                ControlPlaneProtocol.DISCOVERY_REGISTER,
+                ControlPlaneProtocol.DISCOVERY_REGISTER_REQUEST_TYPE,
+                payload.toByteString(),
+                UUID.randomUUID().toString());
+        if (response.getInstancesCount() != 1) {
+            throw new XuantongException("Discovery register returned no lease");
         }
-        if (successes == 0 || representative == null) {
-            registration = null;
-            throw new XuantongException("No discovery Broker accepted the registration");
-        }
-        registration = mergeRegistration(requested, representative);
-        return copy(representative);
+        return toClientInstance(response.getInstances(0), true);
     }
 
     @Override
-    public ServiceInstance heartbeat(final String instanceId) {
-        final ServiceInstance currentRegistration = registration;
-        if (currentRegistration == null) {
-            throw new XuantongException("No local service registration exists");
+    public ServiceInstance heartbeat(ServiceInstance instance) {
+        DiscoveryLeaseReference lease = lease(instance);
+        long nextSequence = requiredNonNegative("renewSequence",
+                instance.getRenewSequence()) + 1;
+        DiscoveryRenewBatchRequest payload = DiscoveryRenewBatchRequest.newBuilder()
+                .addRenewals(DiscoveryLeaseRenewal.newBuilder()
+                        .setLease(lease)
+                        .setRenewSequence(nextSequence)
+                        .setTtlMs(leaseTtlMs(instance)))
+                .build();
+        DiscoveryMutationResponse response = mutate(
+                "discovery/renew-batch",
+                ControlPlaneProtocol.DISCOVERY_RENEW_BATCH,
+                ControlPlaneProtocol.DISCOVERY_RENEW_BATCH_REQUEST_TYPE,
+                payload.toByteString(),
+                UUID.randomUUID().toString());
+        if (response.getInstancesCount() != 1) {
+            throw new XuantongException("Discovery renew returned no lease");
         }
-        List<BrokerResult<ServiceInstance>> results = executeAcross(
-                availableSessions(), new BrokerOperation<ServiceInstance>() {
-                    @Override
-                    public ServiceInstance execute(int brokerIndex, ClientSession session)
-                            throws Exception {
-                        try {
-                            return heartbeatOnSession(
-                                    session, instanceId, currentRegistration.getLeaseId());
-                        } catch (Exception heartbeatError) {
-                            return registerOnSession(session, currentRegistration);
-                        }
-                    }
-                }, OPERATION_TIMEOUT);
-        ServiceInstance representative = null;
-        int successes = 0;
-        for (BrokerResult<ServiceInstance> result : results) {
-            if (result.error == null && result.value != null) {
-                if (representative == null || isNewerHeartbeat(result.value, representative)) {
-                    representative = result.value;
-                }
-                successes++;
-            } else if (result.error != null) {
-                logger.warn("Heartbeat and re-registration failed on discovery Broker {}",
-                        result.brokerIndex, result.error);
-            }
-        }
-        if (successes == 0 || representative == null) {
-            throw new XuantongException("No discovery Broker accepted the heartbeat");
-        }
-        registration = mergeRegistration(currentRegistration, representative);
-        return copy(representative);
+        return toClientInstance(response.getInstances(0), true);
     }
 
     @Override
-    public boolean deregister(final String instanceId) {
-        final ServiceInstance currentRegistration = registration;
-        registration = null;
-        if (currentRegistration == null) {
-            return false;
-        }
-        List<BrokerResult<Boolean>> results = executeAcross(
-                availableSessions(), new BrokerOperation<Boolean>() {
-                    @Override
-                    public Boolean execute(int brokerIndex, ClientSession session)
-                            throws Exception {
-                        return deregisterOnSession(
-                                session, instanceId, currentRegistration.getLeaseId());
-                    }
-                }, REQUEST_TIMEOUT + 1_000L);
-        for (BrokerResult<Boolean> result : results) {
-            if (result.error != null) {
-                logger.warn("Deregistration failed on discovery Broker {}",
-                        result.brokerIndex, result.error);
-            }
-        }
-        return true;
+    public boolean deregister(ServiceInstance instance) {
+        DiscoveryDeregisterRequest payload = DiscoveryDeregisterRequest.newBuilder()
+                .setLease(lease(instance))
+                .build();
+        DiscoveryMutationResponse response = mutate(
+                "discovery/deregister",
+                ControlPlaneProtocol.DISCOVERY_DEREGISTER,
+                ControlPlaneProtocol.DISCOVERY_DEREGISTER_REQUEST_TYPE,
+                payload.toByteString(),
+                UUID.randomUUID().toString());
+        return response.getRemovedInstancesList().stream()
+                .anyMatch(value -> instance.getInstanceId().equals(value.getInstanceId()));
     }
 
-    protected ServiceSnapshot fetchBrokerSnapshot(ClientSession session) throws Exception {
-        Entity response = SocketDRpcSupport.request(
-                session, "/get", new StringEntity("{}").at(subscriberName), REQUEST_TIMEOUT);
-        List<ServiceInstance> instances = serializer.deserializeToList(
-                response.dataAsString(), ServiceInstance.class);
-        return new ServiceSnapshot(parseRevision(response.meta("revision")), instances);
-    }
-
-    protected List<String> fetchServicesFromSession(ClientSession session) throws Exception {
-        Entity response = SocketDRpcSupport.request(
-                session, "/services", new StringEntity("{}").at(subscriberName), REQUEST_TIMEOUT);
-        ensureSuccess(response, "fetch services");
-        return serializer.deserializeToList(response.dataAsString(), String.class);
-    }
-
-    protected ServiceInstance registerOnSession(
-            ClientSession session, ServiceInstance instance) throws Exception {
-        Entity response = SocketDRpcSupport.request(
-                session, "/register",
-                new StringEntity(serializer.serialize(instance)).at(subscriberName),
-                REQUEST_TIMEOUT);
-        ensureSuccess(response, "register service instance");
-        return serializer.deserialize(response.dataAsString(), ServiceInstance.class);
-    }
-
-    protected ServiceInstance heartbeatOnSession(
-            ClientSession session, String instanceId, String leaseId) throws Exception {
-        Entity response = SocketDRpcSupport.request(session, "/heartbeat", new StringEntity("")
-                .at(subscriberName)
-                .metaPut("instanceId", instanceId)
-                .metaPut("leaseId", leaseId == null ? "" : leaseId),
-                REQUEST_TIMEOUT);
-        ensureSuccess(response, "heartbeat service instance");
-        return serializer.deserialize(response.dataAsString(), ServiceInstance.class);
-    }
-
-    protected boolean deregisterOnSession(
-            ClientSession session, String instanceId, String leaseId) throws Exception {
-        Entity response = SocketDRpcSupport.request(session, "/deregister", new StringEntity("")
-                .at(subscriberName)
-                .metaPut("instanceId", instanceId)
-                .metaPut("leaseId", leaseId == null ? "" : leaseId),
-                REQUEST_TIMEOUT);
-        return "true".equals(response.meta("success"));
-    }
-
-    protected ClientSession openSession(final int brokerIndex, String url) {
-        return SocketD.createClient(url)
-                .config(c -> {
-                    c.heartbeatInterval(HEARTBEAT_INTERVAL)
-                            .connectTimeout(CONNECTION_TIMEOUT)
-                            .requestTimeout(REQUEST_TIMEOUT)
-                            .autoReconnect(true);
-                    if (!accessToken.isEmpty()) {
-                        c.metaPut("token", accessToken);
-                    }
-                })
-                .listen(new EventListener()
-                        .doOn("/service-change", (session, message) ->
-                                handleBrokerEvent(brokerIndex, message.dataAsString()))
-                        .doOnOpen(session -> handleOpened(brokerIndex, session))
-                        .doOnClose(session -> handleClosed(brokerIndex, session))
-                        .doOnError((session, error) -> logger.warn(
-                                "discovery-v2 Broker {} connection error", brokerIndex, error)))
-                .open();
-    }
-
-    int activeSessionCount() {
-        return availableSessions().size();
-    }
-
-    private void openAllSessions() {
-        ExecutorService connectorExecutor = newDaemonPool(
-                Math.max(1, discoveryUrls.size()), "xuantong-discovery-broker-connect");
-        List<Callable<OpenedSession>> tasks = new ArrayList<>();
-        for (int index = 0; index < discoveryUrls.size(); index++) {
-            final int brokerIndex = index;
-            tasks.add(new Callable<OpenedSession>() {
-                @Override
-                public OpenedSession call() {
-                    try {
-                        return new OpenedSession(brokerIndex,
-                                openSession(brokerIndex, discoveryUrls.get(brokerIndex)), null);
-                    } catch (Exception e) {
-                        return new OpenedSession(brokerIndex, null, e);
-                    }
-                }
-            });
-        }
+    private DiscoverySnapshotResponse snapshot(
+            List<String> services, long minRevision) {
         try {
-            List<Future<OpenedSession>> futures = connectorExecutor.invokeAll(
-                    tasks, CONNECTION_TIMEOUT + 2_000L, TimeUnit.MILLISECONDS);
-            for (Future<OpenedSession> future : futures) {
-                if (future.isCancelled()) {
-                    continue;
-                }
-                OpenedSession opened = future.get();
-                if (opened.session != null) {
-                    sessions.putIfAbsent(opened.brokerIndex, opened.session);
-                } else if (opened.error != null) {
-                    logger.warn("Failed to create discovery-v2 Broker {} session",
-                            opened.brokerIndex, opened.error);
-                }
+            DiscoverySnapshotRequest payload = DiscoverySnapshotRequest.newBuilder()
+                    .setGroupName(group)
+                    .addAllServiceNames(services)
+                    .build();
+            Envelope response = controlTransport.invokeControlPlane(
+                    "discovery/snapshot",
+                    ControlPlaneProtocol.DISCOVERY_SNAPSHOT,
+                    RevisionType.REGISTRY,
+                    0L,
+                    Math.max(0L, minRevision),
+                    "",
+                    ControlPlaneProtocol.DISCOVERY_SNAPSHOT_REQUEST_TYPE,
+                    payload.toByteString(),
+                    ControlPlaneProtocol.DISCOVERY_SNAPSHOT_RESPONSE_TYPE);
+            DiscoverySnapshotResponse snapshot = DiscoverySnapshotResponse.parseFrom(
+                    response.getPayload());
+            if (snapshot.getRegistryRevision() < minRevision) {
+                throw new XuantongException("Discovery Registry revision moved backwards");
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            return snapshot;
         } catch (Exception e) {
-            logger.warn("Failed to initialize discovery-v2 Broker sessions", e);
-        } finally {
-            connectorExecutor.shutdownNow();
+            throw translate("Discovery snapshot failed", e);
         }
     }
 
-    private void handleOpened(final int brokerIndex, final ClientSession session) {
-        if (closed) {
-            closeQuietly(session);
-            return;
-        }
-        sessions.put(brokerIndex, session);
-        logger.info("Connected to discovery-v2 Broker {}: {}",
-                brokerIndex, session.sessionId());
-        if (operationExecutor != null) {
-            operationExecutor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    recoverBroker(brokerIndex, session);
-                }
-            });
-        }
-    }
-
-    private void recoverBroker(int brokerIndex, ClientSession session) {
-        if (closed || !isAvailable(session)) {
-            return;
-        }
+    private DiscoveryMutationResponse mutate(
+            String operation,
+            String event,
+            String requestType,
+            com.google.protobuf.ByteString payload,
+            String operationId) {
         try {
-            ServiceInstance currentRegistration = registration;
-            if (currentRegistration != null) {
-                registerOnSession(session, currentRegistration);
+            Envelope response = controlTransport.invokeControlPlane(
+                    operation,
+                    event,
+                    RevisionType.REGISTRY,
+                    0L,
+                    0L,
+                    operationId,
+                    requestType,
+                    payload,
+                    ControlPlaneProtocol.DISCOVERY_MUTATION_RESPONSE_TYPE);
+            return DiscoveryMutationResponse.parseFrom(response.getPayload());
+        } catch (SocketDTransport.ControlPlaneStatusException e) {
+            throw translateLeaseStatus(operation, e);
+        } catch (Exception original) {
+            DiscoveryMutationResponse resolved = resolve(operationId);
+            if (resolved != null) {
+                return resolved;
             }
-            ServiceSnapshot snapshot = fetchBrokerSnapshot(session);
-            notifyUpdate(serviceState.replaceBroker(
-                    brokerId(brokerIndex), snapshot.getRevision(), snapshot.getInstances()));
-        } catch (Exception e) {
-            logger.warn("Failed to recover discovery Broker {} state", brokerIndex, e);
+            throw translate(operation + " failed", original);
         }
     }
 
-    private void handleBrokerEvent(int brokerIndex, String eventJson) {
+    private DiscoveryMutationResponse resolve(String operationId) {
         try {
-            ControlPlaneEvent event = serializer.deserialize(eventJson, ControlPlaneEvent.class);
-            if (event == null || event.getPayload() == null) {
-                return;
+            DiscoveryResolveOperationRequest payload =
+                    DiscoveryResolveOperationRequest.newBuilder()
+                            .setOperationId(operationId)
+                            .build();
+            Envelope response = controlTransport.invokeControlPlane(
+                    "discovery/resolve-operation",
+                    ControlPlaneProtocol.DISCOVERY_RESOLVE_OPERATION,
+                    RevisionType.REGISTRY,
+                    0L,
+                    0L,
+                    "",
+                    ControlPlaneProtocol.DISCOVERY_RESOLVE_OPERATION_REQUEST_TYPE,
+                    payload.toByteString(),
+                    ControlPlaneProtocol.DISCOVERY_RESOLVE_OPERATION_RESPONSE_TYPE);
+            DiscoveryResolveOperationResponse resolved =
+                    DiscoveryResolveOperationResponse.parseFrom(response.getPayload());
+            if (!resolved.getFound()) {
+                return null;
             }
-            ServiceInstance instance = serializer.toBean(event.getPayload(), ServiceInstance.class);
-            MultiBrokerServiceState.Update update = serviceState.applyEvent(
-                    brokerId(brokerIndex),
-                    event.getEventType(),
-                    event.getRevision() == null ? 0L : event.getRevision(),
-                    instance);
-            notifyUpdate(update);
+            if (resolved.getApplied() && resolved.hasResult()) {
+                return resolved.getResult();
+            }
+            throw new XuantongException("Discovery operation was rejected: "
+                    + resolved.getErrorCode() + ": " + resolved.getErrorMessage());
+        } catch (XuantongException e) {
+            throw e;
         } catch (Exception e) {
-            logger.warn("Failed to process discovery event from Broker {}", brokerIndex, e);
-        }
-    }
-
-    private void notifyUpdate(MultiBrokerServiceState.Update update) {
-        ServiceChangeListener listener = changeListener;
-        if (update != null && listener != null) {
-            listener.onChanged(update.eventType(), update.instance(), update.snapshot());
-        }
-    }
-
-    private void handleClosed(int brokerIndex, ClientSession session) {
-        logger.info("Disconnected from discovery-v2 Broker {}: {}; Socket.D will reconnect",
-                brokerIndex, session.sessionId());
-        MultiBrokerServiceState.Update update = serviceState.removeBroker(brokerId(brokerIndex));
-        if (!closed) {
-            notifyUpdate(update);
-        }
-    }
-
-    private <T> List<BrokerResult<T>> executeAcross(
-            List<Map.Entry<Integer, ClientSession>> available,
-            final BrokerOperation<T> operation,
-            long timeoutMs) {
-        if (available.isEmpty() || operationExecutor == null || closed) {
-            return Collections.emptyList();
-        }
-        CompletionService<BrokerResult<T>> completion =
-                new ExecutorCompletionService<BrokerResult<T>>(operationExecutor);
-        List<Future<BrokerResult<T>>> futures =
-                new ArrayList<Future<BrokerResult<T>>>();
-        for (final Map.Entry<Integer, ClientSession> entry : available) {
-            futures.add(completion.submit(new Callable<BrokerResult<T>>() {
-                @Override
-                public BrokerResult<T> call() {
-                    try {
-                        return BrokerResult.success(entry.getKey(),
-                                operation.execute(entry.getKey(), entry.getValue()));
-                    } catch (Exception e) {
-                        return BrokerResult.failure(entry.getKey(), e);
-                    }
-                }
-            }));
-        }
-
-        List<BrokerResult<T>> results = new ArrayList<BrokerResult<T>>();
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
-        try {
-            for (int completed = 0; completed < futures.size(); completed++) {
-                long remaining = deadline - System.nanoTime();
-                if (remaining <= 0L) {
-                    break;
-                }
-                Future<BrokerResult<T>> future = completion.poll(
-                        remaining, TimeUnit.NANOSECONDS);
-                if (future == null) {
-                    break;
-                }
-                results.add(future.get());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            logger.warn("Parallel discovery Broker operation failed", e);
-        } finally {
-            cancelAll(futures);
-        }
-        return results;
-    }
-
-    private List<Map.Entry<Integer, ClientSession>> availableSessions() {
-        List<Map.Entry<Integer, ClientSession>> result =
-                new ArrayList<Map.Entry<Integer, ClientSession>>();
-        for (Map.Entry<Integer, ClientSession> entry : sessions.entrySet()) {
-            if (isAvailable(entry.getValue())) {
-                result.add(entry);
-            }
-        }
-        return result;
-    }
-
-    private boolean isAvailable(ClientSession session) {
-        return session != null && session.isActive() && !session.isClosing();
-    }
-
-    private List<String> buildDiscoveryUrls(
-            List<String> addresses,
-            String namespace,
-            String group,
-            String serviceName) {
-        String subscriber = "discovery:" + namespace + ":" + group + ":" + serviceName;
-        String params = "@=" + encode(subscriber)
-                + "&namespace=" + encode(namespace)
-                + "&group=" + encode(group)
-                + "&serviceName=" + encode(serviceName)
-                + "&clientInstanceId=" + encode(identity.getClientInstanceId())
-                + "&applicationName=" + encode(identity.getApplicationName())
-                + "&clientVersion=" + encode(ClientIdentity.CLIENT_VERSION);
-        Set<String> unique = new LinkedHashSet<>();
-        for (String rawAddress : addresses) {
-            if (rawAddress == null || rawAddress.trim().isEmpty()) {
-                continue;
-            }
-            String address = rawAddress.trim();
-            address = address.startsWith("sd:") ? address : "sd:ws://" + address;
-            if (!address.contains("/discovery-v2")) {
-                address += "/discovery-v2";
-            }
-            unique.add(address + (address.contains("?") ? "&" : "?") + params);
-        }
-        if (unique.isEmpty()) {
-            throw new IllegalArgumentException("serverAddresses must not be blank");
-        }
-        return new ArrayList<String>(unique);
-    }
-
-    private void ensureSuccess(Entity response, String operation) {
-        if (!"true".equals(response.meta("success"))) {
-            throw new XuantongException(
-                    "Failed to " + operation + ": " + response.meta("error"));
-        }
-    }
-
-    private boolean isNewerLease(ServiceInstance candidate, ServiceInstance current) {
-        return value(candidate.getLeaseStartedAt()) > value(current.getLeaseStartedAt());
-    }
-
-    private boolean isNewerHeartbeat(ServiceInstance candidate, ServiceInstance current) {
-        return value(candidate.getLastHeartbeatAt()) > value(current.getLastHeartbeatAt());
-    }
-
-    private ServiceInstance mergeRegistration(
-            ServiceInstance registration, ServiceInstance response) {
-        ServiceInstance merged = copy(registration);
-        merged.setNamespaceId(response.getNamespaceId());
-        merged.setGroupName(response.getGroupName());
-        merged.setServiceName(response.getServiceName());
-        merged.setLeaseStartedAt(response.getLeaseStartedAt());
-        merged.setHealthy(response.getHealthy());
-        merged.setEnabled(response.getEnabled());
-        merged.setLastHeartbeatAt(response.getLastHeartbeatAt());
-        return merged;
-    }
-
-    private ServiceInstance copy(ServiceInstance source) {
-        if (source == null) {
             return null;
         }
+    }
+
+    private DiscoveryLeaseReference lease(ServiceInstance instance) {
+        if (instance == null) {
+            throw new IllegalArgumentException("instance must not be null");
+        }
+        return DiscoveryLeaseReference.newBuilder()
+                .setInstance(ServiceInstanceCoordinate.newBuilder()
+                        .setService(ServiceCoordinate.newBuilder()
+                                .setNamespaceId(namespace)
+                                .setGroupName(group)
+                                .setServiceName(serviceName))
+                        .setInstanceId(requireText("instanceId", instance.getInstanceId())))
+                .setLeaseId(requireText("leaseId", instance.getLeaseId()))
+                .setLeaseEpoch(requiredPositive("leaseEpoch", instance.getLeaseEpoch()))
+                .setRecoveryEpoch(requiredPositive(
+                        "recoveryEpoch", instance.getRecoveryEpoch()))
+                .build();
+    }
+
+    private ServiceInstance toClientInstance(
+            DiscoveryServiceInstance source, boolean requireService) {
+        if (!source.hasInstance()) {
+            throw new XuantongException("Discovery instance coordinate is missing");
+        }
+        validateCoordinate(source.getInstance(), requireService);
+        ServiceCoordinate service = source.getInstance().getService();
         ServiceInstance target = new ServiceInstance();
-        target.setNamespaceId(source.getNamespaceId());
-        target.setGroupName(source.getGroupName());
-        target.setServiceName(source.getServiceName());
-        target.setInstanceId(source.getInstanceId());
+        target.setNamespaceId(service.getNamespaceId());
+        target.setGroupName(service.getGroupName());
+        target.setServiceName(service.getServiceName());
+        target.setInstanceId(source.getInstance().getInstanceId());
+        target.setServiceGeneration(source.getServiceGeneration());
         target.setLeaseId(source.getLeaseId());
-        target.setLeaseStartedAt(source.getLeaseStartedAt());
+        target.setLeaseEpoch(source.getLeaseEpoch());
+        target.setRecoveryEpoch(source.getRecoveryEpoch());
+        target.setRenewSequence(source.getRenewSequence());
+        target.setLeaseStartedAt(source.getRegisteredAtEpochMs());
+        target.setExpiresAt(source.getExpiresAtEpochMs());
         target.setIp(source.getIp());
         target.setPort(source.getPort());
         target.setWeight(source.getWeight());
-        target.setHealthy(source.getHealthy());
+        target.setHealthy(true);
         target.setEnabled(source.getEnabled());
         target.setMetadata(source.getMetadata());
-        target.setOwnerNodeId(source.getOwnerNodeId());
-        target.setRegisteredAt(source.getRegisteredAt());
-        target.setLastHeartbeatAt(source.getLastHeartbeatAt());
+        target.setOwnerNodeId(source.getOwnerClientInstanceId());
+        target.setRegisteredAt(source.getRegisteredAtEpochMs());
+        target.setLastHeartbeatAt(source.getLastRenewedAtEpochMs());
         return target;
     }
 
-    private String brokerId(int index) {
-        return "broker-" + index;
+    private void validateCoordinate(
+            ServiceInstanceCoordinate coordinate, boolean requireService) {
+        if (!coordinate.hasService()) {
+            throw new XuantongException("Discovery service coordinate is missing");
+        }
+        validateScope(coordinate.getService(), requireService);
+        requireText("instanceId", coordinate.getInstanceId());
     }
 
-    private long parseRevision(String value) {
-        try {
-            return Long.parseLong(value);
-        } catch (Exception e) {
-            return 0L;
+    private void validateScope(ServiceCoordinate coordinate, boolean requireService) {
+        if (!namespace.equals(coordinate.getNamespaceId())
+                || !group.equals(coordinate.getGroupName())
+                || (requireService && !serviceName.equals(coordinate.getServiceName()))) {
+            throw new XuantongException(
+                    "Discovery response coordinate is outside the request scope");
         }
     }
 
-    private long value(Long value) {
-        return value == null ? 0L : value.longValue();
+    private RuntimeException translateLeaseStatus(
+            String operation, SocketDTransport.ControlPlaneStatusException error) {
+        if (error.code() == ResponseCode.LEASE_EXPIRED) {
+            return new DiscoveryLeaseException(
+                    DiscoveryLeaseException.Reason.EXPIRED,
+                    operation + " failed because the lease expired",
+                    error);
+        }
+        if (error.code() == ResponseCode.LEASE_FENCED) {
+            return new DiscoveryLeaseException(
+                    DiscoveryLeaseException.Reason.FENCED,
+                    operation + " failed because the lease was fenced",
+                    error);
+        }
+        if (error.code() == ResponseCode.SERVICE_FENCED) {
+            return new DiscoveryLeaseException(
+                    DiscoveryLeaseException.Reason.SERVICE_FENCED,
+                    operation + " failed because the service definition generation was fenced",
+                    error);
+        }
+        return new XuantongException(operation + " failed: " + error.getMessage(), error);
     }
 
-    private String encode(String value) {
-        try {
-            return URLEncoder.encode(value, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            throw new IllegalStateException("UTF-8 unavailable", e);
+    private RuntimeException translate(String message, Exception error) {
+        if (error instanceof RuntimeException runtime) {
+            return runtime;
         }
+        return new XuantongException(message + ": " + error.getMessage(), error);
     }
 
-    private ExecutorService newDaemonPool(int size, final String threadName) {
-        return Executors.newFixedThreadPool(size, runnable -> {
-            Thread thread = new Thread(runnable, threadName);
-            thread.setDaemon(true);
-            return thread;
-        });
+    private long leaseTtlMs(ServiceInstance instance) {
+        return leaseTtlMs;
     }
 
-    private void cancelAll(List<? extends Future<?>> futures) {
-        for (Future<?> future : futures) {
-            if (!future.isDone()) {
-                future.cancel(true);
-            }
+    private long requiredPositive(String field, Long value) {
+        if (value == null || value < 1) {
+            throw new IllegalArgumentException(field + " is invalid");
         }
+        return value;
     }
 
-    private void precloseQuietly(ClientSession session) {
-        if (session == null) {
-            return;
+    private long requiredNonNegative(String field, Long value) {
+        if (value == null || value < 0) {
+            throw new IllegalArgumentException(field + " is invalid");
         }
-        try {
-            if (session.isActive() && !session.isClosing()) {
-                session.preclose();
-            }
-        } catch (Exception ignored) {
-        }
+        return value;
     }
 
-    private void closeQuietly(ClientSession session) {
-        if (session == null) {
-            return;
+    private int requirePort(Integer port) {
+        if (port == null || port < 1 || port > 65535) {
+            throw new IllegalArgumentException("port must be between 1 and 65535");
         }
-        try {
-            session.close();
-        } catch (Exception ignored) {
+        return port;
+    }
+
+    private String requireName(String field, String value) {
+        if (value == null || !value.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")) {
+            throw new IllegalArgumentException(field + " is invalid: " + value);
         }
+        return value;
+    }
+
+    private String requireText(String field, String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+        return value.trim();
+    }
+
+    @Override
+    public void setOnReconnect(Runnable listener) {
+        controlTransport.setOnReconnect(listener);
     }
 
     @Override
     public void close() {
-        closed = true;
-        registration = null;
-        for (ClientSession session : sessions.values()) {
-            precloseQuietly(session);
-        }
-        for (ClientSession session : sessions.values()) {
-            closeQuietly(session);
-        }
-        sessions.clear();
-        if (operationExecutor != null) {
-            operationExecutor.shutdownNow();
-        }
-    }
-
-    private interface BrokerOperation<T> {
-        T execute(int brokerIndex, ClientSession session) throws Exception;
-    }
-
-    private static class BrokerResult<T> {
-        private final int brokerIndex;
-        private final T value;
-        private final Exception error;
-
-        private BrokerResult(int brokerIndex, T value, Exception error) {
-            this.brokerIndex = brokerIndex;
-            this.value = value;
-            this.error = error;
-        }
-
-        private static <T> BrokerResult<T> success(int brokerIndex, T value) {
-            return new BrokerResult<T>(brokerIndex, value, null);
-        }
-
-        private static <T> BrokerResult<T> failure(int brokerIndex, Exception error) {
-            return new BrokerResult<T>(brokerIndex, null, error);
-        }
-    }
-
-    private static class OpenedSession {
-        private final int brokerIndex;
-        private final ClientSession session;
-        private final Exception error;
-
-        private OpenedSession(int brokerIndex, ClientSession session, Exception error) {
-            this.brokerIndex = brokerIndex;
-            this.session = session;
-            this.error = error;
-        }
+        controlTransport.close();
     }
 }

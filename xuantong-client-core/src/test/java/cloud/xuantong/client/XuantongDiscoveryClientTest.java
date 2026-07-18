@@ -5,6 +5,8 @@ import cloud.xuantong.client.discovery.ServiceInstanceSelector;
 import cloud.xuantong.client.model.ServiceChangeEvent;
 import cloud.xuantong.client.model.ServiceInstance;
 import cloud.xuantong.client.model.ServiceSnapshot;
+import cloud.xuantong.client.model.ServiceInvalidation;
+import cloud.xuantong.client.model.ServiceWatchBatch;
 import cloud.xuantong.client.transport.DiscoveryTransport;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class XuantongDiscoveryClientTest {
     @Test
-    void maintainsMergedInstancesAndClientOwnedLease() {
+    void maintainsAuthoritativeViewAndServerOwnedLease() throws Exception {
         FakeDiscoveryTransport transport = new FakeDiscoveryTransport();
         XuantongDiscoveryClient client = new XuantongDiscoveryClient(
                 Collections.singletonList("127.0.0.1:8088"),
@@ -37,7 +39,11 @@ class XuantongDiscoveryClientTest {
             assertEquals("local-node", registered.getInstanceId());
             assertNotNull(registered.getLeaseId());
             assertNotNull(registered.getLeaseStartedAt());
-            assertEquals(registered.getLeaseId(), transport.registration.getLeaseId());
+            assertEquals("server-lease-local-node", registered.getLeaseId());
+            assertEquals(7L, registered.getServiceGeneration());
+            assertEquals(null, transport.lastRegisterGeneration,
+                    "Initial registration must bind to the active service generation");
+            assertEquals(1L, registered.getLeaseEpoch());
             assertEquals(2, client.getInstances().size());
             assertThrows(IllegalStateException.class, () -> client.register(local));
 
@@ -45,12 +51,14 @@ class XuantongDiscoveryClientTest {
             client.addListener(received::set);
             transport.emit("INSTANCE_REGISTERED", 2L,
                     instance("remote-node", "10.0.0.3", 8082, 1D));
+            awaitRevision(client, 2L);
             assertNotNull(received.get());
             assertEquals(2L, client.getRevision());
             assertEquals(3, client.getInstances().size());
 
             transport.emit("INSTANCE_EXPIRED", 3L,
                     instance("remote-node", "10.0.0.3", 8082, 1D));
+            awaitRevision(client, 3L);
             assertEquals(3L, client.getRevision());
             assertEquals(2, client.getInstances().size());
 
@@ -103,7 +111,12 @@ class XuantongDiscoveryClientTest {
                 source.getInstanceId(), source.getIp(), source.getPort(),
                 source.getWeight() == null ? 1D : source.getWeight());
         target.setLeaseId(source.getLeaseId());
+        target.setServiceGeneration(source.getServiceGeneration());
         target.setLeaseStartedAt(source.getLeaseStartedAt());
+        target.setLeaseEpoch(source.getLeaseEpoch());
+        target.setRecoveryEpoch(source.getRecoveryEpoch());
+        target.setRenewSequence(source.getRenewSequence());
+        target.setExpiresAt(source.getExpiresAt());
         target.setLastHeartbeatAt(source.getLastHeartbeatAt());
         target.setMetadata(source.getMetadata());
         target.setHealthy(source.getHealthy());
@@ -113,9 +126,10 @@ class XuantongDiscoveryClientTest {
 
     private static class FakeDiscoveryTransport implements DiscoveryTransport {
         private final List<ServiceInstance> instances = new ArrayList<ServiceInstance>();
-        private ServiceChangeListener listener;
         private ServiceInstance registration;
         private boolean heartbeatCalled;
+        private Long lastRegisterGeneration;
+        private volatile ServiceWatchBatch pendingBatch;
 
         private FakeDiscoveryTransport() {
             instances.add(instance("seed-node", "10.0.0.1", 8080, 1D));
@@ -123,8 +137,7 @@ class XuantongDiscoveryClientTest {
 
         @Override
         public void connect(List<String> serverAddresses, String namespace, String group,
-                            String serviceName, String accessToken, ServiceChangeListener listener) {
-            this.listener = listener;
+                            String serviceName, String accessToken) {
         }
 
         @Override
@@ -138,21 +151,41 @@ class XuantongDiscoveryClientTest {
         }
 
         @Override
-        public ServiceInstance register(ServiceInstance instance) {
-            registration = copy(instance);
-            if (registration.getLeaseStartedAt() == null) {
-                registration.setLeaseStartedAt(System.currentTimeMillis());
+        public ServiceWatchBatch watchBatch(long afterRegistryRevision, int maxBatchSize) {
+            ServiceWatchBatch batch = pendingBatch;
+            if (batch != null && batch.requestedAfterRevision() == afterRegistryRevision) {
+                pendingBatch = null;
+                return batch;
             }
+            return new ServiceWatchBatch(
+                    afterRegistryRevision,
+                    afterRegistryRevision,
+                    0L,
+                    false,
+                    List.of());
+        }
+
+        @Override
+        public ServiceInstance register(ServiceInstance instance) {
+            lastRegisterGeneration = instance.getServiceGeneration();
+            registration = copy(instance);
+            registration.setServiceGeneration(7L);
+            registration.setLeaseId("server-lease-" + registration.getInstanceId());
+            registration.setLeaseEpoch(1L);
+            registration.setRecoveryEpoch(1L);
+            registration.setRenewSequence(0L);
+            registration.setLeaseStartedAt(System.currentTimeMillis());
             registration.setLastHeartbeatAt(System.currentTimeMillis());
             instances.add(copy(registration));
             return copy(registration);
         }
 
         @Override
-        public ServiceInstance heartbeat(String instanceId) {
+        public ServiceInstance heartbeat(ServiceInstance lease) {
             heartbeatCalled = true;
             for (ServiceInstance item : instances) {
-                if (instanceId.equals(item.getInstanceId())) {
+                if (lease.getInstanceId().equals(item.getInstanceId())) {
+                    item.setRenewSequence(item.getRenewSequence() + 1);
                     item.setLastHeartbeatAt(System.currentTimeMillis());
                     return copy(item);
                 }
@@ -161,8 +194,12 @@ class XuantongDiscoveryClientTest {
         }
 
         @Override
-        public boolean deregister(String instanceId) {
-            return instances.removeIf(item -> instanceId.equals(item.getInstanceId()));
+        public boolean deregister(ServiceInstance lease) {
+            return instances.removeIf(item -> lease.getInstanceId().equals(item.getInstanceId()));
+        }
+
+        @Override
+        public void setOnReconnect(Runnable listener) {
         }
 
         @Override
@@ -175,8 +212,18 @@ class XuantongDiscoveryClientTest {
                     && !"INSTANCE_EXPIRED".equals(eventType)) {
                 instances.add(copy(changed));
             }
-            listener.onChanged(eventType, copy(changed),
-                    new ServiceSnapshot(revision, copies()));
+            pendingBatch = new ServiceWatchBatch(
+                    revision - 1,
+                    revision,
+                    0L,
+                    false,
+                    List.of(new ServiceInvalidation(
+                            revision,
+                            eventType,
+                            changed.getInstanceId(),
+                            "INSTANCE_DEREGISTERED".equals(eventType)
+                                    || "INSTANCE_EXPIRED".equals(eventType)
+                                    ? null : copy(changed))));
         }
 
         private List<ServiceInstance> copies() {
@@ -184,5 +231,14 @@ class XuantongDiscoveryClientTest {
             for (ServiceInstance instance : instances) result.add(copy(instance));
             return result;
         }
+    }
+
+    private static void awaitRevision(XuantongDiscoveryClient client, long revision)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
+        while (client.getRevision() < revision && System.nanoTime() < deadline) {
+            Thread.sleep(20L);
+        }
+        assertEquals(revision, client.getRevision());
     }
 }

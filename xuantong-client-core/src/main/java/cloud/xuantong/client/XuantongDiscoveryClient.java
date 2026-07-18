@@ -2,12 +2,17 @@ package cloud.xuantong.client;
 
 import cloud.xuantong.client.discovery.LoadBalanceStrategy;
 import cloud.xuantong.client.discovery.ServiceInstanceSelector;
+import cloud.xuantong.client.exception.DiscoveryLeaseException;
 import cloud.xuantong.client.exception.XuantongException;
 import cloud.xuantong.client.listener.ServiceListener;
 import cloud.xuantong.client.model.ServiceChangeEvent;
 import cloud.xuantong.client.model.ServiceInstance;
+import cloud.xuantong.client.model.ServiceInvalidation;
 import cloud.xuantong.client.model.ServiceSnapshot;
+import cloud.xuantong.client.model.ServiceWatchBatch;
 import cloud.xuantong.client.transport.DiscoveryTransport;
+import cloud.xuantong.client.transport.WatchBatchHandler;
+import cloud.xuantong.client.transport.WatchSubscription;
 import cloud.xuantong.client.transport.impl.SocketDDiscoveryTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,10 +28,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+/** Registry-State-backed Discovery Agent for one service subscription. */
 public class XuantongDiscoveryClient implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(XuantongDiscoveryClient.class);
     private static final long DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000L;
+    private static final long WATCH_INTERVAL_MS = 500L;
     private static final long RECONCILE_INTERVAL_MS = 30_000L;
+    private static final int WATCH_BATCH_SIZE = 256;
 
     private final String namespace;
     private final String group;
@@ -35,11 +43,14 @@ public class XuantongDiscoveryClient implements AutoCloseable {
     private final ServiceInstanceSelector selector = new ServiceInstanceSelector();
     private final Map<String, ServiceInstance> instances = new ConcurrentHashMap<>();
     private final List<ServiceListener> listeners = new CopyOnWriteArrayList<>();
-    private final ScheduledExecutorService heartbeatExecutor;
+    private final ScheduledExecutorService agentExecutor;
     private volatile long revision;
     private volatile ServiceInstance localRegistration;
     private volatile ServiceInstance localInstance;
+    private volatile boolean leaseFenced;
     private volatile boolean closed;
+    private volatile WatchSubscription watchSubscription;
+    private volatile boolean streamingWatch;
 
     public XuantongDiscoveryClient(
             List<String> serverAddresses, String namespace, String group, String serviceName) {
@@ -53,7 +64,11 @@ public class XuantongDiscoveryClient implements AutoCloseable {
             String serviceName,
             String accessToken) {
         this(serverAddresses, namespace, group, serviceName, accessToken,
-                DEFAULT_HEARTBEAT_INTERVAL_MS, new SocketDDiscoveryTransport());
+                DEFAULT_HEARTBEAT_INTERVAL_MS,
+                discoveryTransport(
+                        ClientIdentity.defaultIdentity(),
+                        ControlPlaneOptions.registryDefaults(),
+                        DEFAULT_HEARTBEAT_INTERVAL_MS));
     }
 
     public XuantongDiscoveryClient(
@@ -64,7 +79,11 @@ public class XuantongDiscoveryClient implements AutoCloseable {
             String accessToken,
             long heartbeatIntervalMs) {
         this(serverAddresses, namespace, group, serviceName, accessToken,
-                heartbeatIntervalMs, new SocketDDiscoveryTransport());
+                heartbeatIntervalMs,
+                discoveryTransport(
+                        ClientIdentity.defaultIdentity(),
+                        ControlPlaneOptions.registryDefaults(),
+                        heartbeatIntervalMs));
     }
 
     public XuantongDiscoveryClient(
@@ -76,7 +95,25 @@ public class XuantongDiscoveryClient implements AutoCloseable {
             long heartbeatIntervalMs,
             ClientIdentity identity) {
         this(serverAddresses, namespace, group, serviceName, accessToken,
-                heartbeatIntervalMs, new SocketDDiscoveryTransport(identity));
+                heartbeatIntervalMs,
+                discoveryTransport(
+                        identity,
+                        ControlPlaneOptions.registryDefaults(),
+                        heartbeatIntervalMs));
+    }
+
+    public XuantongDiscoveryClient(
+            List<String> serverAddresses,
+            String namespace,
+            String group,
+            String serviceName,
+            String accessToken,
+            long heartbeatIntervalMs,
+            ClientIdentity identity,
+            ControlPlaneOptions options) {
+        this(serverAddresses, namespace, group, serviceName, accessToken,
+                heartbeatIntervalMs,
+                discoveryTransport(identity, options, heartbeatIntervalMs));
     }
 
     XuantongDiscoveryClient(
@@ -104,28 +141,42 @@ public class XuantongDiscoveryClient implements AutoCloseable {
         if (heartbeatIntervalMs <= 0L) {
             throw new IllegalArgumentException("heartbeatIntervalMs must be positive");
         }
+        if (transport == null) {
+            throw new IllegalArgumentException("transport must not be null");
+        }
         this.transport = transport;
-        this.heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread thread = new Thread(r, "xuantong-v2-instance-heartbeat");
+        this.agentExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "xuantong-discovery-agent");
             thread.setDaemon(true);
             return thread;
         });
         try {
-            transport.connect(serverAddresses, this.namespace, this.group, this.serviceName,
-                    accessToken == null ? "" : accessToken, this::handleServiceChange);
+            transport.connect(
+                    serverAddresses,
+                    this.namespace,
+                    this.group,
+                    this.serviceName,
+                    accessToken == null ? "" : accessToken);
+            transport.setOnReconnect(this::reconcileAfterReconnect);
             refreshFromServer();
-            heartbeatExecutor.scheduleAtFixedRate(
+            startWatchSubscription();
+            agentExecutor.scheduleWithFixedDelay(
+                    this::watchSafely,
+                    WATCH_INTERVAL_MS,
+                    WATCH_INTERVAL_MS,
+                    TimeUnit.MILLISECONDS);
+            agentExecutor.scheduleAtFixedRate(
                     this::heartbeatSafely,
                     heartbeatIntervalMs,
                     heartbeatIntervalMs,
                     TimeUnit.MILLISECONDS);
-            heartbeatExecutor.scheduleWithFixedDelay(
+            agentExecutor.scheduleWithFixedDelay(
                     this::refreshSafely,
                     RECONCILE_INTERVAL_MS,
                     RECONCILE_INTERVAL_MS,
                     TimeUnit.MILLISECONDS);
         } catch (RuntimeException e) {
-            heartbeatExecutor.shutdownNow();
+            agentExecutor.shutdownNow();
             transport.close();
             throw e;
         }
@@ -141,32 +192,39 @@ public class XuantongDiscoveryClient implements AutoCloseable {
                     "A local service instance is already registered; deregister it first");
         }
         ServiceInstance candidate = copy(registration);
-        if (candidate.getInstanceId() == null
-                || candidate.getInstanceId().trim().isEmpty()) {
+        if (candidate.getInstanceId() == null || candidate.getInstanceId().isBlank()) {
             candidate.setInstanceId(UUID.randomUUID().toString());
         }
-        candidate.setLeaseId(UUID.randomUUID().toString());
+        candidate.setServiceGeneration(null);
+        candidate.setLeaseId(null);
+        candidate.setLeaseEpoch(null);
+        candidate.setRecoveryEpoch(null);
+        candidate.setRenewSequence(null);
         ServiceInstance registered = transport.register(candidate);
-        if (registered == null) {
-            throw new XuantongException("Discovery Broker returned an empty registration");
+        if (registered == null || registered.getLeaseId() == null) {
+            throw new XuantongException("Registry State returned an empty registration");
         }
         localRegistration = copy(candidate);
-        localRegistration.setInstanceId(registered.getInstanceId());
-        localRegistration.setLeaseStartedAt(registered.getLeaseStartedAt());
+        localRegistration.setServiceGeneration(registered.getServiceGeneration());
         localInstance = copy(registered);
+        leaseFenced = false;
         applyLocalInstance(registered);
         return copy(registered);
     }
 
-    public ServiceInstance heartbeat() {
+    public synchronized ServiceInstance heartbeat() {
         ensureOpen();
         ServiceInstance current = localInstance;
         if (current == null || current.getInstanceId() == null) {
             throw new IllegalStateException("No local service instance has been registered");
         }
-        localInstance = transport.heartbeat(current.getInstanceId());
-        applyLocalInstance(localInstance);
-        return copy(localInstance);
+        ServiceInstance renewed = transport.heartbeat(copy(current));
+        if (renewed == null) {
+            throw new XuantongException("Registry State returned an empty renewal");
+        }
+        localInstance = copy(renewed);
+        applyLocalInstance(renewed);
+        return copy(renewed);
     }
 
     public synchronized boolean deregister() {
@@ -174,11 +232,12 @@ public class XuantongDiscoveryClient implements AutoCloseable {
         if (current == null || current.getInstanceId() == null) {
             return false;
         }
-        boolean removed = transport.deregister(current.getInstanceId());
+        boolean removed = transport.deregister(copy(current));
         if (removed) {
             instances.remove(current.getInstanceId());
             localInstance = null;
             localRegistration = null;
+            leaseFenced = false;
         }
         return removed;
     }
@@ -196,9 +255,7 @@ public class XuantongDiscoveryClient implements AutoCloseable {
 
     public List<String> getServices() {
         ensureOpen();
-        List<String> services = new ArrayList<>(transport.fetchServices());
-        Collections.sort(services);
-        return Collections.unmodifiableList(services);
+        return Collections.unmodifiableList(new ArrayList<>(transport.fetchServices()));
     }
 
     public ServiceInstance selectInstance(LoadBalanceStrategy strategy) {
@@ -223,6 +280,9 @@ public class XuantongDiscoveryClient implements AutoCloseable {
 
     private synchronized void refreshFromServer() {
         ServiceSnapshot snapshot = transport.fetchInstances();
+        if (snapshot == null || snapshot.getRevision() < revision) {
+            return;
+        }
         replaceInstances(snapshot);
     }
 
@@ -234,19 +294,91 @@ public class XuantongDiscoveryClient implements AutoCloseable {
             }
         }
         revision = snapshot.getRevision();
+        ServiceInstance local = localInstance;
+        if (local != null) {
+            ServiceInstance authoritative = instances.get(local.getInstanceId());
+            if (authoritative != null
+                    && local.getLeaseId().equals(authoritative.getLeaseId())) {
+                localInstance = copy(authoritative);
+            }
+        }
     }
 
-    private synchronized void handleServiceChange(
-            String eventType, ServiceInstance instance, ServiceSnapshot snapshot) {
-        if (closed || snapshot == null || snapshot.getRevision() <= revision) return;
-        replaceInstances(snapshot);
-        notifyListeners(eventType, snapshot.getRevision(), instance);
+    private synchronized long applyWatchBatch(ServiceWatchBatch batch) {
+        if (batch == null) {
+            throw new IllegalStateException("Discovery Watch returned no batch");
+        }
+        if (batch.requestedAfterRevision() != revision) {
+            throw new IllegalStateException("Discovery Watch cursor does not match local state");
+        }
+        if (batch.resetRequired()) {
+            refreshFromServer();
+            return revision;
+        }
+        for (ServiceInvalidation event : batch.events()) {
+            if (event.registryRevision() <= revision) {
+                continue;
+            }
+            ServiceInstance value = event.instance();
+            if (value == null || !isAvailable(value)) {
+                instances.remove(event.instanceId());
+                if (localInstance != null
+                        && event.instanceId().equals(localInstance.getInstanceId())) {
+                    localInstance = null;
+                }
+            } else {
+                instances.put(event.instanceId(), copy(value));
+                if (localInstance != null
+                        && event.instanceId().equals(localInstance.getInstanceId())
+                        && localInstance.getLeaseId().equals(value.getLeaseId())) {
+                    localInstance = copy(value);
+                }
+            }
+            revision = event.registryRevision();
+            notifyListeners(event.eventType(), event.registryRevision(), value);
+        }
+        revision = Math.max(revision, batch.coveredThroughRevision());
+        return revision;
     }
 
-    private void notifyListeners(String eventType, long eventRevision, ServiceInstance instance) {
+    private void startWatchSubscription() {
+        try {
+            watchSubscription = transport.subscribe(
+                    revision,
+                    new WatchBatchHandler<>() {
+                        @Override
+                        public long onBatch(ServiceWatchBatch batch) {
+                            return applyWatchBatch(batch);
+                        }
+
+                        @Override
+                        public void onError(Throwable error) {
+                            if (!closed) {
+                                logger.debug(
+                                        "Discovery Watch stream will resume from the committed cursor: service={}",
+                                        serviceName,
+                                        error);
+                            }
+                        }
+                    });
+            streamingWatch = true;
+        } catch (UnsupportedOperationException e) {
+            streamingWatch = false;
+            logger.debug("Discovery transport uses Watch-Batch fallback: service={}",
+                    serviceName);
+        }
+    }
+
+    private void notifyListeners(
+            String eventType, long eventRevision, ServiceInstance instance) {
         ServiceChangeEvent changeEvent = new ServiceChangeEvent(
-                namespace, group, serviceName, eventType, eventRevision,
-                copy(instance), getInstances());
+                namespace,
+                group,
+                serviceName,
+                eventType,
+                eventRevision,
+                copy(instance),
+                getInstances());
         for (ServiceListener listener : listeners) {
             try {
                 listener.onServiceChange(changeEvent);
@@ -262,16 +394,55 @@ public class XuantongDiscoveryClient implements AutoCloseable {
         }
     }
 
-    private void heartbeatSafely() {
-        if (closed || localRegistration == null) {
+    private void watchSafely() {
+        if (closed || streamingWatch) {
             return;
         }
         try {
-            heartbeat();
-        } catch (Exception heartbeatError) {
-            logger.warn("Service heartbeat failed; disconnected Brokers will restore registration on reconnect: service={}",
-                    serviceName, heartbeatError);
+            applyWatchBatch(transport.watchBatch(revision, WATCH_BATCH_SIZE));
+        } catch (Exception e) {
+            logger.debug("Discovery Watch-Batch will retry: service={}", serviceName, e);
         }
+    }
+
+    private void heartbeatSafely() {
+        if (closed || localRegistration == null || leaseFenced) {
+            return;
+        }
+        try {
+            if (localInstance == null) {
+                restoreRegistration();
+            } else {
+                heartbeat();
+            }
+        } catch (DiscoveryLeaseException e) {
+            if (e.reason() == DiscoveryLeaseException.Reason.EXPIRED) {
+                try {
+                    restoreRegistration();
+                } catch (RuntimeException restoreFailure) {
+                    logger.warn("Expired service lease could not be restored yet: service={}",
+                            serviceName, restoreFailure);
+                }
+            } else {
+                leaseFenced = true;
+                logger.error("Service lease or definition generation was fenced; automatic writes are stopped: service={}, instanceId={}",
+                        serviceName,
+                        localRegistration.getInstanceId(),
+                        e);
+            }
+        } catch (Exception e) {
+            logger.warn("Service heartbeat failed; the authoritative lease will be retried: service={}",
+                    serviceName, e);
+        }
+    }
+
+    private synchronized void restoreRegistration() {
+        if (closed || localRegistration == null || leaseFenced) {
+            return;
+        }
+        ServiceInstance restored = transport.register(copy(localRegistration));
+        localInstance = copy(restored);
+        applyLocalInstance(restored);
     }
 
     private void refreshSafely() {
@@ -286,8 +457,15 @@ public class XuantongDiscoveryClient implements AutoCloseable {
         }
     }
 
+    private void reconcileAfterReconnect() {
+        if (!closed) {
+            agentExecutor.execute(this::refreshSafely);
+        }
+    }
+
     private boolean isAvailable(ServiceInstance instance) {
-        return instance != null && Boolean.TRUE.equals(instance.getHealthy())
+        return instance != null
+                && Boolean.TRUE.equals(instance.getHealthy())
                 && Boolean.TRUE.equals(instance.getEnabled());
     }
 
@@ -300,8 +478,13 @@ public class XuantongDiscoveryClient implements AutoCloseable {
         target.setGroupName(source.getGroupName());
         target.setServiceName(source.getServiceName());
         target.setInstanceId(source.getInstanceId());
+        target.setServiceGeneration(source.getServiceGeneration());
         target.setLeaseId(source.getLeaseId());
         target.setLeaseStartedAt(source.getLeaseStartedAt());
+        target.setLeaseEpoch(source.getLeaseEpoch());
+        target.setRecoveryEpoch(source.getRecoveryEpoch());
+        target.setRenewSequence(source.getRenewSequence());
+        target.setExpiresAt(source.getExpiresAt());
         target.setIp(source.getIp());
         target.setPort(source.getPort());
         target.setWeight(source.getWeight());
@@ -321,6 +504,19 @@ public class XuantongDiscoveryClient implements AutoCloseable {
         return value;
     }
 
+    private static SocketDDiscoveryTransport discoveryTransport(
+            ClientIdentity identity,
+            ControlPlaneOptions options,
+            long heartbeatIntervalMs) {
+        long ttl;
+        try {
+            ttl = Math.max(30_000L, Math.multiplyExact(heartbeatIntervalMs, 3L));
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("heartbeatIntervalMs is too large", e);
+        }
+        return new SocketDDiscoveryTransport(identity, options, ttl);
+    }
+
     private void ensureOpen() {
         if (closed) {
             throw new XuantongException("Discovery client is closed");
@@ -338,7 +534,12 @@ public class XuantongDiscoveryClient implements AutoCloseable {
             logger.debug("Failed to deregister local instance during close", e);
         }
         closed = true;
-        heartbeatExecutor.shutdownNow();
+        agentExecutor.shutdownNow();
+        WatchSubscription subscription = watchSubscription;
+        watchSubscription = null;
+        if (subscription != null) {
+            subscription.close();
+        }
         transport.close();
         instances.clear();
         listeners.clear();

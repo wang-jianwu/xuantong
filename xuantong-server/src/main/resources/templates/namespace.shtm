@@ -55,7 +55,7 @@
     </div></div>
 </div>
 <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
-<script src="/js/common.js?v=2.0.0-20260713"></script>
+<script src="/js/common.js?v=2.0.0-20260718-config-state"></script>
 <script>
     const groupModal = new bootstrap.Modal(document.getElementById('groupModal'));
     let selectedNamespace = null;

@@ -1,5 +1,31 @@
-target/
-.idea/
-*.iml
-.xuantong-cache/
+# Version control and IDE metadata
 .git/
+.github/
+.idea/
+.vscode/
+.settings/
+*.iml
+.DS_Store
+
+# Build and runtime outputs
+**/target/
+data/
+logs/
+.xuantong-cache/
+*.log
+*.pid
+*.hprof
+
+# Local configuration and workspace
+.env
+.env.*
+.soloncode/
+docs/
+output/
+company-website/
+
+# Files not required to build the Server image
+doc/
+examples/
+README*
+PLAN_2.0.md
