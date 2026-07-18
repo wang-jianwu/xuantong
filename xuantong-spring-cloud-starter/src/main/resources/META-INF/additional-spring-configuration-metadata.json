@@ -1,0 +1,44 @@
+{
+  "properties": [
+    {
+      "name": "spring.cloud.xuantong.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "是否启用玄同 Spring Cloud 集成。"
+    },
+    {
+      "name": "spring.cloud.xuantong.server-addresses",
+      "type": "java.util.List<java.lang.String>",
+      "defaultValue": ["127.0.0.1:8090"],
+      "description": "玄同原生 Socket.D TCP 控制面地址；多地址只用于单活动有界顺序切换。"
+    },
+    {
+      "name": "spring.cloud.xuantong.client-instance-id",
+      "type": "java.lang.String",
+      "description": "可选运行实例 ID；默认按 Pod 或 JVM 进程自动生成，同一服务多副本不得共用。"
+    },
+    {
+      "name": "spring.cloud.xuantong.config.state-group-id",
+      "type": "java.lang.String",
+      "defaultValue": "config-default",
+      "description": "Config State 权威组。"
+    },
+    {
+      "name": "spring.cloud.xuantong.discovery.state-group-id",
+      "type": "java.lang.String",
+      "defaultValue": "registry-default",
+      "description": "Registry State 权威组。"
+    },
+    {
+      "name": "spring.cloud.xuantong.discovery.register",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "是否随 Spring 应用生命周期自动注册和注销当前实例。"
+    },
+    {
+      "name": "spring.cloud.xuantong.discovery.instance-id",
+      "type": "java.lang.String",
+      "description": "可选服务实例 ID；默认复用自动生成的 clientInstanceId。"
+    }
+  ]
+}

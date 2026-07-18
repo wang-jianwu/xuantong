@@ -1,0 +1,268 @@
+package cloud.xuantong.integration.solon.cloud;
+
+import cloud.xuantong.client.XuantongDiscoveryClient;
+import cloud.xuantong.client.ClientIdentity;
+import cloud.xuantong.client.ControlPlaneOptions;
+import cloud.xuantong.client.model.ServiceInstance;
+import cloud.xuantong.client.serializer.Serializer;
+import org.noear.solon.cloud.CloudDiscoveryHandler;
+import org.noear.solon.cloud.CloudProps;
+import org.noear.solon.Solon;
+import org.noear.solon.cloud.exception.CloudException;
+import org.noear.solon.cloud.model.Discovery;
+import org.noear.solon.cloud.model.Instance;
+import org.noear.solon.cloud.service.CloudDiscoveryObserverEntity;
+import org.noear.solon.cloud.service.CloudDiscoveryService;
+
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class XuantongCloudDiscoveryService implements CloudDiscoveryService, AutoCloseable {
+    private static final String DEFAULT_GROUP = "DEFAULT_GROUP";
+    private static final String CATALOG_SERVICE = "xuantong-service-catalog";
+    private static final String TAGS_META = "solon.tags";
+
+    private final List<String> serverAddresses;
+    private final String namespace;
+    private final String accessToken;
+    private final long heartbeatIntervalMs;
+    private final ClientIdentity clientIdentity;
+    private final ControlPlaneOptions controlPlaneOptions;
+    private final Serializer serializer = Serializer.defaultSerializer();
+    private final Map<String, XuantongDiscoveryClient> discoveryClients = new ConcurrentHashMap<>();
+    private final Map<String, XuantongDiscoveryClient> registrationClients = new ConcurrentHashMap<>();
+
+    public XuantongCloudDiscoveryService(CloudProps cloudProps) {
+        this.namespace = normalizeNamespace(cloudProps.getNamespace());
+        this.serverAddresses = parseServerAddresses(cloudProps.getDiscoveryServer());
+        if (serverAddresses.isEmpty()) {
+            throw new CloudException("solon.cloud.xuantong.discovery.server 不能为空");
+        }
+        String token = cloudProps.getToken();
+        this.accessToken = token == null ? "" : token.trim();
+        this.heartbeatIntervalMs = parseDurationMillis(
+                cloudProps.getDiscoveryHealthCheckInterval("10s"));
+        this.clientIdentity = new ClientIdentity(Solon.cfg().appName(), null);
+        ControlPlaneOptions defaults = ControlPlaneOptions.registryDefaults();
+        this.controlPlaneOptions = new ControlPlaneOptions(
+                Solon.cfg().get("solon.cloud.xuantong.tenant", defaults.tenant()),
+                Solon.cfg().get("solon.cloud.xuantong.discovery.stateGroupId",
+                        defaults.stateGroupId()),
+                Solon.cfg().get("solon.cloud.xuantong.clusterId", defaults.clusterId()),
+                Solon.cfg().getLong("solon.cloud.xuantong.transportGeneration",
+                        defaults.transportGeneration()),
+                Solon.cfg().get("solon.cloud.xuantong.transportPool",
+                        defaults.transportPool()),
+                defaults.connectTimeoutMs(),
+                defaults.requestTimeoutMs(),
+                defaults.operationTimeoutMs(),
+                defaults.closingTimeoutMs());
+    }
+
+    @Override
+    public void register(String group, Instance instance) {
+        registerState(group, instance, true);
+    }
+
+    @Override
+    public void registerState(String group, Instance instance, boolean health) {
+        if (instance == null) {
+            throw new IllegalArgumentException("instance must not be null");
+        }
+        String normalizedGroup = normalizeGroup(group);
+        String serviceName = requireName("service", instance.service());
+        String instanceId = instanceId(instance);
+        String key = registrationKey(normalizedGroup, serviceName, instanceId);
+        XuantongDiscoveryClient client = registrationClients.computeIfAbsent(key,
+                ignored -> newClient(normalizedGroup, serviceName));
+        ServiceInstance registration = toXuantongInstance(instance, instanceId, health);
+        try {
+            client.register(registration);
+        } catch (RuntimeException e) {
+            registrationClients.remove(key, client);
+            client.close();
+            throw e;
+        }
+    }
+
+    @Override
+    public void deregister(String group, Instance instance) {
+        if (instance == null) {
+            return;
+        }
+        String normalizedGroup = normalizeGroup(group);
+        String instanceId = instanceId(instance);
+        String key = registrationKey(normalizedGroup, instance.service(), instanceId);
+        XuantongDiscoveryClient client = registrationClients.remove(key);
+        if (client != null) {
+            client.close();
+        }
+    }
+
+    @Override
+    public Discovery find(String group, String service) {
+        String normalizedGroup = normalizeGroup(group);
+        String serviceName = requireName("service", service);
+        return toDiscovery(normalizedGroup, serviceName,
+                discoveryClient(normalizedGroup, serviceName).getInstances());
+    }
+
+    @Override
+    public Collection<String> findServices(String group) {
+        String normalizedGroup = normalizeGroup(group);
+        return discoveryClient(normalizedGroup, CATALOG_SERVICE).getServices();
+    }
+
+    @Override
+    public void attention(String group, String service, CloudDiscoveryHandler observer) {
+        String normalizedGroup = normalizeGroup(group);
+        String serviceName = requireName("service", service);
+        CloudDiscoveryObserverEntity entity = new CloudDiscoveryObserverEntity(
+                normalizedGroup, serviceName, observer);
+        XuantongDiscoveryClient client = discoveryClient(normalizedGroup, serviceName);
+        client.addListener(event -> entity.handle(toDiscovery(
+                normalizedGroup, serviceName, event.getAvailableInstances())));
+    }
+
+    private XuantongDiscoveryClient discoveryClient(String group, String serviceName) {
+        String key = group + "\u0000" + serviceName;
+        return discoveryClients.computeIfAbsent(key, ignored -> newClient(group, serviceName));
+    }
+
+    private XuantongDiscoveryClient newClient(String group, String serviceName) {
+        return new XuantongDiscoveryClient(
+                serverAddresses, namespace, group, serviceName, accessToken,
+                heartbeatIntervalMs, clientIdentity, controlPlaneOptions);
+    }
+
+    private ServiceInstance toXuantongInstance(
+            Instance source, String instanceId, boolean health) {
+        ServiceInstance target = new ServiceInstance();
+        target.setInstanceId(instanceId);
+        target.setIp(source.host());
+        target.setPort(source.port());
+        target.setWeight(source.weight());
+        target.setEnabled(health);
+
+        Map<String, String> metadata = new LinkedHashMap<>(source.meta());
+        if (source.protocol() != null) {
+            metadata.put("protocol", source.protocol());
+        }
+        if (source.tags() != null && !source.tags().isEmpty()) {
+            metadata.put(TAGS_META, String.join(",", source.tags()));
+        }
+        target.setMetadata(serializer.serialize(metadata));
+        return target;
+    }
+
+    private Discovery toDiscovery(
+            String group, String serviceName, List<ServiceInstance> sourceInstances) {
+        Discovery discovery = new Discovery(group, serviceName);
+        for (ServiceInstance source : sourceInstances) {
+            Instance target = new Instance(serviceName, source.getIp(), source.getPort())
+                    .weight(source.getWeight() == null ? 1D : source.getWeight());
+            Map<String, String> metadata = deserializeMetadata(source.getMetadata());
+            String tags = metadata.remove(TAGS_META);
+            target.metaPutAll(metadata);
+            if (tags != null && !tags.trim().isEmpty()) {
+                target.tagsAddAll(java.util.Arrays.asList(tags.split(",")));
+            }
+            discovery.instanceAdd(target);
+        }
+        return discovery;
+    }
+
+    private Map<String, String> deserializeMetadata(String metadata) {
+        if (metadata == null || metadata.trim().isEmpty()) {
+            return new LinkedHashMap<>();
+        }
+        Map<String, String> values = serializer.deserializeMap(
+                metadata, String.class, String.class);
+        return values == null ? new LinkedHashMap<>() : new LinkedHashMap<>(values);
+    }
+
+    private String instanceId(Instance instance) {
+        return UUID.nameUUIDFromBytes(
+                instance.serviceAndAddress().getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    private String registrationKey(String group, String serviceName, String instanceId) {
+        return group + "\u0000" + serviceName + "\u0000" + instanceId;
+    }
+
+    private String normalizeNamespace(String value) {
+        return requireName("namespace", value == null || value.trim().isEmpty() ? "public" : value);
+    }
+
+    private String normalizeGroup(String value) {
+        return requireName("group", value == null || value.trim().isEmpty() ? DEFAULT_GROUP : value);
+    }
+
+    private String requireName(String field, String value) {
+        if (value == null || !value.trim().matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")) {
+            throw new IllegalArgumentException(field + " is invalid: " + value);
+        }
+        return value.trim();
+    }
+
+    private List<String> parseServerAddresses(String server) {
+        if (server == null) {
+            return Collections.emptyList();
+        }
+        List<String> addresses = new ArrayList<>();
+        for (String address : server.split(",")) {
+            String trimmed = address.trim();
+            if (!trimmed.isEmpty()) {
+                addresses.add(trimmed);
+            }
+        }
+        return addresses;
+    }
+
+    private long parseDurationMillis(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return 10_000L;
+        }
+        String normalized = value.trim().toLowerCase();
+        try {
+            if (normalized.endsWith("ms")) {
+                return positive(Long.parseLong(normalized.substring(0, normalized.length() - 2)));
+            }
+            if (normalized.endsWith("s")) {
+                return positive(Long.parseLong(normalized.substring(0, normalized.length() - 1)) * 1000L);
+            }
+            if (normalized.endsWith("m")) {
+                return positive(Long.parseLong(normalized.substring(0, normalized.length() - 1)) * 60_000L);
+            }
+            return positive(Long.parseLong(normalized));
+        } catch (NumberFormatException e) {
+            throw new CloudException("discovery.healthCheckInterval 格式错误: " + value);
+        }
+    }
+
+    private long positive(long value) {
+        if (value <= 0L) {
+            throw new CloudException("discovery.healthCheckInterval 必须大于 0");
+        }
+        return value;
+    }
+
+    @Override
+    public void close() {
+        for (XuantongDiscoveryClient client : registrationClients.values()) {
+            client.close();
+        }
+        for (XuantongDiscoveryClient client : discoveryClients.values()) {
+            client.close();
+        }
+        registrationClients.clear();
+        discoveryClients.clear();
+    }
+}

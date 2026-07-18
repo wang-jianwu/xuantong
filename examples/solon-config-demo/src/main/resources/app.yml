@@ -1,0 +1,13 @@
+server.port: 8083
+
+solon.app:
+  name: solon-config-demo
+  group: DEFAULT_GROUP
+
+xuantong.config:
+  serverAddresses:
+    - 127.0.0.1:8090
+  namespace: public
+  group: DEFAULT_GROUP
+  accessToken: ${XUANTONG_ACCESS_TOKEN:}
+  applicationName: ${solon.app.name}

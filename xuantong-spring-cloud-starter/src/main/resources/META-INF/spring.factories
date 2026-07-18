@@ -1,0 +1,4 @@
+org.springframework.boot.context.config.ConfigDataLocationResolver=\
+cloud.xuantong.integration.spring.cloud.config.XuantongConfigDataLocationResolver
+org.springframework.boot.context.config.ConfigDataLoader=\
+cloud.xuantong.integration.spring.cloud.config.XuantongConfigDataLoader

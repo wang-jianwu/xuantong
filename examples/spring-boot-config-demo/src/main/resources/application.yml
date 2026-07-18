@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: spring-boot-config-demo
+
+xuantong:
+  config:
+    server-addresses:
+      - 127.0.0.1:8090
+    namespace: public
+    group: DEFAULT_GROUP
+    access-token: ${XUANTONG_ACCESS_TOKEN:}
+    application-name: ${spring.application.name}
+
+server:
+  port: 8082

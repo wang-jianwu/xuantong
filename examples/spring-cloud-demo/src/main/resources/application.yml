@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: spring-boot-demo
+  config:
+    import: optional:xuantong:application.yml
+  cloud:
+    xuantong:
+      server-addresses: ["127.0.0.1:8090"]
+      namespace: public
+      group: DEFAULT_GROUP
+      cluster-id: ${XUANTONG_CLUSTER_ID:}
+      transport-generation: ${XUANTONG_TRANSPORT_GENERATION:0}
+      transport-pool: tcp-default
+      tenant: default
+      access-token: ${XUANTONG_ACCESS_TOKEN:}
+      application-name: ${spring.application.name}
+      config:
+        enabled: true
+        state-group-id: ${XUANTONG_CONFIG_GROUP_ID:config-default}
+      discovery:
+        enabled: true
+        register: true
+        state-group-id: ${XUANTONG_REGISTRY_GROUP_ID:registry-default}
+        heartbeat-interval: 10s
+        metadata:
+          version: 2.0.0-SNAPSHOT
+
+server:
+  port: 8081
