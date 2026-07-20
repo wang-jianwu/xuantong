@@ -1,6 +1,5 @@
 #set(activeMenu = "user")
 #set(pageHeading = "用户管理")
-<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -9,152 +8,184 @@
     <title>#(pageTitle)</title>
     <link href="/lib/bootstrap/5.3.8/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/css/admin.css?v=2.0.0-20260713-connection">
+<link rel="stylesheet" href="/css/admin.css?v=2.0.2-20260719-cluster">
 </head>
 <body>
-    <div class="app-container">
-        #include("_sidebar.shtm")
+<div class="app-container">
+    #include("_sidebar.shtm")
 
-        <div class="main-content">
-            #include("_header.shtm")
+    <div class="main-content">
+        #include("_header.shtm")
 
-            <div class="content">
-                <div class="card">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="input-group">
-                                <input type="text" id="search-input" class="form-control" placeholder="搜索用户名或姓名">
-                                <button class="btn btn-primary" onclick="searchUsers()">
-                                    <i class="fas fa-search"></i> 搜索
-                                </button>
-                            </div>
-                        </div>
-                        <div class="col-md-6 text-end">
-                            <button class="btn btn-primary" onclick="showAddUserModal()">
-                                <i class="fas fa-plus"></i> 添加用户
+        <div class="content">
+            <div class="card">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <input type="text" id="search-input" class="form-control" placeholder="搜索用户名或姓名">
+                            <button class="btn btn-primary" onclick="searchUsers()">
+                                <i class="fas fa-search"></i> 搜索
                             </button>
                         </div>
                     </div>
-                </div>
-
-                <div class="card">
-                    <h5 class="card-title">用户列表</h5>
-                    <div class="table-responsive">
-                        <table class="table table-striped table-hover">
-                            <thead>
-                                <tr>
-                                    <th>用户名</th>
-                                    <th>姓名</th>
-                                    <th>邮箱</th>
-                                    <th>角色</th>
-                                    <th>状态</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="user-table-body">
-                                <tr><td colspan="6"><div class="skeleton-row"><div class="skeleton-cell"></div><div class="skeleton-cell"></div><div class="skeleton-cell"></div><div class="skeleton-cell"></div><div class="skeleton-cell"></div><div class="skeleton-cell"></div></div></td></tr>
-                            </tbody>
-                        </table>
+                    <div class="col-md-6 text-end">
+                        <button class="btn btn-primary" onclick="showAddUserModal()">
+                            <i class="fas fa-plus"></i> 添加用户
+                        </button>
                     </div>
                 </div>
             </div>
+
+            <div class="card">
+                <h5 class="card-title">用户列表</h5>
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                        <tr>
+                            <th>用户名</th>
+                            <th>姓名</th>
+                            <th>邮箱</th>
+                            <th>角色</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                        </thead>
+                        <tbody id="user-table-body">
+                        <tr>
+                            <td colspan="6">
+                                <div class="skeleton-row">
+                                    <div class="skeleton-cell"></div>
+                                    <div class="skeleton-cell"></div>
+                                    <div class="skeleton-cell"></div>
+                                    <div class="skeleton-cell"></div>
+                                    <div class="skeleton-cell"></div>
+                                    <div class="skeleton-cell"></div>
+                                </div>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="userPagination"></div>
+            </div>
         </div>
     </div>
+</div>
 
-    <div class="modal fade" id="scopeModal" tabindex="-1" aria-labelledby="scopeModalTitle" aria-hidden="true">
-        <div class="modal-dialog modal-lg"><div class="modal-content">
-            <div class="modal-header"><div><h5 class="modal-title" id="scopeModalTitle">授权范围</h5><small class="text-muted" id="scopeUsername"></small></div><button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+<div class="modal fade" id="scopeModal" tabindex="-1" aria-labelledby="scopeModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div><h5 class="modal-title" id="scopeModalTitle">授权范围</h5><small class="text-muted"
+                                                                                      id="scopeUsername"></small></div>
+                <button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
             <div class="modal-body">
                 <div class="row g-2 align-items-end mb-3">
-                    <div class="col-md-5"><label class="form-label" for="scopeNamespace">命名空间</label><select id="scopeNamespace" class="form-select"></select></div>
-                    <div class="col-md-5"><label class="form-label" for="scopeGroup">资源组</label><select id="scopeGroup" class="form-select"><option value="*">全部资源组 (*)</option></select></div>
-                    <div class="col-md-2"><button class="btn btn-primary w-100" onclick="grantScope()">授权</button></div>
+                    <div class="col-md-5"><label class="form-label" for="scopeNamespace">命名空间</label><select
+                            id="scopeNamespace" class="form-select"></select></div>
+                    <div class="col-md-5"><label class="form-label" for="scopeGroup">资源组</label><select
+                            id="scopeGroup" class="form-select">
+                        <option value="*">全部资源组 (*)</option>
+                    </select></div>
+                    <div class="col-md-2">
+                        <button class="btn btn-primary w-100" onclick="grantScope()">授权</button>
+                    </div>
                 </div>
                 <div id="scopeList" class="list-group"></div>
             </div>
-        </div></div>
+        </div>
     </div>
+</div>
 
-    <!-- 添加/编辑用户模态框 -->
-    <div class="modal fade" id="userModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="modalTitle">添加用户</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="userForm">
-                        <input type="hidden" id="userId">
-                        <div class="mb-3">
-                            <label class="form-label">用户名</label>
-                            <input type="text" class="form-control" id="username" name="username" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">姓名</label>
-                            <input type="text" class="form-control" id="realName" name="realName" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">邮箱</label>
-                            <input type="email" class="form-control" id="email" name="email" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">密码 <small id="pwd-hint" class="text-muted d-none">（留空则不修改）</small></label>
-                            <input type="password" class="form-control" id="password" name="password" required minlength="6">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">角色</label>
-                            <select class="form-select" id="role" name="role">
-                                <option value="VIEWER">只读用户</option>
-                                <option value="DEVELOPER">开发者</option>
-                                <option value="NAMESPACE_ADMIN">Namespace 管理员</option>
-                                <option value="SYSTEM_ADMIN">系统管理员</option>
-                            </select>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" onclick="saveUser()">保存</button>
-                </div>
+<!-- 添加/编辑用户模态框 -->
+<div class="modal fade" id="userModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">添加用户</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm">
+                    <input type="hidden" id="userId">
+                    <div class="mb-3">
+                        <label class="form-label">用户名</label>
+                        <input type="text" class="form-control" id="username" name="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">姓名</label>
+                        <input type="text" class="form-control" id="realName" name="realName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">邮箱</label>
+                        <input type="email" class="form-control" id="email" name="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">密码 <small id="pwd-hint"
+                                                              class="text-muted d-none">（留空则不修改）</small></label>
+                        <input type="password" class="form-control" id="password" name="password" required
+                               minlength="6">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">角色</label>
+                        <select class="form-select" id="role" name="role">
+                            <option value="VIEWER">只读用户</option>
+                            <option value="DEVELOPER">开发者</option>
+                            <option value="NAMESPACE_ADMIN">Namespace 管理员</option>
+                            <option value="SYSTEM_ADMIN">系统管理员</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveUser()">保存</button>
             </div>
         </div>
     </div>
+</div>
 
-    <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
-    <script src="/js/common.js?v=2.0.0-20260718-config-state"></script>
-    <script>
-        let userList = [];
-        let filteredUserList = [];
-        const userModal = new bootstrap.Modal(document.getElementById('userModal'));
-        const scopeModal = new bootstrap.Modal(document.getElementById('scopeModal'));
-        let selectedScopeUserId = null;
+<script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
+<script src="/js/common.js?v=2.0.2-20260719-cluster"></script>
+<script>
+    let userList = [];
+    let userPage = 1;
+    let userPageSize = 20;
+    const userModal = new bootstrap.Modal(document.getElementById('userModal'));
+    const scopeModal = new bootstrap.Modal(document.getElementById('scopeModal'));
+    let selectedScopeUserId = null;
 
-        async function loadUserList() {
-            try {
-                const result = await apiGet('/api/user');
-                if (result.code === 200) {
-                    userList = result.data;
-                    filteredUserList = userList;
-                    renderUserTable();
-                }
-            } catch (error) {
-                showToast('加载用户列表失败', 'error');
-            }
+    async function loadUserList(page, pageSize) {
+        try {
+            userPage = page || userPage;
+            userPageSize = pageSize || userPageSize;
+            const result = await apiGet(withQuery('/api/user', {
+                keyword: document.getElementById('search-input').value.trim(),
+                page: userPage,
+                pageSize: userPageSize
+            }));
+            const pageResult = requirePageResult(result);
+            userList = pageResult.items;
+            renderUserTable();
+            renderPagination('userPagination', pageResult, loadUserList);
+        } catch (error) {
+            showToast('加载用户列表失败', 'error');
+        }
+    }
+
+    function renderUserTable() {
+        const tbody = document.getElementById('user-table-body');
+        tbody.innerHTML = '';
+
+        if (userList.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><i class="fas fa-users"></i><p>暂无用户数据</p></div></td></tr>';
+            return;
         }
 
-        function renderUserTable() {
-            const tbody = document.getElementById('user-table-body');
-            tbody.innerHTML = '';
-
-            if (userList.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><i class="fas fa-users"></i><p>暂无用户数据</p></div></td></tr>';
-                return;
-            }
-
-            userList.forEach(user => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
+        userList.forEach(user => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
                     <td><strong>${escapeHtml(user.username)}</strong></td>
                     <td>${escapeHtml(user.realName || user.name || '-')}</td>
                     <td>${escapeHtml(user.email || '-')}</td>
@@ -180,170 +211,178 @@
                         </button>
                     </td>
                 `;
-                tbody.appendChild(row);
-            });
-        }
+            tbody.appendChild(row);
+        });
+    }
 
-        function showAddUserModal() {
-            document.getElementById('modalTitle').textContent = '添加用户';
-            document.getElementById('userForm').reset();
-            document.getElementById('userId').value = '';
-            document.getElementById('password').required = true;
-            document.getElementById('pwd-hint').classList.add('d-none');
+    function showAddUserModal() {
+        document.getElementById('modalTitle').textContent = '添加用户';
+        document.getElementById('userForm').reset();
+        document.getElementById('userId').value = '';
+        document.getElementById('password').required = true;
+        document.getElementById('pwd-hint').classList.add('d-none');
+        userModal.show();
+    }
+
+    function editUser(userId) {
+        const user = userList.find(u => u.id === userId);
+        if (user) {
+            document.getElementById('modalTitle').textContent = '编辑用户';
+            document.getElementById('userId').value = user.id;
+            document.getElementById('username').value = user.username;
+            document.getElementById('realName').value = user.realName || user.name || '';
+            document.getElementById('email').value = user.email || '';
+            document.getElementById('role').value = user.role || 'VIEWER';
+            document.getElementById('password').required = false;
+            document.getElementById('password').value = '';
+            document.getElementById('pwd-hint').classList.remove('d-none');
             userModal.show();
         }
+    }
 
-        function editUser(userId) {
-            const user = userList.find(u => u.id === userId);
-            if (user) {
-                document.getElementById('modalTitle').textContent = '编辑用户';
-                document.getElementById('userId').value = user.id;
-                document.getElementById('username').value = user.username;
-                document.getElementById('realName').value = user.realName || user.name || '';
-                document.getElementById('email').value = user.email || '';
-                document.getElementById('role').value = user.role || 'VIEWER';
-                document.getElementById('password').required = false;
-                document.getElementById('password').value = '';
-                document.getElementById('pwd-hint').classList.remove('d-none');
-                userModal.show();
-            }
+    async function saveUser() {
+        const username = document.getElementById('username').value.trim();
+        const realName = document.getElementById('realName').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const role = document.getElementById('role').value;
+        const userId = document.getElementById('userId').value;
+
+        if (!username) {
+            showToast('用户名不能为空', 'warning');
+            return;
+        }
+        if (!realName) {
+            showToast('姓名不能为空', 'warning');
+            return;
+        }
+        if (!userId && !password) {
+            showToast('密码不能为空', 'warning');
+            return;
+        }
+        if (userId && password && password.length < 6) {
+            showToast('密码至少6位', 'warning');
+            return;
         }
 
-        async function saveUser() {
-            const username = document.getElementById('username').value.trim();
-            const realName = document.getElementById('realName').value.trim();
-            const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value;
-            const role = document.getElementById('role').value;
-            const userId = document.getElementById('userId').value;
+        const userData = {username, realName, email, role};
+        if (userId) userData.id = parseInt(userId);
+        if (password) userData.password = password;
 
-            if (!username) { showToast('用户名不能为空', 'warning'); return; }
-            if (!realName) { showToast('姓名不能为空', 'warning'); return; }
-            if (!userId && !password) { showToast('密码不能为空', 'warning'); return; }
-            if (userId && password && password.length < 6) { showToast('密码至少6位', 'warning'); return; }
+        const isEdit = !!userId;
+        const method = isEdit ? 'PUT' : 'POST';
 
-            const userData = { username, realName, email, role };
-            if (userId) userData.id = parseInt(userId);
-            if (password) userData.password = password;
+        try {
+            const res = await fetch('/api/user', {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Xuantong-CSRF': getXuantongCsrfToken()
+                },
+                body: JSON.stringify(userData)
+            });
+            const result = await res.json();
 
-            const isEdit = !!userId;
-            const method = isEdit ? 'PUT' : 'POST';
-
-            try {
-                const res = await fetch('/api/user', {
-                    method: method,
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(userData)
-                });
-                const result = await res.json();
-
-                if (result.code === 200) {
-                    userModal.hide();
-                    await loadUserList();
-                    showToast('保存成功', 'success');
-                } else {
-                    showToast((result.description || result.message) || '保存失败', 'error');
-                }
-            } catch (error) {
-                showToast('保存失败', 'error');
-            }
-        }
-
-        async function toggleUserStatus(userId, currentStatus) {
-            const newStatus = !currentStatus;
-            const action = newStatus ? '启用' : '停用';
-            const confirmed = await showConfirm('确认操作', '确定要' + action + '这个用户吗？', '确定', '取消');
-            if (!confirmed) return;
-
-            try {
-                const result = await apiPut('/api/user/active/' + userId + '/' + newStatus);
-                if (result.code === 200) {
-                    await loadUserList();
-                    showToast('操作成功', 'success');
-                } else {
-                    showToast('操作失败: ' + (result.description || result.message), 'error');
-                }
-            } catch (error) {
-                showToast('操作失败', 'error');
-            }
-        }
-
-        async function manageScopes(userId, username) {
-            selectedScopeUserId = userId;
-            document.getElementById('scopeUsername').textContent = username;
-            const namespaces = requireApiSuccess(await apiGet('/api/v2/namespaces')) || [];
-            document.getElementById('scopeNamespace').innerHTML = namespaces.map(n => `<option value="${escapeHtml(n.namespaceId)}">${escapeHtml(n.name)} (${escapeHtml(n.namespaceId)})</option>`).join('');
-            document.getElementById('scopeNamespace').onchange = loadScopeGroups;
-            await loadScopeGroups();
-            await loadScopes();
-            scopeModal.show();
-        }
-
-        async function loadScopeGroups() {
-            const namespaceId = document.getElementById('scopeNamespace').value;
-            const groups = namespaceId ? (requireApiSuccess(await apiGet(`/api/v2/namespaces/${encodeURIComponent(namespaceId)}/groups`)) || []) : [];
-            document.getElementById('scopeGroup').innerHTML = '<option value="*">全部资源组 (*)</option>' + groups.map(g => `<option value="${escapeHtml(g.groupName)}">${escapeHtml(g.groupName)}</option>`).join('');
-        }
-
-        async function loadScopes() {
-            const current = await apiGet('/api/user/' + selectedScopeUserId + '/scopes');
-            const scopes = current.data || [];
-            document.getElementById('scopeList').innerHTML = scopes.length ? scopes.map(scope => `<div class="list-group-item d-flex justify-content-between align-items-center gap-3"><div><strong>${escapeHtml(scope.namespaceId)}</strong><span class="text-muted"> / ${escapeHtml(scope.groupName)}</span></div><button class="btn btn-sm btn-outline-danger" data-namespace="${escapeHtml(scope.namespaceId)}" data-group="${escapeHtml(scope.groupName)}">撤销</button></div>`).join('') : '<div class="empty-state compact"><i class="fas fa-key"></i><p>尚未分配授权范围</p></div>';
-            document.querySelectorAll('#scopeList [data-namespace]').forEach(button => button.addEventListener('click', () => revokeScope(button.dataset.namespace, button.dataset.group)));
-        }
-
-        async function grantScope() {
-            const namespaceId = document.getElementById('scopeNamespace').value;
-            const groupName = document.getElementById('scopeGroup').value;
-            if (!namespaceId) return showToast('请选择命名空间', 'warning');
-            const result = await apiPost('/api/user/' + selectedScopeUserId + '/scopes', {namespaceId, groupName});
-            if (Number(result.code) !== 200) return showToast(result.description || '范围授权失败', 'error');
-            showToast('范围授权成功', 'success');
-            await loadScopes();
-        }
-
-        async function revokeScope(namespaceId, groupName) {
-            if (!await showConfirm('撤销授权', `确认撤销 ${namespaceId}/${groupName}？`, '撤销')) return;
-            const result = await apiDelete(`/api/user/${selectedScopeUserId}/scopes/${encodeURIComponent(namespaceId)}/${encodeURIComponent(groupName)}`);
-            if (Number(result.code) !== 200) return showToast(result.description || '撤销失败', 'error');
-            showToast('授权已撤销', 'success');
-            await loadScopes();
-        }
-
-        async function removeUser(userId, username) {
-            const confirmed = await showConfirm('危险操作', '确定要删除用户 "' + username + '" 吗？此操作不可恢复！', '删除', '取消', 'btn-danger');
-            if (!confirmed) return;
-
-            try {
-                const result = await apiDelete('/api/user/' + userId);
-                if (result.code === 200) {
-                    await loadUserList();
-                    showToast('删除成功', 'success');
-                } else {
-                    showToast((result.description || result.message) || '删除失败', 'error');
-                }
-            } catch (error) {
-                showToast('删除失败', 'error');
-            }
-        }
-
-        function searchUsers() {
-            const keyword = document.getElementById('search-input').value.toLowerCase();
-            if (!keyword) {
-                filteredUserList = userList;
+            if (result.code === 200) {
+                userModal.hide();
+                await loadUserList();
+                showToast('保存成功', 'success');
             } else {
-                filteredUserList = userList.filter(user => {
-                    const fieldsToSearch = [user.username, user.name, user.realName, user.email];
-                    return fieldsToSearch.some(field => field && field.toLowerCase().includes(keyword));
-                });
+                showToast((result.description || result.message) || '保存失败', 'error');
             }
-            const saved = userList;
-            userList = filteredUserList;
-            renderUserTable();
-            userList = saved;
+        } catch (error) {
+            showToast('保存失败', 'error');
         }
+    }
 
-        document.addEventListener('DOMContentLoaded', loadUserList);
-    </script>
+    async function toggleUserStatus(userId, currentStatus) {
+        const newStatus = !currentStatus;
+        const action = newStatus ? '启用' : '停用';
+        const confirmed = await showConfirm('确认操作', '确定要' + action + '这个用户吗？', '确定', '取消');
+        if (!confirmed) return;
+
+        try {
+            const result = await apiPut('/api/user/active/' + userId + '/' + newStatus);
+            if (result.code === 200) {
+                await loadUserList();
+                showToast('操作成功', 'success');
+            } else {
+                showToast('操作失败: ' + (result.description || result.message), 'error');
+            }
+        } catch (error) {
+            showToast('操作失败', 'error');
+        }
+    }
+
+    async function manageScopes(userId, username) {
+        selectedScopeUserId = userId;
+        document.getElementById('scopeUsername').textContent = username;
+        const namespaces = requireApiSuccess(await apiGet('/api/v2/namespaces')) || [];
+        document.getElementById('scopeNamespace').innerHTML = namespaces.map(n => `<option value="${escapeHtml(n.namespaceId)}">${escapeHtml(n.name)} (${escapeHtml(n.namespaceId)})</option>`).join('');
+        document.getElementById('scopeNamespace').onchange = loadScopeGroups;
+        await loadScopeGroups();
+        await loadScopes();
+        scopeModal.show();
+    }
+
+    async function loadScopeGroups() {
+        const namespaceId = document.getElementById('scopeNamespace').value;
+        const groups = namespaceId ? (requireApiSuccess(await apiGet(`/api/v2/namespaces/${encodeURIComponent(namespaceId)}/groups`)) || []) : [];
+        document.getElementById('scopeGroup').innerHTML = '<option value="*">全部资源组 (*)</option>' + groups.map(g => `<option value="${escapeHtml(g.groupName)}">${escapeHtml(g.groupName)}</option>`).join('');
+    }
+
+    async function loadScopes() {
+        const current = await apiGet('/api/user/' + selectedScopeUserId + '/scopes');
+        const scopes = current.data || [];
+        document.getElementById('scopeList').innerHTML = scopes.length ? scopes.map(scope => `<div class="list-group-item d-flex justify-content-between align-items-center gap-3"><div><strong>${escapeHtml(scope.namespaceId)}</strong><span class="text-muted"> / ${escapeHtml(scope.groupName)}</span></div><button class="btn btn-sm btn-outline-danger" data-namespace="${escapeHtml(scope.namespaceId)}" data-group="${escapeHtml(scope.groupName)}">撤销</button></div>`).join('') : '<div class="empty-state compact"><i class="fas fa-key"></i><p>尚未分配授权范围</p></div>';
+        document.querySelectorAll('#scopeList [data-namespace]').forEach(button => button.addEventListener('click', () => revokeScope(button.dataset.namespace, button.dataset.group)));
+    }
+
+    async function grantScope() {
+        const namespaceId = document.getElementById('scopeNamespace').value;
+        const groupName = document.getElementById('scopeGroup').value;
+        if (!namespaceId) return showToast('请选择命名空间', 'warning');
+        const result = await apiPost('/api/user/' + selectedScopeUserId + '/scopes', {namespaceId, groupName});
+        if (Number(result.code) !== 200) return showToast(result.description || '范围授权失败', 'error');
+        showToast('范围授权成功', 'success');
+        await loadScopes();
+    }
+
+    async function revokeScope(namespaceId, groupName) {
+        if (!await showConfirm('撤销授权', `确认撤销 ${namespaceId}/${groupName}？`, '撤销')) return;
+        const result = await apiDelete(`/api/user/${selectedScopeUserId}/scopes/${encodeURIComponent(namespaceId)}/${encodeURIComponent(groupName)}`);
+        if (Number(result.code) !== 200) return showToast(result.description || '撤销失败', 'error');
+        showToast('授权已撤销', 'success');
+        await loadScopes();
+    }
+
+    async function removeUser(userId, username) {
+        const confirmed = await showConfirm('危险操作', '确定要删除用户 "' + username + '" 吗？此操作不可恢复！', '删除', '取消', 'btn-danger');
+        if (!confirmed) return;
+
+        try {
+            const result = await apiDelete('/api/user/' + userId);
+            if (result.code === 200) {
+                await loadUserList();
+                showToast('删除成功', 'success');
+            } else {
+                showToast((result.description || result.message) || '删除失败', 'error');
+            }
+        } catch (error) {
+            showToast('删除失败', 'error');
+        }
+    }
+
+    function searchUsers() {
+        return loadUserList(1, userPageSize);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('search-input').addEventListener('keydown', event => {
+            if (event.key === 'Enter') searchUsers();
+        });
+        loadUserList();
+    });
+</script>
 </body>
 </html>

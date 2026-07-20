@@ -57,6 +57,9 @@ public final class ControlPlaneStateExecutor {
             ControlPlaneRequestContext context,
             StateGroupId groupId,
             boolean write) {
+        if (context.remainingBudgetNanos() == 0L) {
+            return CompletableFuture.failedFuture(deadlineFailure(groupId, write));
+        }
         try {
             return withinBudget(operation.get(), context, groupId, write);
         } catch (RuntimeException e) {

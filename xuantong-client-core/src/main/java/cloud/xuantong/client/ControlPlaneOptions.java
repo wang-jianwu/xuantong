@@ -16,7 +16,23 @@ public record ControlPlaneOptions(
         long connectTimeoutMs,
         long requestTimeoutMs,
         long operationTimeoutMs,
-        long closingTimeoutMs) {
+        long closingTimeoutMs,
+        TlsOptions tls) {
+
+    public ControlPlaneOptions(
+            String tenant,
+            String stateGroupId,
+            String clusterId,
+            long transportGeneration,
+            String transportPool,
+            long connectTimeoutMs,
+            long requestTimeoutMs,
+            long operationTimeoutMs,
+            long closingTimeoutMs) {
+        this(tenant, stateGroupId, clusterId, transportGeneration, transportPool,
+                connectTimeoutMs, requestTimeoutMs, operationTimeoutMs,
+                closingTimeoutMs, TlsOptions.disabled());
+    }
 
     public ControlPlaneOptions {
         tenant = requireText("tenant", tenant);
@@ -34,6 +50,7 @@ public record ControlPlaneOptions(
             throw new IllegalArgumentException(
                     "operationTimeoutMs must be greater than or equal to requestTimeoutMs");
         }
+        tls = tls == null ? TlsOptions.disabled() : tls;
     }
 
     public static ControlPlaneOptions defaults() {
@@ -46,7 +63,8 @@ public record ControlPlaneOptions(
                 3_000L,
                 3_000L,
                 6_000L,
-                3_000L);
+                3_000L,
+                TlsOptions.disabled());
     }
 
     public static ControlPlaneOptions registryDefaults() {
@@ -60,7 +78,15 @@ public record ControlPlaneOptions(
                 defaults.connectTimeoutMs(),
                 defaults.requestTimeoutMs(),
                 defaults.operationTimeoutMs(),
-                defaults.closingTimeoutMs());
+                defaults.closingTimeoutMs(),
+                defaults.tls());
+    }
+
+    public ControlPlaneOptions withTls(TlsOptions tls) {
+        return new ControlPlaneOptions(
+                tenant, stateGroupId, clusterId, transportGeneration, transportPool,
+                connectTimeoutMs, requestTimeoutMs, operationTimeoutMs,
+                closingTimeoutMs, tls);
     }
 
     private static String requireText(String field, String value) {

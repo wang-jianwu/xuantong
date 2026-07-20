@@ -11,3 +11,14 @@ xuantong.config:
   group: DEFAULT_GROUP
   accessToken: ${XUANTONG_ACCESS_TOKEN:}
   applicationName: ${solon.app.name}
+  tls:
+    enabled: ${XUANTONG_CLIENT_TLS_ENABLED:false}
+    trustStore: ${XUANTONG_CLIENT_TLS_TRUST_STORE:}
+    trustStoreType: ${XUANTONG_CLIENT_TLS_TRUST_STORE_TYPE:PKCS12}
+    trustStorePassword: ${XUANTONG_CLIENT_TLS_TRUST_STORE_PASSWORD:}
+    keyStore: ${XUANTONG_CLIENT_TLS_KEY_STORE:}
+    keyStoreType: ${XUANTONG_CLIENT_TLS_KEY_STORE_TYPE:PKCS12}
+    keyStorePassword: ${XUANTONG_CLIENT_TLS_KEY_STORE_PASSWORD:}
+    keyPassword: ${XUANTONG_CLIENT_TLS_KEY_PASSWORD:}
+    hostnameVerification: true
+    reloadIntervalMs: ${XUANTONG_CLIENT_TLS_RELOAD_INTERVAL_MS:30000}

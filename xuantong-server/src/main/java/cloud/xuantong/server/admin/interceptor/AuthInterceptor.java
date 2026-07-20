@@ -2,6 +2,7 @@ package cloud.xuantong.server.admin.interceptor;
 
 import cloud.xuantong.security.model.User;
 import cloud.xuantong.security.service.AuthorizationService;
+import cloud.xuantong.server.admin.security.AdminSessionService;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.core.handle.Context;
@@ -31,6 +32,7 @@ public class AuthInterceptor implements RouterInterceptor {
     private static final Pattern NAMESPACE_PATH = Pattern.compile(
             "^/api/v2/namespaces/([^/]+)(?:/groups/([^/]+))?.*$");
     @Inject private AuthorizationService authorizationService;
+    @Inject private AdminSessionService sessionService;
 
     @Override
     public PathRule pathPatterns() {
@@ -41,52 +43,44 @@ public class AuthInterceptor implements RouterInterceptor {
     public void doIntercept(Context ctx, Handler mainHandler, RouterInterceptorChain chain) throws Throwable {
         String path = ctx.pathNew();
 
-        // 公开路径放行
-        if (path.equals("/login") || path.startsWith("/api/auth/")
-                || path.equals("/health") || path.equals("/metrics") || path.startsWith("/assets/")
+        // 登录接口不依赖现有会话，但仍执行同源校验，避免 Login CSRF。
+        if (path.equals("/api/auth/login")) {
+            if (isUnsafe(ctx.method()) && !isSameOrigin(ctx)) {
+                rejectCsrf(ctx, path);
+                return;
+            }
+            chain.doIntercept(ctx, mainHandler);
+            return;
+        }
+
+        // 完全公开路径放行。登录页会尝试恢复已有签名会话，以便已登录用户直接跳转。
+        if (path.equals("/login")) {
+            sessionService.authenticate(ctx);
+            chain.doIntercept(ctx, mainHandler);
+            return;
+        }
+        if (path.equals("/health") || path.equals("/metrics") || path.startsWith("/assets/")
                 || path.startsWith("/lib/") || path.startsWith("/.well-known/")) {
             chain.doIntercept(ctx, mainHandler);
             return;
         }
 
-        // CSRF 防护：对写操作检查 Origin/Referer（SameSite 兜底之外的第二层防护）
-        if (path.startsWith("/api/") && !"GET".equalsIgnoreCase(ctx.method())) {
-            if (!isSameOrigin(ctx)) {
-                log.warn("CSRF check failed: {} {}", ctx.method(), path);
-                ctx.status(403);
-                ctx.output("{\"code\":403,\"message\":\"跨站请求伪造检测\"}");
-                return;
-            }
+        // 每次请求验证签名、有效期、用户启用状态和 securityVersion。
+        User user = sessionService.authenticate(ctx);
+        if (user == null) {
+            log.warn("Unauthorized access: {}", path);
+            rejectUnauthorized(ctx, path);
+            return;
         }
 
-        // 检查登录状态
-        if (ctx.session("user") == null) {
-            log.warn("Unauthorized access: {}", path);
-
-            if (path.startsWith("/api/")) {
-                ctx.status(401);
-                ctx.output("{\"code\":401,\"message\":\"unauthorized\"}");
-            } else {
-                ctx.redirect("/login");
-            }
+        // 写 API 同时要求同源和绑定当前签名会话的 CSRF Token。
+        if (path.startsWith("/api/") && isUnsafe(ctx.method())
+                && (!isSameOrigin(ctx) || !sessionService.validateCsrf(ctx))) {
+            rejectCsrf(ctx, path);
             return;
         }
 
         // RBAC 权限检查
-        User user = ctx.session("user", User.class);
-        // 防御性检查：session 中存在 "user" 属性但无法解析为 User 类型，视为会话损坏
-        if (user == null) {
-            log.warn("Session corrupted (user attribute exists but not User type): {}", path);
-            ctx.sessionRemove("user");
-            if (path.startsWith("/api/")) {
-                ctx.status(401);
-                ctx.output("{\"code\":401,\"message\":\"session expired\"}");
-            } else {
-                ctx.redirect("/login");
-            }
-            return;
-        }
-
         if (!isAuthorized(user, path, ctx.method())) {
             log.warn("Forbidden: {} {} by user {}", ctx.method(), path, user.getUsername());
             ctx.status(403);
@@ -97,6 +91,27 @@ public class AuthInterceptor implements RouterInterceptor {
         }
 
         chain.doIntercept(ctx, mainHandler);
+    }
+
+    private boolean isUnsafe(String method) {
+        return !"GET".equalsIgnoreCase(method)
+                && !"HEAD".equalsIgnoreCase(method)
+                && !"OPTIONS".equalsIgnoreCase(method);
+    }
+
+    private void rejectUnauthorized(Context context, String path) {
+        if (path.startsWith("/api/")) {
+            context.status(401);
+            context.output("{\"code\":401,\"message\":\"unauthorized\"}");
+        } else {
+            context.redirect("/login");
+        }
+    }
+
+    private void rejectCsrf(Context context, String path) {
+        log.warn("CSRF check failed: {} {}", context.method(), path);
+        context.status(403);
+        context.output("{\"code\":403,\"message\":\"invalid csrf token\"}");
     }
 
     boolean isAuthorized(User user, String path, String method) {

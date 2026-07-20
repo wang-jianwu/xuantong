@@ -1,11 +1,13 @@
 package cloud.xuantong.raft.ratis;
 
+import cloud.xuantong.common.metrics.FixedLatencyHistogram;
 import cloud.xuantong.state.api.ApplyResult;
 import cloud.xuantong.state.api.QueryResult;
 import cloud.xuantong.state.api.StateClient;
 import cloud.xuantong.state.api.StateCommand;
 import cloud.xuantong.state.api.StateGroupId;
 import cloud.xuantong.state.api.StateQuery;
+import cloud.xuantong.state.api.StateWriteAdmission;
 import cloud.xuantong.state.api.WatchBatch;
 import cloud.xuantong.state.api.WatchRequest;
 
@@ -15,17 +17,29 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 /** Routes each State operation to exactly one Raft Group client. */
 public final class RatisStateRouter implements StateClient {
     private final Map<StateGroupId, ClientSlot> clients;
+    private final StateWriteAdmission writeAdmission;
+    private final FixedLatencyHistogram applyLatency =
+            new FixedLatencyHistogram(5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000);
 
     public RatisStateRouter(
             Collection<RatisGroupDefinition> groups,
             Duration requestTimeout,
             int maxAttempts) {
+        this(groups, requestTimeout, maxAttempts, StateWriteAdmission.allowAll());
+    }
+
+    public RatisStateRouter(
+            Collection<RatisGroupDefinition> groups,
+            Duration requestTimeout,
+            int maxAttempts,
+            StateWriteAdmission writeAdmission) {
         if (groups == null || groups.isEmpty()) {
             throw new IllegalArgumentException("groups must not be empty");
         }
@@ -36,6 +50,9 @@ public final class RatisStateRouter implements StateClient {
         }
         if (maxAttempts < 1) {
             throw new IllegalArgumentException("maxAttempts must be positive");
+        }
+        if (writeAdmission == null) {
+            throw new IllegalArgumentException("writeAdmission must not be null");
         }
         Map<StateGroupId, ClientSlot> created = new LinkedHashMap<>();
         try {
@@ -53,19 +70,73 @@ public final class RatisStateRouter implements StateClient {
                     ? runtime
                     : new IllegalStateException("Failed to create State router", e);
         }
-        this.clients = Map.copyOf(created);
+        this.clients = new ConcurrentHashMap<>(created);
+        this.writeAdmission = writeAdmission;
     }
 
     public Set<StateGroupId> groups() {
-        return clients.keySet();
+        return Set.copyOf(clients.keySet());
+    }
+
+    public FixedLatencyHistogram.Snapshot applyLatencySnapshot() {
+        return applyLatency.snapshot();
+    }
+
+    public synchronized void replaceGroups(
+            Collection<RatisGroupDefinition> groups) throws IOException {
+        if (groups == null || groups.isEmpty()) {
+            throw new IllegalArgumentException("groups must not be empty");
+        }
+        Map<StateGroupId, RatisGroupDefinition> replacements = new LinkedHashMap<>();
+        for (RatisGroupDefinition group : groups) {
+            if (replacements.putIfAbsent(group.groupId(), group) != null) {
+                throw new IllegalArgumentException(
+                        "Duplicate State Group: " + group.groupId());
+            }
+        }
+        if (!replacements.keySet().equals(clients.keySet())) {
+            throw new IllegalArgumentException(
+                    "A topology refresh cannot add or remove State Groups");
+        }
+        IOException failure = null;
+        for (RatisGroupDefinition replacement : replacements.values()) {
+            ClientSlot previous = clients.get(replacement.groupId());
+            if (previous.group.equals(replacement)) {
+                continue;
+            }
+            ClientSlot next = new ClientSlot(
+                    replacement, previous.requestTimeout, previous.maxAttempts);
+            clients.put(replacement.groupId(), next);
+            try {
+                previous.close();
+            } catch (IOException e) {
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
     }
 
     @Override
     public CompletableFuture<ApplyResult> submit(StateCommand command) {
+        try {
+            writeAdmission.check(command.groupId());
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
         ClientSlot slot = clients.get(command.groupId());
-        return slot == null
-                ? unknownGroup(command.groupId())
-                : slot.execute(client -> client.submit(command));
+        if (slot == null) {
+            return unknownGroup(command.groupId());
+        }
+        long startedNanos = System.nanoTime();
+        return slot.execute(client -> client.submit(command))
+                .whenComplete((ignored, failure) ->
+                        applyLatency.recordNanos(System.nanoTime() - startedNanos));
     }
 
     @Override

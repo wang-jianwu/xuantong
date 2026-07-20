@@ -10,6 +10,7 @@ import cloud.xuantong.gateway.socketd.ControlPlaneReply;
 import cloud.xuantong.gateway.socketd.ControlPlaneRequestContext;
 import cloud.xuantong.gateway.socketd.ControlPlaneRequestHandler;
 import cloud.xuantong.gateway.socketd.ControlPlaneStateExecutor;
+import cloud.xuantong.gateway.socketd.ControlPlaneGatewayRuntime;
 import cloud.xuantong.protocol.v2.ConfigContentValue;
 import cloud.xuantong.protocol.v2.ConfigFetchRequest;
 import cloud.xuantong.protocol.v2.ConfigFetchResponse;
@@ -26,9 +27,17 @@ import java.util.concurrent.CompletionStage;
 
 final class ConfigFetchControlPlaneHandler implements ControlPlaneRequestHandler {
     private final ControlPlaneStateExecutor stateExecutor;
+    private final ControlPlaneGatewayRuntime gatewayRuntime;
 
     ConfigFetchControlPlaneHandler(ControlPlaneStateExecutor stateExecutor) {
+        this(stateExecutor, null);
+    }
+
+    ConfigFetchControlPlaneHandler(
+            ControlPlaneStateExecutor stateExecutor,
+            ControlPlaneGatewayRuntime gatewayRuntime) {
         this.stateExecutor = stateExecutor;
+        this.gatewayRuntime = gatewayRuntime;
     }
 
     @Override
@@ -73,10 +82,12 @@ final class ConfigFetchControlPlaneHandler implements ControlPlaneRequestHandler
                                     "Config State returned an unexpected result type"));
                         }
                         try {
+                            ApplicableRelease release =
+                                    ConfigStateCodec.decodeApplicableRelease(result.payload());
+                            recordSelection(context, release);
                             return ConfigControlPlaneSupport.ok(
                                     ControlPlaneProtocol.CONFIG_FETCH_RESPONSE_TYPE,
-                                    response(ConfigStateCodec.decodeApplicableRelease(
-                                            result.payload())).toByteArray());
+                                    response(release).toByteArray());
                         } catch (IOException e) {
                             throw new CompletionException(e);
                         }
@@ -86,13 +97,42 @@ final class ConfigFetchControlPlaneHandler implements ControlPlaneRequestHandler
         }
     }
 
+    private void recordSelection(
+            ControlPlaneRequestContext context, ApplicableRelease release) {
+        if (gatewayRuntime == null
+                || release.state() == cloud.xuantong.config.state.ConfigValueState.MISSING) {
+            return;
+        }
+        gatewayRuntime.recordConfigSelection(
+                context.sessionId(),
+                release.configKey().namespace(),
+                release.configKey().group(),
+                release.configKey().dataId(),
+                release.state().name(),
+                release.decisionRevision(),
+                release.found() ? release.content().contentRevision() : 0L,
+                release.matchedRuleId());
+    }
+
     private ConfigFetchResponse response(ApplicableRelease release) {
-        if (!release.found()) {
-            return ConfigFetchResponse.newBuilder().setFound(false).build();
+        if (release.state() == cloud.xuantong.config.state.ConfigValueState.MISSING) {
+            return ConfigFetchResponse.newBuilder()
+                    .setState(cloud.xuantong.protocol.v2.ConfigValueState
+                            .CONFIG_VALUE_STATE_MISSING)
+                    .build();
+        }
+        if (release.tombstone()) {
+            return ConfigFetchResponse.newBuilder()
+                    .setState(cloud.xuantong.protocol.v2.ConfigValueState
+                            .CONFIG_VALUE_STATE_TOMBSTONE)
+                    .setConfig(ConfigControlPlaneSupport.coordinate(release.configKey()))
+                    .setDecisionRevision(release.decisionRevision())
+                    .build();
         }
         ConfigContent content = release.content();
         return ConfigFetchResponse.newBuilder()
-                .setFound(true)
+                .setState(cloud.xuantong.protocol.v2.ConfigValueState
+                        .CONFIG_VALUE_STATE_ACTIVE)
                 .setConfig(ConfigControlPlaneSupport.coordinate(release.configKey()))
                 .setDecisionRevision(release.decisionRevision())
                 .setContent(ConfigContentValue.newBuilder()

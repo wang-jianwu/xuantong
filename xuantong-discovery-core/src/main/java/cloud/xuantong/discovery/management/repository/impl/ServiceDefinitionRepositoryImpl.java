@@ -1,5 +1,7 @@
 package cloud.xuantong.discovery.management.repository.impl;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.discovery.management.model.ServiceDefinition;
 import cloud.xuantong.resource.model.ServiceKey;
 import cloud.xuantong.discovery.management.repository.ServiceDefinitionRepository;
@@ -27,6 +29,17 @@ public class ServiceDefinitionRepositoryImpl implements ServiceDefinitionReposit
     }
 
     @Override
+    public List<ServiceDefinition> findAll() {
+        return easyQuery.queryable(ServiceDefinition.class)
+                .orderBy(o -> {
+                    o.namespaceId().asc();
+                    o.groupName().asc();
+                    o.serviceName().asc();
+                })
+                .toList();
+    }
+
+    @Override
     public List<ServiceDefinition> findByGroup(String namespaceId, String groupName) {
         return easyQuery.queryable(ServiceDefinition.class)
                 .where(o -> {
@@ -35,6 +48,32 @@ public class ServiceDefinitionRepositoryImpl implements ServiceDefinitionReposit
                 })
                 .orderBy(o -> o.serviceName().asc())
                 .toList();
+    }
+
+    @Override
+    public PageResult<ServiceDefinition> findPageByGroup(
+            String namespaceId,
+            String groupName,
+            String keyword,
+            String lifecycleState,
+            PageQuery pageQuery) {
+        String normalizedKeyword = normalize(keyword);
+        String normalizedLifecycle = normalize(lifecycleState);
+        var result = easyQuery.queryable(ServiceDefinition.class)
+                .where(o -> {
+                    o.namespaceId().eq(namespaceId);
+                    o.groupName().eq(groupName);
+                    o.lifecycleState().eq(normalizedLifecycle != null, normalizedLifecycle);
+                    if (normalizedKeyword != null) {
+                        o.or(() -> {
+                            o.serviceName().contains(normalizedKeyword);
+                            o.description().contains(normalizedKeyword);
+                        });
+                    }
+                })
+                .orderBy(o -> o.serviceName().asc())
+                .toPageResult(pageQuery.page(), pageQuery.pageSize());
+        return PageResult.of(pageQuery, result.getTotal(), result.getData());
     }
 
     @Override
@@ -86,5 +125,9 @@ public class ServiceDefinitionRepositoryImpl implements ServiceDefinitionReposit
                     o.serviceName().eq(key.serviceName());
                 })
                 .executeRows();
+    }
+
+    private String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

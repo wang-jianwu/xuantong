@@ -6,6 +6,7 @@ import cloud.xuantong.config.management.model.ConfigResource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.noear.solon.annotation.Import;
 import org.noear.solon.core.handle.Result;
 
 import java.io.IOException;
@@ -37,8 +38,9 @@ public class AdminIntegrationTest {
                 assertTrue(template.contains("#include(\"_sidebar.shtm\")"), name);
                 assertTrue(template.contains("#include(\"_header.shtm\")"), name);
                 assertTrue(template.contains(
-                        "/js/common.js?v=2.0.0-20260718-config-state"), name);
-                assertTrue(template.contains("/css/admin.css?v=2.0.0-20260713-connection"), name);
+                        "/js/common.js?v=2.0.2-20260719-cluster"), name);
+                assertTrue(template.contains(
+                        "/css/admin.css?v=2.0.2-20260719-cluster"), name);
             }
         }
 
@@ -80,10 +82,25 @@ public class AdminIntegrationTest {
         void configPageUsesExplicitRolloutLifecycle() throws IOException {
             String template = readTemplate("config.shtm");
             assertTrue(template.contains("GRAY_IP"));
+            assertTrue(template.contains("GRAY_CLIENT_INSTANCE"));
             assertTrue(template.contains("GRAY_PERCENTAGE"));
+            assertTrue(template.contains("/rollouts/preview"));
+            assertTrue(template.contains("/rollouts/current-selections"));
+            assertTrue(template.contains("smallSampleWarning"));
+            assertTrue(template.contains("rolloutKey"));
+            assertTrue(template.contains("当前 Gateway"));
             assertTrue(template.contains("/rollouts/${encodeURIComponent(rolloutId)}/promote"));
             assertTrue(template.contains("/rollouts/${encodeURIComponent(rolloutId)}/abort"));
-            assertTrue(template.contains("rolloutId + clientInstanceId"));
+            assertTrue(template.contains("rolloutKey + clientInstanceId"));
+            assertTrue(template.contains("expectedDraftRevision"));
+            assertTrue(template.contains("/content-tools"));
+            assertTrue(template.contains("/tombstone"));
+            assertTrue(template.contains("TOMBSTONE"));
+            assertTrue(template.contains("重新发布"));
+            assertTrue(template.contains("draftConflictModal"));
+            assertTrue(template.contains("value=\"string\""));
+            assertTrue(template.contains("value=\"number\""));
+            assertTrue(template.contains("value=\"boolean\""));
             assertFalse(template.contains("releaseType=FULL"));
         }
 
@@ -95,8 +112,9 @@ public class AdminIntegrationTest {
                     "const release = requireConfigWriteSuccess(await apiPost("));
             assertTrue(template.contains(
                     "const releases = requireConfigWriteSuccess(await apiPost("));
-            assertTrue(template.contains(
-                    "requireConfigWriteSuccess(await apiPut("));
+            assertTrue(template.contains("const result = await apiPut("));
+            assertTrue(template.contains("if (Number(result.code) === 409"));
+            assertTrue(template.contains("const saved = requireConfigWriteSuccess(result)"));
             assertTrue(template.contains(
                     "requireConfigWriteSuccess(await apiDelete("));
             assertTrue(template.contains(
@@ -118,16 +136,39 @@ public class AdminIntegrationTest {
             assertTrue(token.contains("rawTokenModal"));
 
             String audit = readTemplate("audit.shtm");
-            assertTrue(audit.contains("/api/v2/audits?limit=500"));
+            assertTrue(audit.contains("withQuery('/api/v2/audits'"));
+            assertTrue(audit.contains("renderPagination('auditPagination'"));
 
             String connection = readTemplate("connection.shtm");
             assertTrue(connection.contains("/api/v2/connections"));
             assertTrue(connection.contains("logicalClients"));
             assertTrue(connection.contains("subscriptions"));
+            assertTrue(connection.contains("lastConfigSelection"));
+            assertTrue(connection.contains("valueState"));
+            assertTrue(connection.contains("matchedRuleId"));
+            assertTrue(connection.contains("contentRevision"));
+            assertTrue(connection.contains("decisionRevision"));
 
             String user = readTemplate("user.shtm");
             assertTrue(user.contains("/scopes"));
             assertTrue(user.contains("apiDelete(`/api/user/${selectedScopeUserId}/scopes/"));
+        }
+
+        @Test
+        @DisplayName("管理列表统一消费 PageResult 并渲染分页控件")
+        void managementListsUsePageResultContract() throws IOException {
+            for (String name : List.of(
+                    "config.shtm", "service.shtm", "token.shtm",
+                    "user.shtm", "audit.shtm")) {
+                String template = readTemplate(name);
+                assertTrue(template.contains("requirePageResult("), name);
+                assertTrue(template.contains("renderPagination("), name);
+                assertTrue(template.contains("pageSize"), name);
+            }
+            String config = readTemplate("config.shtm");
+            assertTrue(config.contains("release-pagination"));
+            assertTrue(config.contains("rollout-pagination"));
+            assertTrue(config.contains("config-audit-pagination"));
         }
 
         @Test
@@ -156,6 +197,9 @@ public class AdminIntegrationTest {
             assertTrue(common.contains("function parsePrometheus"));
             assertTrue(common.contains("function formatBytes"));
             assertTrue(common.contains("X-Xuantong-Operation-Id"));
+            assertTrue(common.contains("X-Xuantong-CSRF"));
+            assertTrue(common.contains("XUANTONG_CSRF="));
+            assertTrue(common.contains("method: 'POST'"));
             assertTrue(common.contains("newXuantongOperationId"));
             assertTrue(common.contains("sidebar_collapsed', 'false'"));
             assertTrue(common.contains("aria-expanded"));
@@ -165,6 +209,14 @@ public class AdminIntegrationTest {
             assertTrue(css.contains(".dashboard-grid"));
             assertTrue(css.contains(".table-responsive"));
             assertTrue(css.contains("min-width: 0"));
+        }
+
+        @Test
+        @DisplayName("应用入口扫描完整的玄同组件根包")
+        void adminAppScansXuantongRootPackage() {
+            Import appImport = AdminApp.class.getAnnotation(Import.class);
+            assertNotNull(appImport);
+            assertArrayEquals(new String[]{"cloud.xuantong"}, appImport.scanPackages());
         }
     }
 
@@ -178,7 +230,9 @@ public class AdminIntegrationTest {
                 assertNotNull(input, "service.shtm must exist");
                 String template = new String(input.readAllBytes(), StandardCharsets.UTF_8);
                 assertTrue(template.contains("/api/v2/namespaces"));
-                assertTrue(template.contains("/instances?onlyAvailable="));
+                assertTrue(template.contains("/instances`, {"));
+                assertTrue(template.contains("pageResult.metadata.revision"));
+                assertTrue(template.contains("renderPagination('instance-pagination'"));
                 assertTrue(template.contains("apiDelete"));
                 assertFalse(template.contains("/api/service/"));
             }
@@ -241,24 +295,16 @@ public class AdminIntegrationTest {
             item.setDataId("application.yml");
             item.setContent("server.port=8080");
             item.setRevision(1L);
+            item.setDraftRevision(2L);
 
             assertEquals("public", item.getNamespaceId());
             assertEquals("DEFAULT_GROUP", item.getGroupName());
             assertEquals("application.yml", item.getDataId());
             assertEquals("server.port=8080", item.getContent());
             assertEquals(1L, item.getRevision());
+            assertEquals(2L, item.getDraftRevision());
         }
 
-        @Test
-        @DisplayName("加密配置项标记")
-        void encryptedConfigResource() {
-            ConfigResource item = new ConfigResource();
-            item.setIsEncrypted(true);
-            assertTrue(item.getIsEncrypted());
-
-            item.setIsEncrypted(false);
-            assertFalse(item.getIsEncrypted());
-        }
     }
 
     // ===== User 角色测试 =====

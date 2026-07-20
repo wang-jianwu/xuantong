@@ -1,8 +1,7 @@
 package cloud.xuantong.raft.ratis;
 
 import org.apache.ratis.protocol.RaftPeer;
-
-import java.net.InetSocketAddress;
+import org.apache.ratis.proto.RaftProtos.RaftPeerRole;
 
 public record RatisPeerDefinition(String nodeId, String host, int port) {
     public RatisPeerDefinition {
@@ -14,10 +13,19 @@ public record RatisPeerDefinition(String nodeId, String host, int port) {
     }
 
     public RaftPeer toRaftPeer() {
+        return toRaftPeer(RaftPeerRole.FOLLOWER);
+    }
+
+    public RaftPeer toRaftPeer(RaftPeerRole startupRole) {
         return RaftPeer.newBuilder()
                 .setId(nodeId)
-                .setAddress(new InetSocketAddress(host, port))
+                .setAddress(address())
+                .setStartupRole(startupRole)
                 .build();
+    }
+
+    public String address() {
+        return host.indexOf(':') >= 0 ? '[' + host + "]:" + port : host + ':' + port;
     }
 
     private static String requireText(String field, String value) {

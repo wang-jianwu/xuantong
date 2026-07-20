@@ -18,12 +18,23 @@ solon.cloud:
     transportGeneration: ${XUANTONG_TRANSPORT_GENERATION:0}
     transportPool: tcp-default
     tenant: default
+    tls:
+      enabled: ${XUANTONG_CLIENT_TLS_ENABLED:false}
+      trustStore: ${XUANTONG_CLIENT_TLS_TRUST_STORE:}
+      trustStoreType: ${XUANTONG_CLIENT_TLS_TRUST_STORE_TYPE:PKCS12}
+      trustStorePassword: ${XUANTONG_CLIENT_TLS_TRUST_STORE_PASSWORD:}
+      keyStore: ${XUANTONG_CLIENT_TLS_KEY_STORE:}
+      keyStoreType: ${XUANTONG_CLIENT_TLS_KEY_STORE_TYPE:PKCS12}
+      keyStorePassword: ${XUANTONG_CLIENT_TLS_KEY_STORE_PASSWORD:}
+      keyPassword: ${XUANTONG_CLIENT_TLS_KEY_PASSWORD:}
+      hostnameVerification: true
+      reloadIntervalMs: ${XUANTONG_CLIENT_TLS_RELOAD_INTERVAL_MS:30000}
     config:
       stateGroupId: ${XUANTONG_CONFIG_GROUP_ID:config-default}
       load: demo.aaa.yml # 该 dataId 的内容可通过 @Inject 使用
     discovery:
       # 启用前需在 Server 同时开启 statePlane.registry。
-      enable: false
+      enable: true
       stateGroupId: ${XUANTONG_REGISTRY_GROUP_ID:registry-default}
       healthCheckInterval: 10s
 solon:

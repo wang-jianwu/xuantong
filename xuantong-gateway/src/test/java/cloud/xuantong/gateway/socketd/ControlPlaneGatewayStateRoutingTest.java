@@ -35,11 +35,13 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -130,6 +132,59 @@ class ControlPlaneGatewayStateRoutingTest {
             assertFalse(response.getResponseStatus().getMessage().contains("state-2"),
                     "State Node addresses must not leak to service clients");
         }
+    }
+
+    @Test
+    void storageAdmissionFailureMapsSafeWriteRetrySemantics() throws Exception {
+        try (RoutingFixture fixture = startGateway()) {
+            fixture.hello();
+            fixture.stateClient().applyResult = CompletableFuture.failedFuture(
+                    StateAccessException.retryable(
+                            StateFailureCode.STORAGE_EXHAUSTED,
+                            CONFIG_GROUP,
+                            "State storage is below the configured write-admission watermark",
+                            StateCommitStatus.NOT_COMMITTED,
+                            null));
+
+            Envelope response = fixture.request(
+                    COMMAND_EVENT, stateEnvelope(2_000, true));
+
+            assertEquals(ResponseCode.STORAGE_EXHAUSTED,
+                    response.getResponseStatus().getCode());
+            assertEquals(CommitStatus.NOT_COMMITTED,
+                    response.getResponseStatus().getCommitStatus());
+            assertTrue(response.getResponseStatus().getRetryable());
+        }
+    }
+
+    @Test
+    void expiredBudgetDoesNotStartAStateWrite() {
+        FakeStateClient stateClient = new FakeStateClient();
+        stateClient.applyResult = new CompletableFuture<>();
+        ControlPlaneStateExecutor executor = new ControlPlaneStateExecutor(stateClient);
+        ControlPlaneRequestContext expired = new ControlPlaneRequestContext(
+                "session-1",
+                "demo@node-1",
+                "demo",
+                "principal-1",
+                "gateway-1",
+                1L,
+                "default",
+                "public",
+                "DEFAULT_GROUP",
+                "127.0.0.1",
+                System.nanoTime() - 1L);
+        StateCommand command = new StateCommand(
+                CONFIG_GROUP, "op-expired-1", "test.command", 1, new byte[0]);
+
+        CompletionException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                CompletionException.class,
+                () -> executor.submit(command, expired).toCompletableFuture().join());
+
+        StateAccessException stateFailure = (StateAccessException) failure.getCause();
+        assertEquals(StateFailureCode.DEADLINE_EXCEEDED, stateFailure.code());
+        assertEquals(StateCommitStatus.UNKNOWN, stateFailure.commitStatus());
+        assertEquals(0, stateClient.submitCalls.get());
     }
 
     private RoutingFixture startGateway() throws Exception {
@@ -325,9 +380,11 @@ class ControlPlaneGatewayStateRoutingTest {
     private static final class FakeStateClient implements StateClient {
         private CompletableFuture<ApplyResult> applyResult;
         private CompletableFuture<QueryResult> queryResult;
+        private final AtomicInteger submitCalls = new AtomicInteger();
 
         @Override
         public CompletionStage<ApplyResult> submit(StateCommand command) {
+            submitCalls.incrementAndGet();
             return applyResult;
         }
 

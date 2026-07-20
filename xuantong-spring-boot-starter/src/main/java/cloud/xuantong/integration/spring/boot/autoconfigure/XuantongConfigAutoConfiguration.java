@@ -36,7 +36,8 @@ public class XuantongConfigAutoConfiguration {
                 defaults.connectTimeoutMs(),
                 defaults.requestTimeoutMs(),
                 defaults.operationTimeoutMs(),
-                defaults.closingTimeoutMs());
+                defaults.closingTimeoutMs(),
+                properties.getTls().toOptions());
         return new XuantongConfigClient(
                 properties.getServerAddresses(),
                 properties.getNamespace(),

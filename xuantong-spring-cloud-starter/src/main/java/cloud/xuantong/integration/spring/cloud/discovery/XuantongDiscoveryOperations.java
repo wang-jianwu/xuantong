@@ -1,5 +1,6 @@
 package cloud.xuantong.integration.spring.cloud.discovery;
 
+import cloud.xuantong.client.metrics.LeaseRenewalMetricsSnapshot;
 import cloud.xuantong.client.model.ServiceInstance;
 
 import java.util.List;
@@ -13,6 +14,10 @@ public interface XuantongDiscoveryOperations extends AutoCloseable {
     List<ServiceInstance> getInstances();
 
     List<String> getServices();
+
+    default LeaseRenewalMetricsSnapshot leaseRenewalMetrics() {
+        return null;
+    }
 
     @Override
     void close();

@@ -38,12 +38,14 @@ enum ResponseCode {
   RATE_LIMITED = 19;
   INTERNAL_ERROR = 20;
   SERVICE_FENCED = 21;
+  STORAGE_EXHAUSTED = 22;
 }
 
 enum CommitStatus {
   COMMIT_STATUS_UNSPECIFIED = 0;
   NOT_APPLICABLE = 1;
   UNKNOWN = 2;
+  NOT_COMMITTED = 3;
 }
 
 message ResponseStatus {
@@ -139,8 +141,15 @@ message ConfigContentValue {
   string blob_reference = 6;
 }
 
+enum ConfigValueState {
+  CONFIG_VALUE_STATE_UNSPECIFIED = 0;
+  CONFIG_VALUE_STATE_MISSING = 1;
+  CONFIG_VALUE_STATE_ACTIVE = 2;
+  CONFIG_VALUE_STATE_TOMBSTONE = 3;
+}
+
 message ConfigFetchResponse {
-  bool found = 1;
+  ConfigValueState state = 1;
   ConfigCoordinate config = 2;
   uint64 decision_revision = 3;
   ConfigContentValue content = 4;
@@ -159,6 +168,7 @@ message ConfigDecisionSummary {
   uint64 decision_revision = 2;
   uint64 stable_content_revision = 3;
   repeated ConfigRuleSummary rules = 4;
+  ConfigValueState state = 5;
 }
 
 message ConfigSnapshotRequest {

@@ -1,9 +1,11 @@
 package cloud.xuantong.server.state;
 
+import cloud.xuantong.common.metrics.FixedLatencyHistogram;
 import cloud.xuantong.config.state.ConfigStateMachine;
 import cloud.xuantong.gateway.socketd.ControlPlaneRequestDispatcher;
 import cloud.xuantong.gateway.socketd.ControlPlaneRequestHandler;
 import cloud.xuantong.gateway.socketd.ControlPlaneStateExecutor;
+import cloud.xuantong.gateway.socketd.ControlPlaneGatewayRuntime;
 import cloud.xuantong.raft.ratis.RatisGroupCatalog;
 import cloud.xuantong.raft.ratis.RatisGroupDefinition;
 import cloud.xuantong.raft.ratis.RatisStateNode;
@@ -39,6 +41,10 @@ public final class ControlStatePlaneRuntime {
     private RegistryStatePlaneProperties registryProperties;
     @Inject
     private ControlPlaneRequestDispatcher dispatcher;
+    @Inject
+    private ControlPlaneGatewayRuntime gatewayRuntime;
+    @Inject
+    private StateStorageTelemetry stateStorageTelemetry;
 
     private final List<ControlPlaneRequestHandler> registeredHandlers = new ArrayList<>();
     private volatile RatisStateNode node;
@@ -62,6 +68,7 @@ public final class ControlStatePlaneRuntime {
         this.configProperties = configProperties;
         this.registryProperties = registryProperties;
         this.dispatcher = dispatcher;
+        this.stateStorageTelemetry = new StateStorageTelemetry(configProperties);
     }
 
     @Init(index = 1_500)
@@ -94,18 +101,29 @@ public final class ControlStatePlaneRuntime {
         RatisStateRouter candidateRouter = null;
         List<ControlPlaneRequestHandler> handlers = new ArrayList<>();
         try {
+            StateStorageTelemetry storageAdmission = stateStorageTelemetry;
+            if (storageAdmission == null) {
+                storageAdmission = new StateStorageTelemetry(configProperties);
+                stateStorageTelemetry = storageAdmission;
+            }
             candidateNode = new RatisStateNode(
                     configProperties.nodeOptions(configGroup),
                     catalog,
                     groupId -> stateMachine(groupId));
             candidateNode.start();
-            if (registryGroup != null) {
+            if (registryGroup != null && !configProperties.joinExisting()) {
                 candidateNode.addGroup(registryGroup);
+            }
+            if (!configProperties.joinExisting()) {
+                candidateNode.awaitReady(
+                        groups.stream().map(RatisGroupDefinition::groupId).toList(),
+                        configProperties.startupReadyTimeout());
             }
             candidateRouter = new RatisStateRouter(
                     groups,
                     configProperties.requestTimeout(),
-                    configProperties.clientMaxAttempts());
+                    configProperties.clientMaxAttempts(),
+                    storageAdmission);
             ControlPlaneStateExecutor stateExecutor =
                     new ControlPlaneStateExecutor(candidateRouter);
             addConfigHandlers(handlers, stateExecutor);
@@ -122,10 +140,11 @@ public final class ControlStatePlaneRuntime {
                 startExpirationCoordinator(
                         candidateNode, candidateRouter, registryGroup.groupId());
             }
-            log.info("State Plane started: nodeId={}, groups={}, peers={}, storage={}",
+            log.info("State Plane started: nodeId={}, groups={}, peers={}, startupMode={}, storage={}",
                     candidateNode.nodeId(),
                     groups.stream().map(group -> group.groupId().canonicalName()).toList(),
                     configGroup.peers().size(),
+                    configProperties.joinExisting() ? "JOIN_EXISTING" : "BOOTSTRAP_OR_RECOVER",
                     configProperties.nodeOptions(configGroup).storageDirectory());
         } catch (Exception e) {
             stopExpirationCoordinator();
@@ -150,7 +169,7 @@ public final class ControlStatePlaneRuntime {
     private void addConfigHandlers(
             List<ControlPlaneRequestHandler> handlers,
             ControlPlaneStateExecutor stateExecutor) {
-        handlers.add(new ConfigFetchControlPlaneHandler(stateExecutor));
+        handlers.add(new ConfigFetchControlPlaneHandler(stateExecutor, gatewayRuntime));
         handlers.add(new ConfigSnapshotControlPlaneHandler(stateExecutor));
         handlers.add(new ConfigWatchBatchControlPlaneHandler(stateExecutor));
     }
@@ -238,7 +257,9 @@ public final class ControlStatePlaneRuntime {
 
     public boolean isRunning() {
         RatisStateNode current = node;
-        return current != null && current.isRunning() && router != null;
+        RatisStateRouter currentRouter = router;
+        return current != null && currentRouter != null
+                && current.isReady(currentRouter.groups());
     }
 
     public StateClient stateClient() {
@@ -247,6 +268,30 @@ public final class ControlStatePlaneRuntime {
             throw new IllegalStateException("State Plane is not running");
         }
         return current;
+    }
+
+    public FixedLatencyHistogram.Snapshot stateApplyLatencySnapshot() {
+        RatisStateRouter current = router;
+        return current == null ? null : current.applyLatencySnapshot();
+    }
+
+    public synchronized void refreshTopology(List<cloud.xuantong.raft.ratis.RatisPeerDefinition> peers)
+            throws java.io.IOException {
+        RatisStateRouter current = router;
+        if (current == null) {
+            throw new IllegalStateException("State Plane is not running");
+        }
+        RatisGroupDefinition configGroup = new RatisGroupDefinition(
+                configProperties.stateGroupId(), peers);
+        List<RatisGroupDefinition> groups = new ArrayList<>();
+        groups.add(configGroup);
+        if (registryProperties.isEnabled()) {
+            groups.add(registryProperties.groupDefinition(configGroup.peers()));
+        }
+        current.replaceGroups(groups);
+        log.info("State client topology refreshed: peers={}",
+                peers.stream().map(cloud.xuantong.raft.ratis.RatisPeerDefinition::nodeId)
+                        .toList());
     }
 
     private static void closeQuietly(AutoCloseable closeable) {

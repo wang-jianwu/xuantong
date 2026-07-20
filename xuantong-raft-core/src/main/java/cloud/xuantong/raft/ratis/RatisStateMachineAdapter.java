@@ -11,8 +11,8 @@ import cloud.xuantong.state.api.StateQuery;
 import cloud.xuantong.state.api.StateRevision;
 import cloud.xuantong.state.api.WatchBatch;
 import cloud.xuantong.state.api.WatchRequest;
-import org.apache.ratis.proto.RaftProtos.LogEntryProto;
 import org.apache.ratis.io.MD5Hash;
+import org.apache.ratis.proto.RaftProtos.LogEntryProto;
 import org.apache.ratis.protocol.Message;
 import org.apache.ratis.protocol.RaftClientRequest;
 import org.apache.ratis.protocol.RaftGroupId;
@@ -37,6 +37,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -46,13 +47,24 @@ public final class RatisStateMachineAdapter extends BaseStateMachine {
     private static final int SNAPSHOT_FORMAT_VERSION = 1;
 
     private final StateMachine delegate;
+    private final String implementationVersion;
     private final SimpleStateMachineStorage storage = new SimpleStateMachineStorage();
+    private Path stateMachineDirectory;
 
     public RatisStateMachineAdapter(StateMachine delegate) {
+        this(delegate, detectedImplementationVersion());
+    }
+
+    public RatisStateMachineAdapter(
+            StateMachine delegate, String implementationVersion) {
         if (delegate == null) {
             throw new IllegalArgumentException("delegate must not be null");
         }
+        if (implementationVersion == null || implementationVersion.isBlank()) {
+            throw new IllegalArgumentException("implementationVersion must not be blank");
+        }
         this.delegate = delegate;
+        this.implementationVersion = implementationVersion.trim();
     }
 
     @Override
@@ -60,6 +72,7 @@ public final class RatisStateMachineAdapter extends BaseStateMachine {
             RaftServer server, RaftGroupId groupId, RaftStorage raftStorage) throws IOException {
         super.initialize(server, groupId, raftStorage);
         storage.init(raftStorage);
+        stateMachineDirectory = raftStorage.getStorageDir().getStateMachineDir().toPath();
         reinitialize();
     }
 
@@ -70,22 +83,57 @@ public final class RatisStateMachineAdapter extends BaseStateMachine {
 
     @Override
     public synchronized void reinitialize() throws IOException {
-        SingleFileSnapshotInfo snapshot = storage.loadLatestSnapshot();
-        if (snapshot == null) {
+        Path snapshotPath = findLatestSnapshot();
+        if (snapshotPath == null) {
             return;
         }
-        Path snapshotPath = snapshot.getFile().getPath();
-        MD5Hash md5 = snapshot.getFile().getFileDigest();
-        if (md5 != null) {
-            MD5FileUtil.verifySavedMD5(snapshotPath.toFile(), md5);
-        }
+        RatisSnapshotChecksum.verify(snapshotPath);
+        TermIndex termIndex = SimpleStateMachineStorage.getTermIndexFromSnapshotFile(
+                snapshotPath.toFile());
+        MD5Hash md5 = MD5FileUtil.readStoredMd5ForFile(snapshotPath.toFile());
+        storage.updateLatestSnapshot(new SingleFileSnapshotInfo(
+                new FileInfo(snapshotPath, md5), termIndex));
         try (DataInputStream input = new DataInputStream(
                 Files.newInputStream(snapshotPath))) {
             readAndInstallSnapshot(input);
         }
-        setLastAppliedTermIndex(
-                SimpleStateMachineStorage.getTermIndexFromSnapshotFile(
-                        snapshotPath.toFile()));
+        setLastAppliedTermIndex(termIndex);
+    }
+
+    private Path findLatestSnapshot() throws IOException {
+        Path directory = stateMachineDirectory;
+        if (directory == null || !Files.isDirectory(directory)) {
+            return null;
+        }
+        try (var files = Files.list(directory)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(path -> SimpleStateMachineStorage.SNAPSHOT_REGEX
+                            .matcher(path.getFileName().toString()).matches())
+                    .max(Comparator
+                            .comparingLong((Path path) -> snapshotTermIndex(path).getIndex())
+                            .thenComparingLong(path -> snapshotTermIndex(path).getTerm()))
+                    .orElse(null);
+        } catch (SnapshotFileNameException e) {
+            throw e.ioException;
+        }
+    }
+
+    private TermIndex snapshotTermIndex(Path path) {
+        try {
+            return SimpleStateMachineStorage.getTermIndexFromSnapshotFile(path.toFile());
+        } catch (RuntimeException e) {
+            throw new SnapshotFileNameException(new IOException(
+                    "Invalid Snapshot file name: " + path, e));
+        }
+    }
+
+    private static final class SnapshotFileNameException extends RuntimeException {
+        private final IOException ioException;
+
+        private SnapshotFileNameException(IOException ioException) {
+            super(ioException);
+            this.ioException = ioException;
+        }
     }
 
     @Override
@@ -168,6 +216,15 @@ public final class RatisStateMachineAdapter extends BaseStateMachine {
                 requireGroup(batch.groupId());
                 return CompletableFuture.completedFuture(message(
                         RatisStateMessageCodec.encodeWatchBatch(batch)));
+            }
+            if (messageType == RatisStateMessageCodec.CAPABILITY_REQUEST) {
+                cloud.xuantong.state.api.StateGroupId requestedGroup =
+                        RatisStateMessageCodec.decodeCapabilityRequest(payload);
+                requireGroup(requestedGroup);
+                return CompletableFuture.completedFuture(message(
+                        RatisStateMessageCodec.encodeCapabilityResponse(
+                                delegate.groupId(), implementationVersion,
+                                delegate.compatibility())));
             }
             throw new IOException("Unsupported state read message type: " + messageType);
         } catch (Exception e) {
@@ -311,5 +368,11 @@ public final class RatisStateMachineAdapter extends BaseStateMachine {
         } catch (AtomicMoveNotSupportedException e) {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    private static String detectedImplementationVersion() {
+        String version = RatisStateMachineAdapter.class.getPackage()
+                .getImplementationVersion();
+        return version == null || version.isBlank() ? "2.0.0-SNAPSHOT" : version;
     }
 }

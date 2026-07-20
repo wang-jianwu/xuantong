@@ -5,5 +5,6 @@ enum ConfigStateOperationType {
     ROLLOUT_START,
     ROLLOUT_PROMOTE,
     ROLLOUT_ABORT,
-    ROLLBACK
+    ROLLBACK,
+    TOMBSTONE
 }

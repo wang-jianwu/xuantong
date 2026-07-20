@@ -55,5 +55,9 @@ class ConfigStatePlanePropertiesTest {
         assertEquals(1, group.peers().size());
         assertEquals(tempDirectory.toAbsolutePath().normalize(),
                 properties.nodeOptions(group).storageDirectory());
+        assertEquals(0L, properties.nodeOptions(group).storageFreeSpaceMinBytes());
+        assertEquals(3, properties.nodeOptions(group).snapshotRetentionFileCount());
+        assertEquals("127.0.0.1", properties.nodeOptions(group).rpcBindHost());
+        assertEquals(9101, properties.nodeOptions(group).rpcBindPort());
     }
 }

@@ -81,6 +81,12 @@
             <version>${spring-boot.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>cloud.xuantong</groupId>
+            <artifactId>xuantong-server</artifactId>
+            <version>${xuantong.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

@@ -207,6 +207,14 @@ public final class RatisStateClient implements StateClient {
         }
     }
 
+    public RatisStateNodeCapability capability(String nodeId) throws IOException {
+        group.requirePeer(nodeId);
+        RatisResult result = linearizableRead(
+                RatisStateMessageCodec.encodeCapabilityRequest(group.groupId()), nodeId);
+        return RatisStateMessageCodec.decodeCapabilityResponse(
+                result.serverId(), result.payload());
+    }
+
     private RatisResult requireSuccess(RaftClientReply reply) throws IOException {
         if (reply == null) {
             throw new RatisOperationException("Raft operation returned no reply");

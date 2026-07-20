@@ -1,5 +1,7 @@
 package cloud.xuantong.security.service;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.security.event.ClientAccessTokenRevokedEvent;
 import cloud.xuantong.security.model.ClientAccessToken;
 import cloud.xuantong.security.repository.ClientAccessTokenRepository;
@@ -138,6 +140,11 @@ public class ClientAccessTokenService {
 
     public List<ClientAccessToken> findAll() {
         return repository.findAll();
+    }
+
+    public PageResult<ClientAccessToken> findPage(
+            String keyword, Boolean active, PageQuery pageQuery) {
+        return repository.findPage(keyword, active, pageQuery);
     }
 
     public boolean revoke(Long id) {

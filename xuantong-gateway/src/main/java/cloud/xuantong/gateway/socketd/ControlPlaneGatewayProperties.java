@@ -136,6 +136,27 @@ public class ControlPlaneGatewayProperties {
     }
 
     ControlPlaneGatewayProperties(
+            String host,
+            int port,
+            String clusterId,
+            String gatewayId,
+            long transportGeneration,
+            long maxRequestBudgetMs,
+            int maxInFlightRequests,
+            int workThreads,
+            int workQueueCapacity,
+            int tenantRequestRatePerSecond,
+            int tenantRequestBurst,
+            long drainTimeoutMs,
+            ClientAuth clientAuth) {
+        this(host, port, clusterId, gatewayId, transportGeneration,
+                maxRequestBudgetMs, maxInFlightRequests, workThreads,
+                workQueueCapacity, drainTimeoutMs, clientAuth);
+        this.tenantRequestRatePerSecond = tenantRequestRatePerSecond;
+        this.tenantRequestBurst = tenantRequestBurst;
+    }
+
+    ControlPlaneGatewayProperties(
             String clusterId,
             String gatewayId,
             long transportGeneration,

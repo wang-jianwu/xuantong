@@ -3,6 +3,7 @@ package cloud.xuantong.server.state.management;
 import cloud.xuantong.config.state.ConfigActor;
 import cloud.xuantong.config.state.ConfigContentDraft;
 import cloud.xuantong.config.state.ConfigContentReference;
+import cloud.xuantong.config.state.ConfigDecisionState;
 import cloud.xuantong.config.state.ConfigKey;
 import cloud.xuantong.config.state.ConfigMutation;
 import cloud.xuantong.config.state.ConfigMutationError;
@@ -11,10 +12,10 @@ import cloud.xuantong.config.state.ConfigStateCodec;
 import cloud.xuantong.config.state.ReleaseDecision;
 import cloud.xuantong.config.state.ResolvedConfigOperation;
 import cloud.xuantong.config.state.RolloutRule;
-import cloud.xuantong.config.state.RolloutRuleDraft;
 import cloud.xuantong.config.state.RolloutRuleStatus;
-import cloud.xuantong.config.state.RolloutSelectorType;
 import cloud.xuantong.config.management.model.ConfigRelease;
+import cloud.xuantong.config.management.model.ConfigLifecycleStatus;
+import cloud.xuantong.config.management.content.ConfigContentService;
 import cloud.xuantong.config.management.model.ConfigResource;
 import cloud.xuantong.resource.model.ConfigResourceKey;
 import cloud.xuantong.config.management.model.ConfigRollout;
@@ -36,7 +37,6 @@ import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
@@ -61,6 +61,7 @@ public class ConfigStateManagementService {
     private final AtomicLong rolloutPromotedCommittedTotal = new AtomicLong();
     private final AtomicLong rolloutAbortedCommittedTotal = new AtomicLong();
     private final AtomicLong rollbackCommittedTotal = new AtomicLong();
+    private final AtomicLong tombstoneCommittedTotal = new AtomicLong();
     private final AtomicLong commitUnknownTotal = new AtomicLong();
     private final AtomicLong projectionFailureTotal = new AtomicLong();
     private final AtomicLong projectionRecoveredTotal = new AtomicLong();
@@ -75,6 +76,8 @@ public class ConfigStateManagementService {
     @Inject
     private ConfigStateAccess stateAccess;
     @Inject
+    private ConfigContentService contentService;
+    @Inject
     private ConfigStateProjectionService projectionService;
 
     public ConfigStateWriteResult publish(
@@ -85,7 +88,8 @@ public class ConfigStateManagementService {
             String operationId) {
         ConfigResourceKey key = ConfigResourceKey.of(namespaceId, groupName, dataId);
         ConfigStateWriteResult resumed = resumeExisting(
-                key, operator, operationId, ConfigStateOperationType.PUBLISH, null, null);
+                key, operator, operationId, ConfigStateOperationType.PUBLISH,
+                null, null, null);
         if (resumed != null) return resumed;
 
         requireStateAvailable();
@@ -108,24 +112,16 @@ public class ConfigStateManagementService {
                 ConfigStateOperationType.PUBLISH, key, operator, operationId, mutation, plan);
     }
 
-    public ConfigStateWriteResult startRollout(
+    public ConfigStateWriteResult tombstone(
             String namespaceId,
             String groupName,
             String dataId,
-            ConfigRolloutPolicy policy,
             String operator,
             String operationId) {
-        if (policy == null) {
-            throw new IllegalArgumentException("Rollout policy must not be null");
-        }
         ConfigResourceKey key = ConfigResourceKey.of(namespaceId, groupName, dataId);
         ConfigStateWriteResult resumed = resumeExisting(
-                key,
-                operator,
-                operationId,
-                ConfigStateOperationType.ROLLOUT_START,
-                policy.type().name(),
-                policy.targetValue());
+                key, operator, operationId, ConfigStateOperationType.TOMBSTONE,
+                null, null, null);
         if (resumed != null) return resumed;
 
         requireStateAvailable();
@@ -133,10 +129,70 @@ public class ConfigStateManagementService {
         ensureNoActiveDatabaseRollout(resource);
         ReleaseDecision current = requirePublishedDecision(key);
         ensureNoActiveStateRollout(current);
+        if (current.tombstone()) {
+            throw new IllegalStateException(
+                    "Config is already tombstoned: " + key.canonicalName());
+        }
+
+        ConfigMutation mutation = new ConfigMutation(
+                actor(key, operator),
+                stateKey(key),
+                current.decisionRevision(),
+                null,
+                ConfigDecisionState.TOMBSTONE,
+                null,
+                List.of());
+        ConfigStateProjectionPlan plan = releasePlan(
+                resource, key, operator, ReleaseType.TOMBSTONE,
+                "CONFIG_TOMBSTONED", 0, null);
+        plan.setLifecycleStatus(ConfigLifecycleStatus.TOMBSTONE.name());
+        plan.setContent(null);
+        plan.setContentType(null);
+        plan.setChecksum(null);
+        return createAndExecute(
+                ConfigStateOperationType.TOMBSTONE,
+                key,
+                operator,
+                operationId,
+                mutation,
+                plan);
+    }
+
+    public ConfigStateWriteResult startRollout(
+            String namespaceId,
+            String groupName,
+            String dataId,
+            ConfigRolloutPolicy policy,
+            String rolloutKey,
+            String operator,
+            String operationId) {
+        if (policy == null) {
+            throw new IllegalArgumentException("Rollout policy must not be null");
+        }
+        String normalizedRolloutKey = ConfigRolloutRuleFactory.requireRolloutKey(rolloutKey);
+        ConfigResourceKey key = ConfigResourceKey.of(namespaceId, groupName, dataId);
+        ConfigStateWriteResult resumed = resumeExisting(
+                key,
+                operator,
+                operationId,
+                ConfigStateOperationType.ROLLOUT_START,
+                policy.type().name(),
+                policy.targetValue(),
+                normalizedRolloutKey);
+        if (resumed != null) return resumed;
+
+        requireStateAvailable();
+        ConfigResource resource = requireResource(key);
+        ensureNoActiveDatabaseRollout(resource);
+        ReleaseDecision current = requirePublishedDecision(key);
+        requireActiveDecision(key, current);
+        ensureNoActiveStateRollout(current);
         ConfigRelease baseline = requireStableProjection(resource, current);
 
         String rolloutId = UUID.randomUUID().toString();
-        RolloutRuleDraft rule = rolloutRule(rolloutId, policy);
+        cloud.xuantong.config.state.RolloutRuleDraft rule =
+                ConfigRolloutRuleFactory.activeCandidate(
+                        rolloutId, normalizedRolloutKey, policy);
         ConfigMutation mutation = new ConfigMutation(
                 actor(key, operator),
                 stateKey(key),
@@ -153,6 +209,7 @@ public class ConfigStateManagementService {
         plan.setCandidateReleaseId(plan.getReleaseId());
         plan.setRolloutType(policy.type().name());
         plan.setTargetValue(policy.targetValue());
+        plan.setRolloutKey(normalizedRolloutKey);
         plan.setRolloutStatus(RolloutStatus.ACTIVE.name());
         plan.setRolloutCreatedBy(operator);
         plan.setRolloutCreatedAtEpochMs(plan.getCreatedAtEpochMs());
@@ -179,6 +236,7 @@ public class ConfigStateManagementService {
                 operationId,
                 ConfigStateOperationType.ROLLOUT_PROMOTE,
                 rolloutId,
+                null,
                 null);
         if (resumed != null) return resumed;
 
@@ -225,6 +283,7 @@ public class ConfigStateManagementService {
                 operationId,
                 ConfigStateOperationType.ROLLOUT_ABORT,
                 rolloutId,
+                null,
                 null);
         if (resumed != null) return resumed;
 
@@ -271,6 +330,7 @@ public class ConfigStateManagementService {
                 operationId,
                 ConfigStateOperationType.ROLLBACK,
                 targetReleaseId,
+                null,
                 null);
         if (resumed != null) return resumed;
 
@@ -334,6 +394,7 @@ public class ConfigStateManagementService {
     public long rolloutPromotedCommittedTotal() { return rolloutPromotedCommittedTotal.get(); }
     public long rolloutAbortedCommittedTotal() { return rolloutAbortedCommittedTotal.get(); }
     public long rollbackCommittedTotal() { return rollbackCommittedTotal.get(); }
+    public long tombstoneCommittedTotal() { return tombstoneCommittedTotal.get(); }
     public long commitUnknownTotal() { return commitUnknownTotal.get(); }
     public long projectionFailureTotal() { return projectionFailureTotal.get(); }
     public long projectionRecoveredTotal() { return projectionRecoveredTotal.get(); }
@@ -384,7 +445,8 @@ public class ConfigStateManagementService {
             String operationId,
             ConfigStateOperationType operationType,
             String expectedPrimary,
-            String expectedSecondary) {
+            String expectedSecondary,
+            String expectedRolloutKey) {
         String normalizedOperationId = requireOperationId(operationId);
         ConfigStateOperation existing = operationRepository.find(
                 key.namespaceId(), requirePrincipal(operator), normalizedOperationId);
@@ -393,7 +455,8 @@ public class ConfigStateManagementService {
         validateStoredRequest(existing, operationType, key, plan);
         if (operationType == ConfigStateOperationType.ROLLOUT_START) {
             if (!expectedPrimary.equals(plan.getRolloutType())
-                    || !expectedSecondary.equals(plan.getTargetValue())) {
+                    || !expectedSecondary.equals(plan.getTargetValue())
+                    || !expectedRolloutKey.equals(plan.getRolloutKey())) {
                 throw operationConflict(normalizedOperationId);
             }
         } else if (operationType == ConfigStateOperationType.ROLLOUT_PROMOTE
@@ -581,6 +644,7 @@ public class ConfigStateManagementService {
             case ROLLOUT_PROMOTE -> rolloutPromotedCommittedTotal.incrementAndGet();
             case ROLLOUT_ABORT -> rolloutAbortedCommittedTotal.incrementAndGet();
             case ROLLBACK -> rollbackCommittedTotal.incrementAndGet();
+            case TOMBSTONE -> tombstoneCommittedTotal.incrementAndGet();
         }
     }
 
@@ -612,6 +676,7 @@ public class ConfigStateManagementService {
         plan.setOperator(requirePrincipal(operator));
         plan.setReleaseId(UUID.randomUUID().toString());
         plan.setReleaseType(releaseType.name());
+        plan.setLifecycleStatus(ConfigLifecycleStatus.ACTIVE.name());
         plan.setContent(source == null ? resource.getContent() : source.getContent());
         plan.setContentType(source == null ? resource.getContentType() : source.getContentType());
         plan.setChecksum(source == null ? resource.getChecksum() : source.getChecksum());
@@ -632,40 +697,10 @@ public class ConfigStateManagementService {
         plan.setCandidateReleaseId(rollout.getCandidateReleaseId());
         plan.setRolloutType(rollout.getRolloutType());
         plan.setTargetValue(rollout.getTargetValue());
+        plan.setRolloutKey(rollout.getRolloutKey());
         plan.setRolloutStatus(status.name());
         plan.setRolloutCreatedBy(rollout.getCreatedBy());
         plan.setRolloutCreatedAtEpochMs(rollout.getCreatedAt().getTime());
-    }
-
-    private RolloutRuleDraft rolloutRule(String rolloutId, ConfigRolloutPolicy policy) {
-        if (policy.type() == ReleaseType.GRAY_IP) {
-            return new RolloutRuleDraft(
-                    rolloutId,
-                    1,
-                    1,
-                    0,
-                    ConfigContentReference.newContent(),
-                    rolloutId,
-                    RolloutSelectorType.REMOTE_IP,
-                    "",
-                    policy.ipTargets().stream().sorted().toList(),
-                    0,
-                    stableSeed(rolloutId),
-                    RolloutRuleStatus.ACTIVE);
-        }
-        return new RolloutRuleDraft(
-                rolloutId,
-                1,
-                1,
-                0,
-                ConfigContentReference.newContent(),
-                rolloutId,
-                RolloutSelectorType.PERCENTAGE,
-                "",
-                List.of(),
-                policy.percentage() * 100,
-                stableSeed(rolloutId),
-                RolloutRuleStatus.ACTIVE);
     }
 
     private ConfigRelease requireStableProjection(
@@ -762,6 +797,15 @@ public class ConfigStateManagementService {
         return decision;
     }
 
+    private void requireActiveDecision(
+            ConfigResourceKey key, ReleaseDecision decision) {
+        if (!decision.active()) {
+            throw new IllegalStateException(
+                    "Publish or rollback an ACTIVE release before this operation: "
+                            + key.canonicalName());
+        }
+    }
+
     private ConfigResource requireResource(ConfigResourceKey key) {
         ConfigResource resource = resourceRepository.find(key);
         if (resource == null) {
@@ -776,6 +820,7 @@ public class ConfigStateManagementService {
     }
 
     private ConfigContentDraft inlineContent(ConfigResource resource) {
+        contentService.requireValid(resource.getContentType(), resource.getContent());
         return ConfigContentDraft.inline(
                 resource.getContentType(),
                 1,
@@ -902,16 +947,6 @@ public class ConfigStateManagementService {
         return new ConfigStateWriteException(
                 "operationId was already used for another Config write: " + operationId,
                 false);
-    }
-
-    private long stableSeed(String rolloutId) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(rolloutId.getBytes(StandardCharsets.UTF_8));
-            return ByteBuffer.wrap(digest).getLong();
-        } catch (Exception e) {
-            throw new IllegalStateException("SHA-256 is unavailable", e);
-        }
     }
 
     private String safeMessage(Throwable error) {

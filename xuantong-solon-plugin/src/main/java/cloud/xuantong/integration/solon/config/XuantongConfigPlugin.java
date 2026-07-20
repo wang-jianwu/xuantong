@@ -46,7 +46,8 @@ public class XuantongConfigPlugin implements Plugin {
                     defaults.connectTimeoutMs(),
                     defaults.requestTimeoutMs(),
                     defaults.operationTimeoutMs(),
-                    defaults.closingTimeoutMs());
+                    defaults.closingTimeoutMs(),
+                    configBindings.getTls().toOptions());
             new XuantongConfigClient(
                     configBindings.getServerAddresses(),
                     configBindings.getNamespace(),

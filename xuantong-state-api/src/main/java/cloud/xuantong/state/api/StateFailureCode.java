@@ -12,5 +12,6 @@ public enum StateFailureCode {
     LEASE_EXPIRED,
     UNAUTHORIZED,
     RATE_LIMITED,
+    STORAGE_EXHAUSTED,
     INTERNAL_ERROR
 }

@@ -159,7 +159,10 @@ async function logout() {
     try {
         var confirmed = await showConfirm('退出登录', '确定要退出登录吗？', '退出', '取消', 'btn-primary');
         if (confirmed) {
-            await fetch('/api/auth/logout');
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { 'X-Xuantong-CSRF': getXuantongCsrfToken() }
+            });
             window.location.href = '/login';
         }
     } catch (error) {
@@ -357,13 +360,26 @@ function newXuantongOperationId() {
     return Date.now().toString(16) + '-' + random + '-' + random.slice(0, 8);
 }
 
+function getXuantongCsrfToken() {
+    var prefix = 'XUANTONG_CSRF=';
+    var cookies = String(document.cookie || '').split(';');
+    for (var i = 0; i < cookies.length; i++) {
+        var item = cookies[i].trim();
+        if (item.indexOf(prefix) === 0) {
+            return decodeURIComponent(item.substring(prefix.length));
+        }
+    }
+    return '';
+}
+
 async function apiPost(url, data, operationId) {
     try {
         var response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Xuantong-Operation-Id': operationId || newXuantongOperationId()
+                'X-Xuantong-Operation-Id': operationId || newXuantongOperationId(),
+                'X-Xuantong-CSRF': getXuantongCsrfToken()
             },
             body: JSON.stringify(data)
         });
@@ -388,7 +404,10 @@ async function apiPut(url, data) {
     try {
         var response = await fetch(url, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Xuantong-CSRF': getXuantongCsrfToken()
+            },
             body: JSON.stringify(data)
         });
         if (response.status === 401) {
@@ -410,7 +429,10 @@ async function apiPut(url, data) {
 
 async function apiDelete(url) {
     try {
-        var response = await fetch(url, { method: 'DELETE' });
+        var response = await fetch(url, {
+            method: 'DELETE',
+            headers: { 'X-Xuantong-CSRF': getXuantongCsrfToken() }
+        });
         if (response.status === 401) {
             window.location.href = '/login';
             throw new Error('Unauthorized');
@@ -434,6 +456,80 @@ function requireApiSuccess(result) {
         throw new Error((result && (result.description || result.message)) || '请求失败');
     }
     return result.data;
+}
+
+/** 在现有 URL 后追加非空查询参数。 */
+function withQuery(url, params) {
+    var query = new URLSearchParams();
+    Object.keys(params || {}).forEach(function(key) {
+        var value = params[key];
+        if (value !== undefined && value !== null && value !== '') {
+            query.set(key, String(value));
+        }
+    });
+    var encoded = query.toString();
+    if (!encoded) return url;
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + encoded;
+}
+
+/** 校验并返回统一分页合同，避免页面误把 PageResult 当数组使用。 */
+function requirePageResult(result) {
+    var page = requireApiSuccess(result);
+    if (!page || !Array.isArray(page.items)) {
+        throw new Error('服务端返回了无效的分页数据');
+    }
+    return page;
+}
+
+/** 渲染统一的分页控件；onChange(page, pageSize) 负责重新加载数据。 */
+function renderPagination(containerId, pageResult, onChange) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    if (!pageResult) {
+        container.innerHTML = '';
+        return;
+    }
+
+    var current = Math.max(1, Number(pageResult.page) || 1);
+    var pageSize = Math.max(1, Number(pageResult.pageSize) || 20);
+    var totalItems = Math.max(0, Number(pageResult.totalItems) || 0);
+    var totalPages = Math.max(0, Number(pageResult.totalPages) || 0);
+    var lastPage = Math.max(1, totalPages);
+    var sizes = [20, 50, 100, 200];
+    if (sizes.indexOf(pageSize) < 0) sizes.push(pageSize);
+    sizes.sort(function(a, b) { return a - b; });
+
+    container.className = 'pagination';
+    container.innerHTML =
+        '<span class="page-summary">共 ' + totalItems + ' 条，第 ' + current + ' / ' + lastPage + ' 页</span>' +
+        '<button type="button" class="page-btn" data-page="1" ' + (current <= 1 ? 'disabled' : '') + '>首页</button>' +
+        '<button type="button" class="page-btn" data-page="' + Math.max(1, current - 1) + '" ' + (current <= 1 ? 'disabled' : '') + '>上一页</button>' +
+        '<button type="button" class="page-btn" data-page="' + Math.min(lastPage, current + 1) + '" ' + (!pageResult.hasNext ? 'disabled' : '') + '>下一页</button>' +
+        '<button type="button" class="page-btn" data-page="' + lastPage + '" ' + (!pageResult.hasNext ? 'disabled' : '') + '>末页</button>' +
+        '<label class="page-size">每页 <select class="form-select form-select-sm" aria-label="每页条数">' +
+        sizes.map(function(size) {
+            return '<option value="' + size + '" ' + (size === pageSize ? 'selected' : '') + '>' + size + '</option>';
+        }).join('') + '</select> 条</label>';
+
+    container.querySelectorAll('[data-page]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            if (!button.disabled) {
+                Promise.resolve(onChange(Number(button.dataset.page), pageSize))
+                    .catch(function(error) {
+                        showToast(error.message || '分页加载失败', 'error');
+                    });
+            }
+        });
+    });
+    var sizeSelect = container.querySelector('select');
+    if (sizeSelect) {
+        sizeSelect.addEventListener('change', function() {
+            Promise.resolve(onChange(1, Number(sizeSelect.value)))
+                .catch(function(error) {
+                    showToast(error.message || '分页加载失败', 'error');
+                });
+        });
+    }
 }
 
 /** 解析当前控制面导出的 Prometheus 文本指标。 */

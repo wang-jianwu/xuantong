@@ -721,6 +721,26 @@ body {
     cursor: not-allowed;
 }
 
+.pagination .page-summary {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    margin-right: 4px;
+}
+
+.pagination .page-size {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    margin-left: 4px;
+}
+
+.pagination .page-size select {
+    width: auto;
+    min-width: 72px;
+}
+
 /* ---- 空状态 ---- */
 .empty-state {
     text-align: center;

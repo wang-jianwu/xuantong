@@ -11,6 +11,7 @@ import cloud.xuantong.state.api.StateGroupType;
 import cloud.xuantong.state.api.StateQuery;
 import cloud.xuantong.state.api.StateRevision;
 import cloud.xuantong.state.api.StateRevisionType;
+import cloud.xuantong.state.api.StateMachineCompatibility;
 import cloud.xuantong.state.api.WatchBatch;
 import cloud.xuantong.state.api.WatchEvent;
 import cloud.xuantong.state.api.WatchRequest;
@@ -28,7 +29,8 @@ import java.util.List;
 
 final class RatisStateMessageCodec {
     private static final int MAGIC = 0x58545332;
-    private static final int VERSION = 1;
+    static final int MINIMUM_VERSION = 1;
+    static final int CURRENT_VERSION = 1;
     private static final int MAX_STRING_BYTES = 64 * 1024;
     private static final int MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
     private static final int MAX_LIST_SIZE = 100_000;
@@ -36,9 +38,11 @@ final class RatisStateMessageCodec {
     static final int COMMAND = 1;
     static final int QUERY = 2;
     static final int WATCH_REQUEST = 3;
+    static final int CAPABILITY_REQUEST = 4;
     private static final int APPLY_RESULT = 11;
     private static final int QUERY_RESULT = 12;
     private static final int WATCH_BATCH = 13;
+    private static final int CAPABILITY_RESPONSE = 14;
 
     private RatisStateMessageCodec() {
     }
@@ -208,6 +212,54 @@ final class RatisStateMessageCodec {
         }
     }
 
+    static byte[] encodeCapabilityRequest(StateGroupId groupId) throws IOException {
+        return encode(CAPABILITY_REQUEST, output -> writeGroup(output, groupId));
+    }
+
+    static StateGroupId decodeCapabilityRequest(byte[] bytes) throws IOException {
+        try (DataInputStream input = open(bytes, CAPABILITY_REQUEST)) {
+            StateGroupId groupId = readGroup(input);
+            requireExhausted(input);
+            return groupId;
+        }
+    }
+
+    static byte[] encodeCapabilityResponse(
+            StateGroupId groupId,
+            String implementationVersion,
+            StateMachineCompatibility compatibility) throws IOException {
+        return encode(CAPABILITY_RESPONSE, output -> {
+            writeGroup(output, groupId);
+            writeString(output, implementationVersion);
+            output.writeInt(MINIMUM_VERSION);
+            output.writeInt(CURRENT_VERSION);
+            output.writeInt(compatibility.minimumCommandSchemaVersion());
+            output.writeInt(compatibility.maximumCommandSchemaVersion());
+            output.writeInt(compatibility.minimumReadableSnapshotSchemaVersion());
+            output.writeInt(compatibility.maximumReadableSnapshotSchemaVersion());
+            output.writeInt(compatibility.writableSnapshotSchemaVersion());
+        });
+    }
+
+    static RatisStateNodeCapability decodeCapabilityResponse(
+            String nodeId, byte[] bytes) throws IOException {
+        try (DataInputStream input = open(bytes, CAPABILITY_RESPONSE)) {
+            StateGroupId groupId = readGroup(input);
+            String implementationVersion = readString(input);
+            int minimumEnvelope = input.readInt();
+            int maximumEnvelope = input.readInt();
+            StateMachineCompatibility compatibility = new StateMachineCompatibility(
+                    input.readInt(), input.readInt(), input.readInt(), input.readInt(),
+                    input.readInt());
+            requireExhausted(input);
+            return new RatisStateNodeCapability(
+                    nodeId, groupId, implementationVersion,
+                    minimumEnvelope, maximumEnvelope, compatibility);
+        } catch (IllegalArgumentException e) {
+            throw invalid("Invalid State node capability", e);
+        }
+    }
+
     static int messageType(byte[] bytes) throws IOException {
         try (DataInputStream input = new DataInputStream(
                 new ByteArrayInputStream(requireBytes(bytes)))) {
@@ -367,7 +419,7 @@ final class RatisStateMessageCodec {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         try (DataOutputStream output = new DataOutputStream(buffer)) {
             output.writeInt(MAGIC);
-            output.writeByte(VERSION);
+            output.writeByte(CURRENT_VERSION);
             output.writeByte(messageType);
             encoder.encode(output);
         }
@@ -391,7 +443,7 @@ final class RatisStateMessageCodec {
             throw new IOException("Invalid state message magic");
         }
         int version = input.readUnsignedByte();
-        if (version != VERSION) {
+        if (version < MINIMUM_VERSION || version > CURRENT_VERSION) {
             throw new IOException("Unsupported state message version: " + version);
         }
     }

@@ -32,6 +32,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -60,6 +61,17 @@ class RatisThreeNodePoCTest {
     @AfterEach
     void closeNodes() {
         closeAllNodes();
+    }
+
+    @Test
+    void everyReplicaBecomesReadyAfterCurrentTermStartupEntryIsApplied()
+            throws Exception {
+        ClusterFixture cluster = startCluster("readiness-poc");
+
+        for (RatisStateNode node : cluster.nodes().values()) {
+            node.awaitReady(List.of(cluster.group().groupId()), Duration.ofSeconds(10));
+            assertTrue(node.isReady(List.of(cluster.group().groupId())));
+        }
     }
 
     @Test
@@ -102,7 +114,7 @@ class RatisThreeNodePoCTest {
     }
 
     @Test
-    void leaderFailureElectsReplacementAndMinorityCannotCommit() throws Exception {
+    void leaderFailureElectsReplacementAndLostQuorumRecovers() throws Exception {
         ClusterFixture cluster = startCluster("registry-poc");
         RatisResult first;
         try (RatisStateClient client = new RatisStateClient(
@@ -134,6 +146,31 @@ class RatisThreeNodePoCTest {
             assertThrows(IOException.class, () -> minorityClient.write(command(INCREMENT)),
                     "A single remaining voter must not acknowledge a write");
         }
+
+        RatisPeerDefinition recoveringPeer = cluster.group().requirePeer(
+                remainingFollower.nodeId());
+        int recoveringIndex = cluster.group().peers().indexOf(recoveringPeer);
+        RatisStateNode recoveredFollower = startNode(
+                cluster.group(),
+                cluster.storageDirectories().get(recoveringIndex),
+                recoveringPeer,
+                cluster.applyBarrier(),
+                cluster.snapshotAutoTriggerThreshold(),
+                cluster.snapshotOnShutdown());
+        cluster.nodes().put(recoveringPeer.nodeId(), recoveredFollower);
+
+        try (RatisStateClient recoveredClient = new RatisStateClient(
+                cluster.group(), Duration.ofSeconds(2), 10)) {
+            long valueAfterQuorumRecovery = decodeLong(
+                    readEventually(recoveredClient, Duration.ofSeconds(15)).payload());
+            RatisResult next = writeEventually(
+                    recoveredClient, Duration.ofSeconds(15));
+            assertEquals(valueAfterQuorumRecovery + 1L, decodeLong(next.payload()));
+            assertEquals(decodeLong(next.payload()), decodeLong(readEventually(
+                    recoveredClient,
+                    recoveringPeer.nodeId(),
+                    Duration.ofSeconds(10)).payload()));
+        }
     }
 
     @Test
@@ -153,6 +190,109 @@ class RatisThreeNodePoCTest {
                 restarted.group(), Duration.ofSeconds(2), 5)) {
             assertEquals(3L, decodeLong(readEventually(client, Duration.ofSeconds(15)).payload()));
             assertNoSnapshot(restarted.storageDirectories());
+        }
+    }
+
+    @Test
+    void corruptedWalHeaderFailsNodeStartupAndRemainsUnhealthy() throws Exception {
+        assertWalDamage("header", this::corruptFirstByte, true);
+    }
+
+    @Test
+    void corruptedCommittedWalEntryFailsNodeStartupAndRemainsUnhealthy() throws Exception {
+        assertWalDamage("entry-checksum", this::corruptLastByte, true);
+    }
+
+    @Test
+    void incompleteWalTailPreservesAcknowledgedStateAndRemainsWritable() throws Exception {
+        assertWalDamage("incomplete-tail", this::appendIncompleteByte, false);
+    }
+
+    private void assertWalDamage(
+            String caseName, WalDamage damage, boolean expectStartupFailure)
+            throws Exception {
+        RatisPeerDefinition peer = new RatisPeerDefinition(
+                "state-1", "127.0.0.1", freePort());
+        RatisGroupDefinition group = new RatisGroupDefinition(
+                StateGroupId.meta("wal-corruption-" + caseName), List.of(peer));
+        Path storage = tempDirectory.resolve("wal-corruption-" + caseName)
+                .resolve(peer.nodeId());
+        AtomicReference<ApplyBarrier> applyBarrier = new AtomicReference<>();
+        RatisStateNode first = startNode(
+                group, storage, peer, applyBarrier, 10_000L, false);
+        try (RatisStateClient client = new RatisStateClient(
+                group, Duration.ofSeconds(2), 5)) {
+            assertEquals(1L, decodeLong(
+                    writeEventually(client, Duration.ofSeconds(15)).payload()));
+            assertEquals(2L, decodeLong(client.write(command(INCREMENT)).payload()));
+            assertTrue(first.isHealthy());
+            assertNoSnapshot(List.of(storage));
+        }
+        first.close();
+        openNodes.remove(first);
+        assertFalse(first.isHealthy());
+
+        Path wal = latestWal(storage);
+        damage.apply(wal);
+        RatisNodeOptions options = new RatisNodeOptions(
+                peer.nodeId(),
+                group,
+                storage,
+                Duration.ofMillis(300),
+                Duration.ofMillis(600),
+                Duration.ofSeconds(2),
+                10_000L,
+                false);
+        try (RatisStateNode corrupted = new RatisStateNode(
+                options, ignored -> new SnapshotCounterStateMachine(applyBarrier))) {
+            if (expectStartupFailure) {
+                assertThrows(Exception.class, corrupted::start);
+                assertFalse(corrupted.isHealthy());
+                return;
+            }
+            corrupted.start();
+            assertTrue(corrupted.isHealthy());
+            try (RatisStateClient recovered = new RatisStateClient(
+                    group, Duration.ofSeconds(2), 5)) {
+                assertEquals(2L, decodeLong(
+                        readEventually(recovered, Duration.ofSeconds(15)).payload()),
+                        "Tail recovery must not roll back an acknowledged entry");
+                assertEquals(3L, decodeLong(
+                        writeEventually(recovered, Duration.ofSeconds(15)).payload()));
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface WalDamage {
+        void apply(Path wal) throws IOException;
+    }
+
+    @Test
+    void insufficientStorageReserveFailsNodeStartupAndRemainsUnhealthy() throws Exception {
+        RatisPeerDefinition peer = new RatisPeerDefinition(
+                "state-1", "127.0.0.1", freePort());
+        RatisGroupDefinition group = new RatisGroupDefinition(
+                StateGroupId.meta("storage-reserve"), List.of(peer));
+        Path storage = Files.createDirectories(
+                tempDirectory.resolve("storage-reserve").resolve(peer.nodeId()));
+        RatisNodeOptions options = new RatisNodeOptions(
+                peer.nodeId(),
+                group,
+                storage,
+                Long.MAX_VALUE,
+                Duration.ofMillis(300),
+                Duration.ofMillis(600),
+                Duration.ofSeconds(2),
+                10_000L,
+                false,
+                RatisNodeOptions.DEFAULT_SNAPSHOT_RETENTION_FILE_COUNT,
+                RatisStartupMode.BOOTSTRAP_OR_RECOVER);
+        try (RatisStateNode node = new RatisStateNode(
+                options, ignored -> new SnapshotCounterStateMachine(
+                        new AtomicReference<>()))) {
+            assertThrows(Exception.class, node::start);
+            assertFalse(node.isHealthy());
         }
     }
 
@@ -191,23 +331,40 @@ class RatisThreeNodePoCTest {
         Map<String, RatisStateNode> nodes = new LinkedHashMap<>();
         for (int i = 0; i < group.peers().size(); i++) {
             RatisPeerDefinition peer = group.peers().get(i);
-            RatisNodeOptions options = new RatisNodeOptions(
-                    peer.nodeId(),
+            RatisStateNode node = startNode(
                     group,
                     storageDirectories.get(i),
-                    Duration.ofMillis(300),
-                    Duration.ofMillis(600),
-                    Duration.ofSeconds(2),
+                    peer,
+                    applyBarrier,
                     snapshotAutoTriggerThreshold,
                     snapshotOnShutdown);
-            RatisStateNode node = new RatisStateNode(
-                    options, ignored -> new SnapshotCounterStateMachine(applyBarrier));
-            node.start();
             nodes.put(peer.nodeId(), node);
-            openNodes.add(node);
         }
         return new ClusterFixture(group, storageDirectories, nodes, applyBarrier,
                 snapshotAutoTriggerThreshold, snapshotOnShutdown);
+    }
+
+    private RatisStateNode startNode(
+            RatisGroupDefinition group,
+            Path storageDirectory,
+            RatisPeerDefinition peer,
+            AtomicReference<ApplyBarrier> applyBarrier,
+            long snapshotAutoTriggerThreshold,
+            boolean snapshotOnShutdown) throws IOException {
+        RatisNodeOptions options = new RatisNodeOptions(
+                peer.nodeId(),
+                group,
+                storageDirectory,
+                Duration.ofMillis(300),
+                Duration.ofMillis(600),
+                Duration.ofSeconds(2),
+                snapshotAutoTriggerThreshold,
+                snapshotOnShutdown);
+        RatisStateNode node = new RatisStateNode(
+                options, ignored -> new SnapshotCounterStateMachine(applyBarrier));
+        node.start();
+        openNodes.add(node);
+        return node;
     }
 
     private RatisResult writeEventually(RatisStateClient client, Duration timeout)
@@ -293,6 +450,54 @@ class RatisThreeNodePoCTest {
                         () -> "Unexpected Raft snapshot in " + directory);
             }
         }
+    }
+
+    private Path latestWal(Path storage) throws IOException {
+        try (var files = Files.walk(storage)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().startsWith("log_"))
+                    .max((left, right) -> {
+                        try {
+                            return Files.getLastModifiedTime(left).compareTo(
+                                    Files.getLastModifiedTime(right));
+                        } catch (IOException e) {
+                            throw new IllegalStateException(e);
+                        }
+                    })
+                    .orElseThrow(() -> new AssertionError(
+                            "Raft WAL was not created under " + storage));
+        }
+    }
+
+    private void corruptFirstByte(Path wal) throws IOException {
+        corruptByte(wal, 0L);
+    }
+
+    private void corruptLastByte(Path wal) throws IOException {
+        long size = Files.size(wal);
+        assertTrue(size > 1L, () -> "Raft WAL is unexpectedly empty: " + wal);
+        corruptByte(wal, size - 1L);
+    }
+
+    private void corruptByte(Path wal, long position) throws IOException {
+        try (var channel = Files.newByteChannel(
+                wal, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            ByteBuffer value = ByteBuffer.allocate(1);
+            channel.position(position);
+            assertEquals(1, channel.read(value));
+            value.flip();
+            byte corrupted = (byte) (value.get() ^ 0x5A);
+            value.clear();
+            value.put(corrupted).flip();
+            channel.position(position);
+            assertEquals(1, channel.write(value));
+        }
+    }
+
+    private void appendIncompleteByte(Path wal) throws IOException {
+        assertTrue(Files.size(wal) > 1L,
+                () -> "Raft WAL is unexpectedly empty: " + wal);
+        Files.write(wal, new byte[]{0x01}, StandardOpenOption.APPEND);
     }
 
     private void closeAllNodes() {

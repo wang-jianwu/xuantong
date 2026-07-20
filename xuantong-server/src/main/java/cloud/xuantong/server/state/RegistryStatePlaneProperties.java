@@ -2,6 +2,8 @@ package cloud.xuantong.server.state;
 
 import cloud.xuantong.raft.ratis.RatisGroupDefinition;
 import cloud.xuantong.raft.ratis.RatisPeerDefinition;
+import cloud.xuantong.raft.ratis.RatisStateMessageVersions;
+import cloud.xuantong.raft.ratis.RatisVersionRequirement;
 import cloud.xuantong.registry.state.RegistryStateOptions;
 import cloud.xuantong.state.api.StateGroupId;
 import org.noear.solon.annotation.Configuration;
@@ -13,7 +15,7 @@ import java.util.List;
 /** Registry Group configuration hosted by the same compact State Node. */
 @Configuration
 public class RegistryStatePlaneProperties {
-    @Inject("${statePlane.registry.enabled:false}")
+    @Inject("${statePlane.registry.enabled:true}")
     private boolean enabled;
     @Inject("${statePlane.registry.groupId:registry-default}")
     private String groupId;
@@ -31,6 +33,8 @@ public class RegistryStatePlaneProperties {
     private int changeLogCapacity;
     @Inject("${statePlane.registry.maxOperationRecords:200000}")
     private int maxOperationRecords;
+    @Inject("${statePlane.registry.operationReplayWindow:150000}")
+    private int operationReplayWindow;
     @Inject("${statePlane.registry.expirationIntervalMs:1000}")
     private long expirationIntervalMs;
     @Inject("${statePlane.registry.expirationBatchSize:1000}")
@@ -53,6 +57,7 @@ public class RegistryStatePlaneProperties {
         this.maxRenewBatchSize = 1_000;
         this.changeLogCapacity = 10_000;
         this.maxOperationRecords = 100_000;
+        this.operationReplayWindow = 75_000;
         this.expirationIntervalMs = 250;
         this.expirationBatchSize = 1_000;
     }
@@ -80,7 +85,16 @@ public class RegistryStatePlaneProperties {
                 maxInstances,
                 maxRenewBatchSize,
                 changeLogCapacity,
-                maxOperationRecords);
+                maxOperationRecords,
+                operationReplayWindow);
+    }
+
+    public RatisVersionRequirement versionRequirement() {
+        return new RatisVersionRequirement(
+                stateGroupId(),
+                RatisStateMessageVersions.CURRENT_ENVELOPE_VERSION,
+                cloud.xuantong.registry.state.RegistryStateCodec.SCHEMA_VERSION,
+                cloud.xuantong.registry.state.RegistryStateMachine.SNAPSHOT_SCHEMA_VERSION);
     }
 
     public Duration expirationInterval() {

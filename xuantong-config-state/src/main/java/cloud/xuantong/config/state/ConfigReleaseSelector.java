@@ -19,6 +19,9 @@ public final class ConfigReleaseSelector {
             throw new IllegalArgumentException(
                     "decision, identity and contents must not be null");
         }
+        if (!decision.active()) {
+            throw new IllegalArgumentException("release selection requires an active decision");
+        }
         for (RolloutRule rule : decision.rules()) {
             if (rule.status() == RolloutRuleStatus.ACTIVE && matches(rule, identity)) {
                 return release(decision, contents, rule.targetContentRevision(), rule.ruleId());
@@ -66,7 +69,7 @@ public final class ConfigReleaseSelector {
                     "Decision references missing content revision " + contentRevision);
         }
         return new ApplicableRelease(
-                true,
+                ConfigValueState.ACTIVE,
                 decision.configKey(),
                 decision.decisionRevision(),
                 content,

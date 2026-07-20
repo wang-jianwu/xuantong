@@ -1,8 +1,11 @@
 package cloud.xuantong.config.management;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.resource.model.ConfigNamespace;
 import cloud.xuantong.config.management.model.AuditLog;
 import cloud.xuantong.config.management.model.ConfigRelease;
+import cloud.xuantong.config.management.model.ConfigLifecycleStatus;
 import cloud.xuantong.config.management.model.ConfigResource;
 import cloud.xuantong.resource.model.ConfigResourceKey;
 import cloud.xuantong.config.management.model.ConfigRollout;
@@ -14,9 +17,12 @@ import cloud.xuantong.config.management.repository.ConfigReleaseRepository;
 import cloud.xuantong.config.management.repository.ConfigRolloutRepository;
 import cloud.xuantong.config.management.repository.ConfigResourceRepository;
 import cloud.xuantong.config.management.repository.AuditLogRepository;
+import cloud.xuantong.config.management.repository.AuditLogFilter;
 import cloud.xuantong.resource.repository.NamespaceRepository;
 import cloud.xuantong.resource.repository.ResourceGroupRepository;
 import cloud.xuantong.config.management.service.ConfigResourceService;
+import cloud.xuantong.config.management.content.ConfigContentService;
+import cloud.xuantong.config.management.service.ConfigDraftConflictException;
 import cloud.xuantong.config.management.service.ConfigReleaseManager;
 import cloud.xuantong.config.management.service.ConfigRolloutService;
 import org.junit.jupiter.api.Test;
@@ -30,6 +36,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigResourceServiceTest {
     @Test
@@ -46,6 +53,7 @@ class ConfigResourceServiceTest {
         inject(service, "namespaceRepository", activeNamespaceRepository());
         inject(service, "groupRepository", defaultGroupRepository());
         inject(service, "releaseManager", releaseManager(configs, releases, audits));
+        inject(service, "contentService", new ConfigContentService());
 
         ConfigResource draft = new ConfigResource();
         draft.setNamespaceId("public");
@@ -54,9 +62,11 @@ class ConfigResourceServiceTest {
         draft.setContent("server:\n  port: 8080");
         draft.setContentType("yaml");
 
-        ConfigResource saved = service.saveDraft(draft, "admin");
+        ConfigResource saved = service.saveDraft(draft, 0L, "admin");
         assertNotNull(saved.getId());
         assertEquals(0L, saved.getRevision());
+        assertEquals(1L, saved.getDraftRevision());
+        assertEquals(ConfigLifecycleStatus.DRAFT.name(), saved.getLifecycleStatus());
 
         ConfigRelease release = service.publish(
                 "public", "DEFAULT_GROUP", "application.yml", "admin");
@@ -73,7 +83,7 @@ class ConfigResourceServiceTest {
         changedDraft.setDataId("application.yml");
         changedDraft.setContent("server:\n  port: 9090");
         changedDraft.setContentType("yaml");
-        service.saveDraft(changedDraft, "admin");
+        service.saveDraft(changedDraft, 1L, "admin");
         service.publish("public", "DEFAULT_GROUP", "application.yml", "admin");
 
         ConfigRelease rollback = service.rollback(
@@ -126,6 +136,44 @@ class ConfigResourceServiceTest {
     }
 
     @Test
+    void rejectsStaleDraftRevisionAndReturnsComparableState() throws Exception {
+        InMemoryConfigRepository configs = new InMemoryConfigRepository();
+        ConfigResourceService service = service(
+                configs,
+                new InMemoryReleaseRepository(),
+                new InMemoryAuditRepository(),
+                new InMemoryRolloutRepository());
+
+        service.saveDraft(draft("v1"), 0L, "alice");
+        ConfigResource winner = service.saveDraft(draft("v2"), 1L, "bob");
+        assertEquals(2L, winner.getDraftRevision());
+
+        ConfigDraftConflictException conflict = assertThrows(
+                ConfigDraftConflictException.class,
+                () -> service.saveDraft(draft("stale-v2"), 1L, "alice"));
+        assertEquals(1L, conflict.expectedDraftRevision());
+        assertEquals(2L, conflict.actualDraftRevision());
+        assertEquals("v2", conflict.current().getContent());
+        assertEquals("stale-v2", conflict.submitted().getContent());
+    }
+
+    @Test
+    void invalidStructuredContentCannotBeSaved() throws Exception {
+        ConfigResourceService service = service(
+                new InMemoryConfigRepository(),
+                new InMemoryReleaseRepository(),
+                new InMemoryAuditRepository(),
+                new InMemoryRolloutRepository());
+        ConfigResource invalid = draft("{broken-json}");
+        invalid.setContentType("json");
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.saveDraft(invalid, 0L, "admin"));
+        assertTrue(error.getMessage() != null && !error.getMessage().isBlank());
+    }
+
+    @Test
     void abortsGrayRolloutWithMonotonicStableReleaseAndKeepsCandidateDraft() throws Exception {
         InMemoryConfigRepository configs = new InMemoryConfigRepository();
         InMemoryReleaseRepository releases = new InMemoryReleaseRepository();
@@ -134,10 +182,10 @@ class ConfigResourceServiceTest {
         ConfigResourceService service = service(configs, releases, audits, rollouts);
         ConfigRolloutService rolloutService = rolloutService(configs, releases, audits, rollouts);
 
-        service.saveDraft(draft("baseline"), "admin");
+        service.saveDraft(draft("baseline"), 0L, "admin");
         ConfigRelease baseline = service.publish(
                 "public", "DEFAULT_GROUP", "application.yml", "admin");
-        service.saveDraft(draft("candidate"), "admin");
+        service.saveDraft(draft("candidate"), 1L, "admin");
 
         var started = rolloutService.start(
                 "public", "DEFAULT_GROUP", "application.yml",
@@ -149,7 +197,8 @@ class ConfigResourceServiceTest {
 
         assertThrows(IllegalStateException.class, () -> service.publish(
                 "public", "DEFAULT_GROUP", "application.yml", "admin"));
-        assertThrows(IllegalStateException.class, () -> service.saveDraft(draft("blocked"), "admin"));
+        assertThrows(IllegalStateException.class,
+                () -> service.saveDraft(draft("blocked"), 2L, "admin"));
 
         var aborted = rolloutService.abort(
                 "public", "DEFAULT_GROUP", "application.yml",
@@ -173,9 +222,9 @@ class ConfigResourceServiceTest {
         ConfigResourceService service = service(configs, releases, audits, rollouts);
         ConfigRolloutService rolloutService = rolloutService(configs, releases, audits, rollouts);
 
-        service.saveDraft(draft("baseline"), "admin");
+        service.saveDraft(draft("baseline"), 0L, "admin");
         service.publish("public", "DEFAULT_GROUP", "application.yml", "admin");
-        service.saveDraft(draft("candidate"), "admin");
+        service.saveDraft(draft("candidate"), 1L, "admin");
         var started = rolloutService.start(
                 "public", "DEFAULT_GROUP", "application.yml",
                 ConfigRolloutPolicy.ip(List.of("10.0.0.8")), "admin");
@@ -203,6 +252,7 @@ class ConfigResourceServiceTest {
         inject(service, "namespaceRepository", activeNamespaceRepository());
         inject(service, "groupRepository", defaultGroupRepository());
         inject(service, "releaseManager", releaseManager(configs, releases, audits));
+        inject(service, "contentService", new ConfigContentService());
         return service;
     }
 
@@ -216,6 +266,7 @@ class ConfigResourceServiceTest {
         inject(service, "releaseRepository", releases);
         inject(service, "rolloutRepository", rollouts);
         inject(service, "releaseManager", releaseManager(configs, releases, audits));
+        inject(service, "contentService", new ConfigContentService());
         return service;
     }
 
@@ -250,6 +301,7 @@ class ConfigResourceServiceTest {
         resource.setContentType("yaml");
         resource.setChecksum("checksum-" + dataId);
         resource.setRevision(0L);
+        resource.setDraftRevision(0L);
         return resource;
     }
 
@@ -293,12 +345,24 @@ class ConfigResourceServiceTest {
         @Override public List<ConfigResource> findByGroup(String namespaceId, String groupName) {
             return resource == null ? List.of() : List.of(resource);
         }
+        @Override public PageResult<ConfigResource> findPage(
+                String namespaceId, String groupName, String keyword,
+                String lifecycleStatus, PageQuery pageQuery) {
+            return page(findByGroup(namespaceId, groupName), pageQuery);
+        }
         @Override public long save(ConfigResource resource) {
             resource.setId(1L);
             this.resource = resource;
             return 1;
         }
-        @Override public long updateDraft(ConfigResource resource) { this.resource = resource; return 1; }
+        @Override public long updateDraft(ConfigResource resource, long expectedDraftRevision) {
+            if (this.resource == null
+                    || !java.util.Objects.equals(this.resource.getDraftRevision(), expectedDraftRevision)) {
+                return 0;
+            }
+            this.resource = resource;
+            return 1;
+        }
         @Override public long updateRevision(
                 Long configId, long expectedRevision, String expectedChecksum, long newRevision) {
             if (resource == null || !resource.getId().equals(configId)
@@ -328,6 +392,10 @@ class ConfigResourceServiceTest {
         @Override public List<ConfigRelease> findByConfigId(Long configId) {
             return items.stream().filter(o -> o.getConfigId().equals(configId)).toList();
         }
+        @Override public PageResult<ConfigRelease> findPageByConfigId(
+                Long configId, PageQuery pageQuery) {
+            return page(findByConfigId(configId), pageQuery);
+        }
     }
 
     private static class InMemoryRolloutRepository implements ConfigRolloutRepository {
@@ -353,6 +421,10 @@ class ConfigResourceServiceTest {
 
         @Override public List<ConfigRollout> findByConfigId(Long configId) {
             return items.stream().filter(item -> item.getConfigId().equals(configId)).toList();
+        }
+        @Override public PageResult<ConfigRollout> findPageByConfigId(
+                Long configId, PageQuery pageQuery) {
+            return page(findByConfigId(configId), pageQuery);
         }
 
         @Override public long complete(String rolloutId, RolloutStatus expectedStatus,
@@ -391,6 +463,14 @@ class ConfigResourceServiceTest {
                     ? List.copyOf(items)
                     : List.copyOf(items.subList(0, safeLimit));
         }
+        @Override public PageResult<AuditLog> findPage(
+                AuditLogFilter filter, PageQuery pageQuery) {
+            List<AuditLog> filtered = filter != null && filter.resourceName() != null
+                    ? findByResource(filter.namespaceId(), filter.groupName(),
+                            filter.resourceType(), filter.resourceName())
+                    : List.copyOf(items);
+            return page(filtered, pageQuery);
+        }
     }
 
     private static class BatchConfigRepository implements ConfigResourceRepository {
@@ -404,8 +484,16 @@ class ConfigResourceServiceTest {
         @Override public List<ConfigResource> findByGroup(String namespaceId, String groupName) {
             return new ArrayList<>(resources.values());
         }
+        @Override public PageResult<ConfigResource> findPage(
+                String namespaceId, String groupName, String keyword,
+                String lifecycleStatus, PageQuery pageQuery) {
+            return page(findByGroup(namespaceId, groupName), pageQuery);
+        }
         @Override public long save(ConfigResource resource) { add(resource); return 1; }
-        @Override public long updateDraft(ConfigResource resource) { add(resource); return 1; }
+        @Override public long updateDraft(ConfigResource resource, long expectedDraftRevision) {
+            add(resource);
+            return 1;
+        }
         @Override public long updateRevision(
                 Long configId, long expectedRevision, String expectedChecksum, long newRevision) {
             ConfigResource resource = resources.values().stream()
@@ -420,5 +508,11 @@ class ConfigResourceServiceTest {
         @Override public long deleteUnpublishedDraft(ConfigResourceKey key) {
             return resources.remove(key.dataId()) == null ? 0 : 1;
         }
+    }
+
+    private static <T> PageResult<T> page(List<T> items, PageQuery pageQuery) {
+        int from = (int) Math.min(pageQuery.offset(), items.size());
+        int to = Math.min(from + pageQuery.pageSize(), items.size());
+        return PageResult.of(pageQuery, items.size(), items.subList(from, to));
     }
 }

@@ -64,11 +64,14 @@ class RatisStateApiIntegrationTest {
             node.start();
             assertTrue(node.isRunning());
             assertEquals(java.util.Set.of(groupId), node.hostedGroups());
+            node.awaitReady(List.of(groupId), Duration.ofSeconds(5));
+            assertTrue(node.isReady(List.of(groupId)));
 
             try (RatisStateClient client = new RatisStateClient(
                     group, Duration.ofSeconds(2), 5)) {
-                ApplyResult applied = submitEventually(client, new StateCommand(
-                        groupId, "op-1", "counter.increment", 1, new byte[0]));
+                ApplyResult applied = client.submit(new StateCommand(
+                                groupId, "op-1", "counter.increment", 1, new byte[0]))
+                        .get(5, TimeUnit.SECONDS);
                 assertEquals(ApplyStatus.APPLIED, applied.status());
                 assertEquals(1L, decodeLong(applied.payload()));
                 assertEquals(1L, applied.revisions().getFirst().value());
@@ -108,21 +111,6 @@ class RatisStateApiIntegrationTest {
                 assertInstanceOf(RatisOperationException.class, unsupported.getCause());
             }
         }
-    }
-
-    private ApplyResult submitEventually(
-            RatisStateClient client, StateCommand command) throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        Exception last = null;
-        while (System.nanoTime() < deadline) {
-            try {
-                return client.submit(command).get(3, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                last = e;
-                Thread.sleep(100);
-            }
-        }
-        throw last == null ? new IllegalStateException("State submit did not complete") : last;
     }
 
     private int freePort() throws Exception {

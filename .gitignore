@@ -44,5 +44,6 @@ Thumbs.db
 # Local tools and personal workspace; not part of the Xuantong repository
 /.soloncode/
 /docs/
-/output/
+# Load/soak reports may be emitted from the repository root or a Maven module cwd.
+**/output/
 /company-website/

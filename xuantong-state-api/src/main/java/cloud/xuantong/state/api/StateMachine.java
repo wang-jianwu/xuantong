@@ -24,6 +24,10 @@ public interface StateMachine {
 
     int snapshotSchemaVersion();
 
+    default StateMachineCompatibility compatibility() {
+        return StateMachineCompatibility.exact(1, snapshotSchemaVersion());
+    }
+
     void writeSnapshot(OutputStream output) throws IOException;
 
     void installSnapshot(int schemaVersion, InputStream input) throws IOException;

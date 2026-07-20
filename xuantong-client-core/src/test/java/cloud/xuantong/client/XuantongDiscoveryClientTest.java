@@ -1,5 +1,9 @@
 package cloud.xuantong.client;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import cloud.xuantong.client.discovery.LoadBalanceStrategy;
 import cloud.xuantong.client.discovery.ServiceInstanceSelector;
 import cloud.xuantong.client.model.ServiceChangeEvent;
@@ -7,6 +11,7 @@ import cloud.xuantong.client.model.ServiceInstance;
 import cloud.xuantong.client.model.ServiceSnapshot;
 import cloud.xuantong.client.model.ServiceInvalidation;
 import cloud.xuantong.client.model.ServiceWatchBatch;
+import cloud.xuantong.client.metrics.LeaseRenewalMetricsSnapshot;
 import cloud.xuantong.client.transport.DiscoveryTransport;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +20,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -64,11 +71,118 @@ class XuantongDiscoveryClientTest {
 
             client.heartbeat();
             assertTrue(transport.heartbeatCalled);
+            LeaseRenewalMetricsSnapshot metrics = client.getLeaseRenewalMetrics();
+            assertEquals(1L, metrics.successCount());
+            assertEquals(0L, metrics.failureCount());
+            assertEquals(1L, metrics.marginObservationCount());
+            assertEquals(20_000L, metrics.lastMarginMs());
+            assertTrue(client.leaseRenewalPrometheus().contains(
+                    "xuantong_discovery_lease_renewal_margin_seconds_bucket"));
+            assertFalse(client.leaseRenewalPrometheus().contains("server-lease"),
+                    "leaseId must not become a Prometheus label");
             assertTrue(client.deregister());
             assertFalse(client.getInstances().stream()
                     .anyMatch(item -> "local-node".equals(item.getInstanceId())));
         } finally {
             client.close();
+        }
+    }
+
+    @Test
+    void takeoverIsExplicitAndRotatesTheLocalLease() {
+        FakeDiscoveryTransport transport = new FakeDiscoveryTransport();
+        XuantongDiscoveryClient client = new XuantongDiscoveryClient(
+                Collections.singletonList("127.0.0.1:8088"),
+                "public", "DEFAULT_GROUP", "order-service", "", transport);
+        try {
+            ServiceInstance expected = instance(
+                    "seed-node", "10.0.0.1", 8080, 1D);
+            expected.setServiceGeneration(7L);
+            expected.setLeaseId("server-lease-seed-node");
+            expected.setLeaseEpoch(1L);
+            expected.setRecoveryEpoch(1L);
+            expected.setRenewSequence(3L);
+
+            ServiceInstance replacement = client.takeover(expected);
+            assertEquals("replacement-lease-seed-node", replacement.getLeaseId());
+            assertEquals(2L, replacement.getLeaseEpoch());
+            assertEquals(2L, replacement.getRecoveryEpoch());
+            assertEquals(0L, replacement.getRenewSequence());
+            assertThrows(IllegalStateException.class,
+                    () -> client.takeover(expected));
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    void failedManualRenewalIsCountedWithoutInventingAMargin() {
+        FakeDiscoveryTransport transport = new FakeDiscoveryTransport();
+        XuantongDiscoveryClient client = new XuantongDiscoveryClient(
+                Collections.singletonList("127.0.0.1:8088"),
+                "public", "DEFAULT_GROUP", "order-service", "", transport);
+        try {
+            client.register(instance("local-node", "10.0.0.2", 8081, 1D));
+            transport.failHeartbeats = true;
+
+            assertThrows(IllegalStateException.class, client::heartbeat);
+
+            LeaseRenewalMetricsSnapshot metrics = client.getLeaseRenewalMetrics();
+            assertEquals(0L, metrics.successCount());
+            assertEquals(1L, metrics.failureCount());
+            assertEquals(0L, metrics.marginObservationCount());
+            assertEquals(-1L, metrics.lastMarginMs());
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    void manyFailingDiscoveryAgentsShareABoundedWarningGate() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(XuantongDiscoveryClient.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        List<XuantongDiscoveryClient> clients = new ArrayList<>();
+        List<FakeDiscoveryTransport> transports = new ArrayList<>();
+        try {
+            for (int index = 0; index < 64; index++) {
+                FakeDiscoveryTransport transport = new FakeDiscoveryTransport();
+                transport.failHeartbeats = true;
+                XuantongDiscoveryClient client = new XuantongDiscoveryClient(
+                        Collections.singletonList("127.0.0.1:8088"),
+                        "public", "DEFAULT_GROUP", "order-service", "",
+                        20L,
+                        transport);
+                client.register(instance(
+                        "local-" + index, "10.0.0.2", 8_000 + index, 1D));
+                transports.add(transport);
+                clients.add(client);
+            }
+
+            long deadline = System.nanoTime()
+                    + java.util.concurrent.TimeUnit.SECONDS.toNanos(3L);
+            while (transports.stream().mapToInt(
+                            transport -> transport.heartbeatAttempts.get()).sum() < 64
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(20L);
+            }
+            assertTrue(transports.stream().mapToInt(
+                            transport -> transport.heartbeatAttempts.get()).sum() >= 64,
+                    "Every failing Agent must attempt at least one heartbeat");
+            long warnings = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .filter(event -> event.getFormattedMessage()
+                            .contains("Service heartbeat failed"))
+                    .count();
+            assertTrue(warnings <= 1L,
+                    "A JVM-wide failure burst must emit at most one warning per window");
+        } finally {
+            for (XuantongDiscoveryClient client : clients) {
+                client.close();
+            }
+            logger.detachAppender(appender);
+            appender.stop();
         }
     }
 
@@ -128,6 +242,9 @@ class XuantongDiscoveryClientTest {
         private final List<ServiceInstance> instances = new ArrayList<ServiceInstance>();
         private ServiceInstance registration;
         private boolean heartbeatCalled;
+        private final AtomicInteger heartbeatAttempts = new AtomicInteger();
+        private boolean failHeartbeats;
+        private long serverTimeEpochMs = 100_000L;
         private Long lastRegisterGeneration;
         private volatile ServiceWatchBatch pendingBatch;
 
@@ -174,8 +291,9 @@ class XuantongDiscoveryClientTest {
             registration.setLeaseEpoch(1L);
             registration.setRecoveryEpoch(1L);
             registration.setRenewSequence(0L);
-            registration.setLeaseStartedAt(System.currentTimeMillis());
-            registration.setLastHeartbeatAt(System.currentTimeMillis());
+            registration.setLeaseStartedAt(serverTimeEpochMs);
+            registration.setLastHeartbeatAt(serverTimeEpochMs);
+            registration.setExpiresAt(serverTimeEpochMs + 30_000L);
             instances.add(copy(registration));
             return copy(registration);
         }
@@ -183,14 +301,33 @@ class XuantongDiscoveryClientTest {
         @Override
         public ServiceInstance heartbeat(ServiceInstance lease) {
             heartbeatCalled = true;
+            heartbeatAttempts.incrementAndGet();
+            if (failHeartbeats) {
+                throw new IllegalStateException("simulated heartbeat failure");
+            }
+            serverTimeEpochMs += 10_000L;
             for (ServiceInstance item : instances) {
                 if (lease.getInstanceId().equals(item.getInstanceId())) {
                     item.setRenewSequence(item.getRenewSequence() + 1);
-                    item.setLastHeartbeatAt(System.currentTimeMillis());
+                    item.setLastHeartbeatAt(serverTimeEpochMs);
+                    item.setExpiresAt(serverTimeEpochMs + 30_000L);
                     return copy(item);
                 }
             }
             return null;
+        }
+
+        @Override
+        public ServiceInstance takeover(ServiceInstance expectedLease) {
+            ServiceInstance replacement = copy(expectedLease);
+            replacement.setLeaseId("replacement-lease-" + replacement.getInstanceId());
+            replacement.setLeaseEpoch(expectedLease.getLeaseEpoch() + 1L);
+            replacement.setRecoveryEpoch(expectedLease.getRecoveryEpoch() + 1L);
+            replacement.setRenewSequence(0L);
+            instances.removeIf(item -> expectedLease.getInstanceId()
+                    .equals(item.getInstanceId()));
+            instances.add(copy(replacement));
+            return replacement;
         }
 
         @Override

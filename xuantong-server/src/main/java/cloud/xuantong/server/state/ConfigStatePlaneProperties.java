@@ -4,6 +4,9 @@ import cloud.xuantong.config.state.ConfigStateOptions;
 import cloud.xuantong.raft.ratis.RatisGroupDefinition;
 import cloud.xuantong.raft.ratis.RatisNodeOptions;
 import cloud.xuantong.raft.ratis.RatisPeerDefinition;
+import cloud.xuantong.raft.ratis.RatisStartupMode;
+import cloud.xuantong.raft.ratis.RatisVersionRequirement;
+import cloud.xuantong.raft.ratis.RatisStateMessageVersions;
 import cloud.xuantong.state.api.StateGroupId;
 import org.noear.solon.annotation.Configuration;
 import org.noear.solon.annotation.Inject;
@@ -24,28 +27,48 @@ public class ConfigStatePlaneProperties {
     private String groupId;
     @Inject("${statePlane.config.peers:}")
     private String peers;
+    @Inject("${statePlane.config.rpcBindHost:}")
+    private String rpcBindHost;
+    @Inject("${statePlane.config.rpcBindPort:0}")
+    private int rpcBindPort;
     @Inject("${statePlane.config.storageDirectory:./data/state}")
     private String storageDirectory;
+    @Inject("${statePlane.config.storageFreeSpaceMinBytes:536870912}")
+    private long storageFreeSpaceMinBytes;
     @Inject("${statePlane.config.allowSingleNode:false}")
     private boolean allowSingleNode;
+    @Inject("${statePlane.config.joinExisting:false}")
+    private boolean joinExisting;
     @Inject("${statePlane.config.electionTimeoutMinMs:1000}")
     private long electionTimeoutMinMs;
     @Inject("${statePlane.config.electionTimeoutMaxMs:2000}")
     private long electionTimeoutMaxMs;
     @Inject("${statePlane.config.requestTimeoutMs:5000}")
     private long requestTimeoutMs;
+    @Inject("${statePlane.config.startupReadyTimeoutMs:15000}")
+    private long startupReadyTimeoutMs;
     @Inject("${statePlane.config.clientMaxAttempts:5}")
     private int clientMaxAttempts;
     @Inject("${statePlane.config.snapshotAutoTriggerThreshold:10000}")
     private long snapshotAutoTriggerThreshold;
     @Inject("${statePlane.config.snapshotOnShutdown:true}")
     private boolean snapshotOnShutdown;
+    @Inject("${statePlane.config.snapshotRetentionFileCount:3}")
+    private int snapshotRetentionFileCount;
+    @Inject("${statePlane.config.snapshotManagementTimeoutMs:120000}")
+    private long snapshotManagementTimeoutMs;
+    @Inject("${statePlane.config.membershipCatchUpTimeoutMs:120000}")
+    private long membershipCatchUpTimeoutMs;
+    @Inject("${statePlane.config.membershipMaximumCatchUpGap:0}")
+    private long membershipMaximumCatchUpGap;
     @Inject("${statePlane.config.maxInlineContentBytes:1048576}")
     private int maxInlineContentBytes;
     @Inject("${statePlane.config.changeLogCapacity:10000}")
     private int changeLogCapacity;
     @Inject("${statePlane.config.maxOperationRecords:100000}")
     private int maxOperationRecords;
+    @Inject("${statePlane.config.operationReplayWindow:75000}")
+    private int operationReplayWindow;
     @Inject("${statePlane.config.maxRulesPerDecision:128}")
     private int maxRulesPerDecision;
 
@@ -63,17 +86,28 @@ public class ConfigStatePlaneProperties {
         this.localNodeId = localNodeId;
         this.groupId = groupId;
         this.peers = peers;
+        this.rpcBindHost = "";
+        this.rpcBindPort = 0;
         this.storageDirectory = storageDirectory.toString();
+        this.storageFreeSpaceMinBytes = 0L;
         this.allowSingleNode = allowSingleNode;
+        this.joinExisting = false;
         this.electionTimeoutMinMs = 200;
         this.electionTimeoutMaxMs = 400;
         this.requestTimeoutMs = 2_000;
+        this.startupReadyTimeoutMs = 5_000;
         this.clientMaxAttempts = 5;
         this.snapshotAutoTriggerThreshold = 10_000;
         this.snapshotOnShutdown = false;
+        this.snapshotRetentionFileCount =
+                RatisNodeOptions.DEFAULT_SNAPSHOT_RETENTION_FILE_COUNT;
+        this.snapshotManagementTimeoutMs = 30_000;
+        this.membershipCatchUpTimeoutMs = 30_000;
+        this.membershipMaximumCatchUpGap = 0;
         this.maxInlineContentBytes = 1024 * 1024;
         this.changeLogCapacity = 10_000;
         this.maxOperationRecords = 100_000;
+        this.operationReplayWindow = 75_000;
         this.maxRulesPerDecision = 128;
     }
 
@@ -105,15 +139,26 @@ public class ConfigStatePlaneProperties {
                         "statePlane.config.storageDirectory", storageDirectory))
                         .toAbsolutePath()
                         .normalize(),
+                storageFreeSpaceMinBytes(),
                 positiveDuration("electionTimeoutMinMs", electionTimeoutMinMs),
                 positiveDuration("electionTimeoutMaxMs", electionTimeoutMaxMs),
                 positiveDuration("requestTimeoutMs", requestTimeoutMs),
                 snapshotAutoTriggerThreshold,
-                snapshotOnShutdown);
+                snapshotOnShutdown,
+                snapshotRetentionFileCount(),
+                joinExisting
+                        ? RatisStartupMode.JOIN_EXISTING
+                        : RatisStartupMode.BOOTSTRAP_OR_RECOVER,
+                rpcBindHost(group),
+                rpcBindPort(group));
     }
 
     public Duration requestTimeout() {
         return positiveDuration("requestTimeoutMs", requestTimeoutMs);
+    }
+
+    public Duration startupReadyTimeout() {
+        return positiveDuration("startupReadyTimeoutMs", startupReadyTimeoutMs);
     }
 
     public int clientMaxAttempts() {
@@ -129,7 +174,83 @@ public class ConfigStatePlaneProperties {
                 maxInlineContentBytes,
                 changeLogCapacity,
                 maxOperationRecords,
+                operationReplayWindow,
                 maxRulesPerDecision);
+    }
+
+    public boolean joinExisting() {
+        return joinExisting;
+    }
+
+    public Path storageDirectory() {
+        return Path.of(required(
+                        "statePlane.config.storageDirectory", storageDirectory))
+                .toAbsolutePath()
+                .normalize();
+    }
+
+    public long storageFreeSpaceMinBytes() {
+        if (storageFreeSpaceMinBytes < 0L) {
+            throw new IllegalStateException(
+                    "statePlane.config.storageFreeSpaceMinBytes must not be negative");
+        }
+        return storageFreeSpaceMinBytes;
+    }
+
+    public int snapshotRetentionFileCount() {
+        if (snapshotRetentionFileCount < 1 || snapshotRetentionFileCount > 64) {
+            throw new IllegalStateException(
+                    "statePlane.config.snapshotRetentionFileCount must be between 1 and 64");
+        }
+        return snapshotRetentionFileCount;
+    }
+
+    public Duration snapshotManagementTimeout() {
+        return positiveDuration(
+                "snapshotManagementTimeoutMs", snapshotManagementTimeoutMs);
+    }
+
+    public boolean allowSingleNode() {
+        return allowSingleNode;
+    }
+
+    private String rpcBindHost(RatisGroupDefinition group) {
+        if (rpcBindHost == null || rpcBindHost.isBlank()) {
+            return group.requirePeer(localNodeId()).host();
+        }
+        return rpcBindHost.trim();
+    }
+
+    private int rpcBindPort(RatisGroupDefinition group) {
+        if (rpcBindPort == 0) {
+            return group.requirePeer(localNodeId()).port();
+        }
+        if (rpcBindPort < 1 || rpcBindPort > 65_535) {
+            throw new IllegalStateException(
+                    "statePlane.config.rpcBindPort must be between 1 and 65535");
+        }
+        return rpcBindPort;
+    }
+
+    public Duration membershipCatchUpTimeout() {
+        return positiveDuration(
+                "membershipCatchUpTimeoutMs", membershipCatchUpTimeoutMs);
+    }
+
+    public long membershipMaximumCatchUpGap() {
+        if (membershipMaximumCatchUpGap < 0) {
+            throw new IllegalStateException(
+                    "statePlane.config.membershipMaximumCatchUpGap must not be negative");
+        }
+        return membershipMaximumCatchUpGap;
+    }
+
+    public RatisVersionRequirement versionRequirement() {
+        return new RatisVersionRequirement(
+                stateGroupId(),
+                RatisStateMessageVersions.CURRENT_ENVELOPE_VERSION,
+                cloud.xuantong.config.state.ConfigStateCodec.SCHEMA_VERSION,
+                cloud.xuantong.config.state.ConfigStateMachine.SNAPSHOT_SCHEMA_VERSION);
     }
 
     static List<RatisPeerDefinition> parsePeers(String configuredPeers) {

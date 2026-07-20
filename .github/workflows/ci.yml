@@ -7,30 +7,18 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       mysql:
         image: mysql:8.4
         env:
           MYSQL_ROOT_PASSWORD: test-password
+          MYSQL_ROOT_HOST: "%"
           MYSQL_DATABASE: xuantong_test
         ports:
           - 3306:3306
         options: >-
           --health-cmd="mysqladmin ping -h localhost -ptest-password"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: test-password
-          POSTGRES_DB: xuantong_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d xuantong_test"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
@@ -41,14 +29,36 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+      - name: Install MySQL backup client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes mysql-client-8.0
+          mysql --version
+          mysqldump --version
       - name: Run unit and real infrastructure integration tests
         env:
           XUANTONG_TEST_MYSQL_URL: jdbc:mysql://127.0.0.1:3306/xuantong_test?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8
+          XUANTONG_TEST_MYSQL_SMOKE_URL: jdbc:mysql://127.0.0.1:3306/xuantong_test?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8
           XUANTONG_TEST_MYSQL_USER: root
           XUANTONG_TEST_MYSQL_PASSWORD: test-password
-          XUANTONG_TEST_PGSQL_URL: jdbc:postgresql://127.0.0.1:5432/xuantong_test
-          XUANTONG_TEST_PGSQL_USER: postgres
-          XUANTONG_TEST_PGSQL_PASSWORD: test-password
         run: mvn --batch-mode --no-transfer-progress test -DskipTests=false
+      - name: Verify real infrastructure tests were not skipped
+        run: ./scripts/verify-ci-test-reports.sh
+      - name: Run MySQL backup and restore drill
+        env:
+          XUANTONG_RECOVERY_MYSQL_HOST: 127.0.0.1
+          XUANTONG_RECOVERY_MYSQL_PORT: "3306"
+          XUANTONG_RECOVERY_MYSQL_USER: root
+          XUANTONG_RECOVERY_MYSQL_PASSWORD: test-password
+          MVN_BIN: mvn
+        run: ./scripts/run-external-database-recovery-drill.sh
+      - name: Run combined H2/MySQL and Raft quorum recovery drill
+        env:
+          XUANTONG_RECOVERY_MYSQL_HOST: 127.0.0.1
+          XUANTONG_RECOVERY_MYSQL_PORT: "3306"
+          XUANTONG_RECOVERY_MYSQL_USER: root
+          XUANTONG_RECOVERY_MYSQL_PASSWORD: test-password
+          MVN_BIN: mvn
+        run: ./scripts/run-full-recovery-drill.sh
       - name: Check whitespace errors
         run: git diff --check

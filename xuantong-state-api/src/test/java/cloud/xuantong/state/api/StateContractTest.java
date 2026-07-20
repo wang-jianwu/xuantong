@@ -121,4 +121,18 @@ class StateContractTest {
                 StateCommitStatus.NOT_APPLICABLE,
                 null));
     }
+
+    @Test
+    void rejectedWriteCanProveThatItWasNotCommitted() {
+        StateAccessException failure = StateAccessException.retryable(
+                StateFailureCode.STORAGE_EXHAUSTED,
+                configGroup,
+                "storage watermark reached",
+                StateCommitStatus.NOT_COMMITTED,
+                null);
+
+        assertEquals(StateFailureCode.STORAGE_EXHAUSTED, failure.code());
+        assertEquals(StateCommitStatus.NOT_COMMITTED, failure.commitStatus());
+        assertTrue(failure.retryable());
+    }
 }

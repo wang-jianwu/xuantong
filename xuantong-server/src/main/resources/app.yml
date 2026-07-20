@@ -1,3 +1,21 @@
+solon:
+  app:
+    name: xuantong-server
+    group: xuantong
+    version: ${XUANTONG_VERSION:2.0.0-SNAPSHOT}
+
+  serialization.json:
+    dateAsFormat: 'yyyy-MM-dd HH:mm:ss'
+    dateAsTimeZone: 'GMT+8'
+    dateAsTicks: false
+    longAsString: false
+    boolAsInt: false
+    nullStringAsEmpty: true
+    nullBoolAsFalse: true
+    nullNumberAsZero: true
+    nullArrayAsEmpty: true
+    nullAsWriteable: true
+    enumAsName: true
 # 玄同 Server 配置
 server:
   # 管理端 HTTP 端口。
@@ -12,7 +30,7 @@ server:
       trustStoreType: ${XUANTONG_CONTROL_TLS_TRUST_STORE_TYPE:PKCS12}
       trustStorePassword: ${XUANTONG_CONTROL_TLS_TRUST_STORE_PASSWORD:}
 
-# 原生 Socket.D TCP/Netty 控制面。它与管理 HTTP 使用独立端口和生命周期。
+# Socket.D TCP/Netty 控制面。它与管理 HTTP 使用独立端口和生命周期。
 controlPlane:
   host: ${XUANTONG_CONTROL_HOST:0.0.0.0}
   port: ${XUANTONG_CONTROL_PORT:8090}
@@ -22,6 +40,7 @@ controlPlane:
   maxRequestBudgetMs: ${XUANTONG_MAX_REQUEST_BUDGET_MS:10000}
   maxRequestBytes: ${XUANTONG_MAX_REQUEST_BYTES:1048576}
   maxInFlightRequests: ${XUANTONG_MAX_IN_FLIGHT_REQUESTS:1024}
+  # 开启 cluster.coordinationEnabled 后，以下配额是集群硬上限；Gateway 在内存中执行本地分片。
   maxSessions: ${XUANTONG_MAX_SESSIONS:20000}
   maxSessionsPerTenant: ${XUANTONG_MAX_SESSIONS_PER_TENANT:10000}
   maxSessionsPerCredential: ${XUANTONG_MAX_SESSIONS_PER_CREDENTIAL:1000}
@@ -44,6 +63,17 @@ controlPlane:
   stateCallbackQueueCapacity: ${XUANTONG_STATE_CALLBACK_QUEUE_CAPACITY:1024}
   idleTimeoutMs: ${XUANTONG_CONTROL_IDLE_TIMEOUT_MS:60000}
   drainTimeoutMs: ${XUANTONG_CONTROL_DRAIN_TIMEOUT_MS:5000}
+  cluster:
+    coordinationEnabled: ${XUANTONG_CLUSTER_COORDINATION_ENABLED:true}
+    snapshotIntervalMs: ${XUANTONG_CLUSTER_SNAPSHOT_INTERVAL_MS:2000}
+    leaseTtlMs: ${XUANTONG_CLUSTER_LEASE_TTL_MS:10000}
+    staleRetentionMs: ${XUANTONG_CLUSTER_STALE_RETENTION_MS:60000}
+    maxConnectionDetails: ${XUANTONG_CLUSTER_MAX_CONNECTION_DETAILS:5000}
+    quotaSafetyReservePercent: ${XUANTONG_CLUSTER_QUOTA_SAFETY_RESERVE_PERCENT:5}
+    revocationPollIntervalMs: ${XUANTONG_REVOCATION_POLL_INTERVAL_MS:500}
+    revocationBatchSize: ${XUANTONG_REVOCATION_BATCH_SIZE:500}
+    revocationRetentionMs: ${XUANTONG_REVOCATION_RETENTION_MS:604800000}
+    cleanupIntervalMs: ${XUANTONG_CLUSTER_CLEANUP_INTERVAL_MS:3600000}
   tls:
     # NONE / WANT / REQUIRE。REQUIRE 时必须同时配置 server.socket.ssl trustStore。
     clientAuth: ${XUANTONG_CONTROL_TLS_CLIENT_AUTH:NONE}
@@ -56,19 +86,35 @@ statePlane:
     groupId: ${XUANTONG_CONFIG_GROUP_ID:config-default}
     # 格式：state-1@10.0.0.11:9101,state-2@10.0.0.12:9101,state-3@10.0.0.13:9101
     peers: ${XUANTONG_CONFIG_STATE_PEERS:}
+    # 默认绑定当前 peer 公布地址；容器/NAT 场景可只覆盖本地 bind，peers 仍必须填写节点间可直连地址，禁止使用 LB/VIP。
+    rpcBindHost: ${XUANTONG_STATE_RPC_BIND_HOST:}
+    rpcBindPort: ${XUANTONG_STATE_RPC_BIND_PORT:0}
     # Config/Registry Group 共用此物理 State Node 存储根目录，各 Group 在其下使用独立目录。
     storageDirectory: ${XUANTONG_STATE_DIR:./data/state}
+    # 低于该可用空间时 Ratis 拒绝节点上线；生产默认保留 512 MiB，需按 WAL/Snapshot 峰值调大。
+    storageFreeSpaceMinBytes: ${XUANTONG_STATE_STORAGE_FREE_MIN_BYTES:536870912}
     # 只允许本地开发显式开启；生产必须保持 false 并配置 3 或 5 个 voter。
-    allowSingleNode: ${XUANTONG_CONFIG_STATE_ALLOW_SINGLE_NODE:false}
+    allowSingleNode: ${XUANTONG_CONFIG_STATE_ALLOW_SINGLE_NODE:true}
+    # 新节点加入已有集群时设为 true；进程先启动空 Ratis Server，等待安全成员变更流程。
+    joinExisting: ${XUANTONG_STATE_JOIN_EXISTING:false}
     electionTimeoutMinMs: ${XUANTONG_CONFIG_STATE_ELECTION_MIN_MS:1000}
     electionTimeoutMaxMs: ${XUANTONG_CONFIG_STATE_ELECTION_MAX_MS:2000}
     requestTimeoutMs: ${XUANTONG_CONFIG_STATE_REQUEST_TIMEOUT_MS:5000}
+    # 普通启动在开放业务处理器前等待各 Group 观察到可用 Leader；JOIN_EXISTING 不阻塞在此门禁。
+    startupReadyTimeoutMs: ${XUANTONG_CONFIG_STATE_STARTUP_READY_TIMEOUT_MS:15000}
     clientMaxAttempts: ${XUANTONG_CONFIG_STATE_CLIENT_MAX_ATTEMPTS:5}
     snapshotAutoTriggerThreshold: ${XUANTONG_CONFIG_STATE_SNAPSHOT_THRESHOLD:10000}
     snapshotOnShutdown: ${XUANTONG_CONFIG_STATE_SNAPSHOT_ON_SHUTDOWN:true}
+    # Ratis 默认 -1 会无限保留 Snapshot；生产默认只保留最近 3 份完整 Snapshot。
+    snapshotRetentionFileCount: ${XUANTONG_CONFIG_STATE_SNAPSHOT_RETENTION_FILES:3}
+    # 管理端为滚动离线备份强制创建每个 Group Snapshot 的单组超时。
+    snapshotManagementTimeoutMs: ${XUANTONG_STATE_SNAPSHOT_MANAGEMENT_TIMEOUT_MS:120000}
+    membershipCatchUpTimeoutMs: ${XUANTONG_STATE_MEMBERSHIP_CATCH_UP_TIMEOUT_MS:120000}
+    membershipMaximumCatchUpGap: ${XUANTONG_STATE_MEMBERSHIP_MAXIMUM_CATCH_UP_GAP:0}
     maxInlineContentBytes: ${XUANTONG_CONFIG_MAX_INLINE_BYTES:1048576}
     changeLogCapacity: ${XUANTONG_CONFIG_CHANGE_LOG_CAPACITY:10000}
     maxOperationRecords: ${XUANTONG_CONFIG_OPERATION_CAPACITY:100000}
+    operationReplayWindow: ${XUANTONG_CONFIG_OPERATION_REPLAY_WINDOW:75000}
     maxRulesPerDecision: ${XUANTONG_CONFIG_MAX_RULES:128}
     operationRecoveryIntervalMs: ${XUANTONG_CONFIG_OPERATION_RECOVERY_MS:1000}
   registry:
@@ -82,31 +128,7 @@ statePlane:
     maxRenewBatchSize: ${XUANTONG_REGISTRY_MAX_RENEW_BATCH_SIZE:1000}
     changeLogCapacity: ${XUANTONG_REGISTRY_CHANGE_LOG_CAPACITY:100000}
     maxOperationRecords: ${XUANTONG_REGISTRY_OPERATION_CAPACITY:200000}
+    operationReplayWindow: ${XUANTONG_REGISTRY_OPERATION_REPLAY_WINDOW:150000}
     expirationIntervalMs: ${XUANTONG_REGISTRY_EXPIRATION_INTERVAL_MS:1000}
     expirationBatchSize: ${XUANTONG_REGISTRY_EXPIRATION_BATCH_SIZE:1000}
     lifecycleRecoveryIntervalMs: ${XUANTONG_SERVICE_LIFECYCLE_RECOVERY_MS:5000}
-
-solon:
-  app:
-    name: xuantong-server
-    group: xuantong
-    version: ${XUANTONG_VERSION:2.0.0-SNAPSHOT}
-
-  # 会话配置 — SameSite=Lax 防止 CSRF
-  session:
-    cookie:
-      sameSite: Lax
-      httpOnly: true
-
-  serialization.json:
-    dateAsFormat: 'yyyy-MM-dd HH:mm:ss'
-    dateAsTimeZone: 'GMT+8'
-    dateAsTicks: false
-    longAsString: false
-    boolAsInt: false
-    nullStringAsEmpty: true
-    nullBoolAsFalse: true
-    nullNumberAsZero: true
-    nullArrayAsEmpty: true
-    nullAsWriteable: true
-    enumAsName: true

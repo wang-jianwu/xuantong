@@ -1,5 +1,8 @@
 package cloud.xuantong.config.management.service;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
+import cloud.xuantong.config.management.content.ConfigContentService;
 import cloud.xuantong.config.management.model.ConfigRelease;
 import cloud.xuantong.config.management.model.ConfigResource;
 import cloud.xuantong.resource.model.ConfigResourceKey;
@@ -36,11 +39,25 @@ public class ConfigRolloutService {
     private ConfigRolloutRepository rolloutRepository;
     @Inject
     private ConfigReleaseManager releaseManager;
+    @Inject
+    private ConfigContentService contentService;
 
     public List<ConfigRollout> findRollouts(String namespaceId, String groupName, String dataId) {
         ConfigResource resource = resourceRepository.find(
                 ConfigResourceKey.of(namespaceId, groupName, dataId));
         return resource == null ? List.of() : rolloutRepository.findByConfigId(resource.getId());
+    }
+
+    public PageResult<ConfigRollout> findRolloutPage(
+            String namespaceId,
+            String groupName,
+            String dataId,
+            PageQuery pageQuery) {
+        ConfigResource resource = resourceRepository.find(
+                ConfigResourceKey.of(namespaceId, groupName, dataId));
+        return resource == null
+                ? PageResult.of(pageQuery, 0, List.of())
+                : rolloutRepository.findPageByConfigId(resource.getId(), pageQuery);
     }
 
     @Transaction
@@ -54,6 +71,7 @@ public class ConfigRolloutService {
         ConfigResourceKey key = ConfigResourceKey.of(namespaceId, groupName, dataId);
         ConfigResource resource = requireResource(key);
         ensureNoActive(resource);
+        contentService.requireValid(resource.getContentType(), resource.getContent());
         ConfigRelease baseline = releaseRepository.findLatestStable(resource.getId());
         if (baseline == null) {
             throw new IllegalStateException("Publish a FULL release before starting a gray rollout: "

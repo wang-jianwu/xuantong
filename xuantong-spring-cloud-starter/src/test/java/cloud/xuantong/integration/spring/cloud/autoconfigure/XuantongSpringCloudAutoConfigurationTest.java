@@ -44,4 +44,29 @@ class XuantongSpringCloudAutoConfigurationTest {
                     assertThat(context).doesNotHaveBean(XuantongServiceRegistry.class);
                 });
     }
+
+    @Test
+    void bindsUnifiedTlsSettingsIntoBothConfigAndDiscoveryClients() {
+        contextRunner.withPropertyValues(
+                        "spring.cloud.xuantong.tls.enabled=true",
+                        "spring.cloud.xuantong.tls.trust-store=/etc/xuantong/ca.p12",
+                        "spring.cloud.xuantong.tls.trust-store-password=trust-secret",
+                        "spring.cloud.xuantong.tls.key-store=/etc/xuantong/client.p12",
+                        "spring.cloud.xuantong.tls.key-store-password=store-secret",
+                        "spring.cloud.xuantong.tls.key-password=key-secret",
+                        "spring.cloud.xuantong.tls.reload-interval-ms=15000")
+                .run(context -> {
+                    XuantongSpringCloudProperties properties = context.getBean(
+                            XuantongSpringCloudProperties.class);
+                    assertThat(properties.configControlPlaneOptions().tls().enabled()).isTrue();
+                    assertThat(properties.discoveryControlPlaneOptions().tls())
+                            .isEqualTo(properties.configControlPlaneOptions().tls());
+                    assertThat(properties.configControlPlaneOptions().tls().trustStore())
+                            .isEqualTo("/etc/xuantong/ca.p12");
+                    assertThat(properties.configControlPlaneOptions().tls().reloadIntervalMs())
+                            .isEqualTo(15_000L);
+                    assertThat(properties.configControlPlaneOptions().tls().toString())
+                            .doesNotContain("trust-secret", "store-secret", "key-secret");
+                });
+    }
 }

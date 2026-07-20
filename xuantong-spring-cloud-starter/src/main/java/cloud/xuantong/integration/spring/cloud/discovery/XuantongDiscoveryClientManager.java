@@ -1,5 +1,8 @@
 package cloud.xuantong.integration.spring.cloud.discovery;
 
+import cloud.xuantong.client.metrics.LeaseRenewalMetricsSnapshot;
+
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -27,6 +30,16 @@ public class XuantongDiscoveryClientManager implements XuantongDiscoveryClientPr
         return clients.get(serviceName);
     }
 
+    public List<LeaseRenewalMetricsSnapshot> leaseRenewalMetrics() {
+        return clients.values().stream()
+                .map(XuantongDiscoveryOperations::leaseRenewalMetrics)
+                .filter(java.util.Objects::nonNull)
+                .filter(metrics -> metrics.registered()
+                        || metrics.successCount() > 0L
+                        || metrics.failureCount() > 0L)
+                .toList();
+    }
+
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) {
@@ -36,5 +49,6 @@ public class XuantongDiscoveryClientManager implements XuantongDiscoveryClientPr
             client.close();
         }
         clients.clear();
+        factory.close();
     }
 }

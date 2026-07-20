@@ -1,6 +1,11 @@
 package cloud.xuantong.server.admin.controller;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.security.model.User;
+import cloud.xuantong.config.management.content.ConfigContentResult;
+import cloud.xuantong.config.management.content.ConfigContentService;
+import cloud.xuantong.config.management.content.ConfigContentValidationException;
 import cloud.xuantong.config.management.model.ConfigResource;
 import cloud.xuantong.config.management.model.ConfigRelease;
 import cloud.xuantong.config.management.model.ConfigRollout;
@@ -10,8 +15,15 @@ import cloud.xuantong.config.management.model.ReleaseType;
 import cloud.xuantong.server.state.management.ConfigStateManagementService;
 import cloud.xuantong.server.state.management.ConfigStateWriteException;
 import cloud.xuantong.server.state.management.ConfigStateWriteResult;
+import cloud.xuantong.server.state.management.ConfigRolloutPreviewService;
+import cloud.xuantong.server.state.management.ConfigRolloutPreviewService.ConfigRolloutPreview;
+import cloud.xuantong.server.state.management.ConfigRolloutPreviewService.ConfigCurrentSelectionView;
+import cloud.xuantong.server.admin.security.AdminSecurityContext;
 import cloud.xuantong.config.management.service.ConfigResourceService;
+import cloud.xuantong.config.management.service.ConfigDraftConflictException;
 import cloud.xuantong.config.management.service.ConfigRolloutService;
+import cloud.xuantong.config.management.service.AuditLogService;
+import cloud.xuantong.config.management.service.AuditLogService.AuditLogView;
 import lombok.Getter;
 import lombok.Setter;
 import org.noear.solon.annotation.Body;
@@ -21,6 +33,7 @@ import org.noear.solon.annotation.Get;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Mapping;
 import org.noear.solon.annotation.Path;
+import org.noear.solon.annotation.Param;
 import org.noear.solon.annotation.Put;
 import org.noear.solon.annotation.Post;
 import org.noear.solon.core.handle.Context;
@@ -40,12 +53,25 @@ public class ConfigResourceController {
     private ConfigRolloutService rolloutService;
     @Inject
     private ConfigStateManagementService stateManagementService;
+    @Inject
+    private ConfigContentService contentService;
+    @Inject
+    private ConfigRolloutPreviewService rolloutPreviewService;
+    @Inject
+    private AuditLogService auditLogService;
 
     @Get
     @Mapping
-    public Result<List<ConfigResource>> findByGroup(
-            @Path String namespaceId, @Path String groupName) {
-        return Result.succeed(configService.findByGroup(namespaceId, groupName));
+    public Result<PageResult<ConfigResource>> findByGroup(
+            @Path String namespaceId,
+            @Path String groupName,
+            @Param(defaultValue = "") String keyword,
+            @Param(defaultValue = "") String lifecycleStatus,
+            @Param(defaultValue = "1") int page,
+            @Param(defaultValue = "20") int pageSize) {
+        return Result.succeed(configService.findPage(
+                namespaceId, groupName, keyword, lifecycleStatus,
+                new PageQuery(page, pageSize)));
     }
 
     @Get
@@ -58,34 +84,100 @@ public class ConfigResourceController {
 
     @Put
     @Mapping("/{dataId}")
-    public Result<ConfigResource> saveDraft(
+    public Result<?> saveDraft(
             @Path String namespaceId,
             @Path String groupName,
             @Path String dataId,
-            @Body ConfigResource resource,
+            @Body SaveDraftRequest request,
             Context context) {
+        ConfigResource resource = request == null ? new ConfigResource() : request.toResource();
         resource.setNamespaceId(namespaceId);
         resource.setGroupName(groupName);
         resource.setDataId(dataId);
         try {
             stateManagementService.assertDraftMutable(namespaceId, groupName, dataId);
-            User user = context.session("user", User.class);
+            User user = AdminSecurityContext.currentUser(context);
             String operator = user == null ? "system" : user.getUsername();
-            return Result.succeed(configService.saveDraft(resource, operator));
+            ConfigResource saved = configService.saveDraft(
+                    resource,
+                    request == null ? null : request.expectedDraftRevision,
+                    operator);
+            auditLogService.record(
+                    namespaceId,
+                    groupName,
+                    "CONFIG",
+                    dataId,
+                    "CONFIG_DRAFT_SAVED",
+                    operator,
+                    java.util.Map.of(
+                            "draftRevision", saved.getDraftRevision(),
+                            "contentType", saved.getContentType(),
+                            "checksum", saved.getChecksum()),
+                    context.remoteIp(),
+                    operationId(context));
+            return Result.succeed(saved);
+        } catch (ConfigContentValidationException e) {
+            context.status(422);
+            return Result.failure(422, "Config content validation failed", e.result());
+        } catch (ConfigDraftConflictException e) {
+            context.status(409);
+            return Result.failure(409, e.getMessage(), DraftConflictView.from(e));
         } catch (IllegalArgumentException | IllegalStateException e) {
             return Result.failure(e.getMessage());
         }
     }
 
+    @Post
+    @Mapping("/content-tools")
+    public Result<ConfigContentResult> contentTools(
+            @Body ContentToolRequest request, Context context) {
+        if (request == null) {
+            return Result.failure("Content tool request is required");
+        }
+        ConfigContentResult result;
+        String action = request.action == null ? "validate" : request.action.trim().toLowerCase();
+        try {
+            result = switch (action) {
+                case "validate" -> contentService.validate(request.contentType, request.content);
+                case "format" -> contentService.format(request.contentType, request.content);
+                case "minify" -> contentService.minify(request.contentType, request.content);
+                default -> throw new IllegalArgumentException("Unsupported content action: " + request.action);
+            };
+        } catch (IllegalArgumentException e) {
+            return Result.failure(e.getMessage());
+        }
+        if (!result.valid()) {
+            context.status(422);
+            return Result.failure(422, "Config content validation failed", result);
+        }
+        return Result.succeed(result);
+    }
+
     @Delete
     @Mapping("/{dataId}")
     public Result<String> deleteDraft(
-            @Path String namespaceId, @Path String groupName, @Path String dataId) {
+            @Path String namespaceId,
+            @Path String groupName,
+            @Path String dataId,
+            Context context) {
         try {
             stateManagementService.assertDraftDeletable(namespaceId, groupName, dataId);
-            return configService.deleteDraft(namespaceId, groupName, dataId)
-                    ? Result.succeed("Draft deleted")
-                    : Result.failure("Only unpublished drafts can be deleted");
+            boolean deleted = configService.deleteDraft(namespaceId, groupName, dataId);
+            if (!deleted) {
+                return Result.failure("Only unpublished drafts can be deleted");
+            }
+            User user = AdminSecurityContext.currentUser(context);
+            auditLogService.record(
+                    namespaceId,
+                    groupName,
+                    "CONFIG",
+                    dataId,
+                    "CONFIG_DRAFT_DELETED",
+                    user == null ? "system" : user.getUsername(),
+                    java.util.Map.of("dataId", dataId),
+                    context.remoteIp(),
+                    operationId(context));
+            return Result.succeed("Draft deleted");
         } catch (IllegalArgumentException | IllegalStateException e) {
             return Result.failure(e.getMessage());
         }
@@ -93,23 +185,53 @@ public class ConfigResourceController {
 
     @Get
     @Mapping("/{dataId}/releases")
-    public Result<List<ConfigRelease>> findReleases(
-            @Path String namespaceId, @Path String groupName, @Path String dataId) {
-        return Result.succeed(configService.findReleases(namespaceId, groupName, dataId));
+    public Result<PageResult<ConfigRelease>> findReleases(
+            @Path String namespaceId,
+            @Path String groupName,
+            @Path String dataId,
+            @Param(defaultValue = "1") int page,
+            @Param(defaultValue = "20") int pageSize) {
+        return Result.succeed(configService.findReleasePage(
+                namespaceId, groupName, dataId, new PageQuery(page, pageSize)));
     }
 
     @Get
     @Mapping("/{dataId}/rollouts")
-    public Result<List<ConfigRollout>> findRollouts(
-            @Path String namespaceId, @Path String groupName, @Path String dataId) {
-        return Result.succeed(rolloutService.findRollouts(namespaceId, groupName, dataId));
+    public Result<PageResult<ConfigRollout>> findRollouts(
+            @Path String namespaceId,
+            @Path String groupName,
+            @Path String dataId,
+            @Param(defaultValue = "1") int page,
+            @Param(defaultValue = "20") int pageSize) {
+        return Result.succeed(rolloutService.findRolloutPage(
+                namespaceId, groupName, dataId, new PageQuery(page, pageSize)));
+    }
+
+    @Get
+    @Mapping("/{dataId}/rollouts/current-selections")
+    public Result<ConfigCurrentSelectionView> currentRolloutSelections(
+            @Path String namespaceId,
+            @Path String groupName,
+            @Path String dataId) {
+        try {
+            return Result.succeed(rolloutPreviewService.currentSelections(
+                    namespaceId, groupName, dataId));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return Result.failure(e.getMessage());
+        }
     }
 
     @Get
     @Mapping("/{dataId}/audits")
-    public Result<List<AuditLog>> findAudits(
-            @Path String namespaceId, @Path String groupName, @Path String dataId) {
-        return Result.succeed(configService.findAudits(namespaceId, groupName, dataId));
+    public Result<PageResult<AuditLogView>> findAudits(
+            @Path String namespaceId,
+            @Path String groupName,
+            @Path String dataId,
+            @Param(defaultValue = "1") int page,
+            @Param(defaultValue = "20") int pageSize) {
+        return Result.succeed(configService.findAuditPage(
+                namespaceId, groupName, dataId, new PageQuery(page, pageSize))
+                .map(auditLogService::view));
     }
 
     @Post
@@ -121,7 +243,7 @@ public class ConfigResourceController {
             Context context) {
         try {
             rejectLegacyReleaseType(context);
-            User user = context.session("user", User.class);
+            User user = AdminSecurityContext.currentUser(context);
             String operator = user == null ? "system" : user.getUsername();
             List<String> dataIds = request == null ? null : request.getDataIds();
             if (dataIds == null || dataIds.isEmpty()) {
@@ -170,11 +292,57 @@ public class ConfigResourceController {
             Context context) {
         try {
             rejectLegacyReleaseType(context);
-            User user = context.session("user", User.class);
+            User user = AdminSecurityContext.currentUser(context);
             String operator = user == null ? "system" : user.getUsername();
             return Result.succeed(stateManagementService.publish(
                     namespaceId, groupName, dataId, operator, operationId(context)).release());
         } catch (IllegalArgumentException | IllegalStateException | ConfigStateWriteException e) {
+            return Result.failure(e.getMessage());
+        }
+    }
+
+    @Post
+    @Mapping("/{dataId}/tombstone")
+    public Result<ConfigRelease> tombstone(
+            @Path String namespaceId,
+            @Path String groupName,
+            @Path String dataId,
+            Context context) {
+        try {
+            User user = AdminSecurityContext.currentUser(context);
+            String operator = user == null ? "system" : user.getUsername();
+            return Result.succeed(stateManagementService.tombstone(
+                    namespaceId,
+                    groupName,
+                    dataId,
+                    operator,
+                    operationId(context)).release());
+        } catch (IllegalArgumentException | IllegalStateException | ConfigStateWriteException e) {
+            return Result.failure(e.getMessage());
+        }
+    }
+
+    @Post
+    @Mapping("/{dataId}/rollouts/preview")
+    public Result<ConfigRolloutPreview> previewRollout(
+            @Path String namespaceId,
+            @Path String groupName,
+            @Path String dataId,
+            @Body RolloutRequest request) {
+        try {
+            ConfigResource resource = configService.find(namespaceId, groupName, dataId);
+            if (resource == null || resource.getRevision() == null
+                    || resource.getRevision() < 1) {
+                throw new IllegalStateException(
+                        "Publish a stable Config release before previewing a rollout");
+            }
+            return Result.succeed(rolloutPreviewService.preview(
+                    namespaceId,
+                    groupName,
+                    dataId,
+                    policyOf(request),
+                    request == null ? null : request.getRolloutKey()));
+        } catch (IllegalArgumentException | IllegalStateException e) {
             return Result.failure(e.getMessage());
         }
     }
@@ -188,13 +356,15 @@ public class ConfigResourceController {
             @Body RolloutRequest request,
             Context context) {
         try {
-            User user = context.session("user", User.class);
+            User user = AdminSecurityContext.currentUser(context);
             String operator = user == null ? "system" : user.getUsername();
+            ConfigRolloutPolicy policy = policyOf(request);
             return Result.succeed(stateManagementService.startRollout(
                     namespaceId,
                     groupName,
                     dataId,
-                    policyOf(request),
+                    policy,
+                    request == null ? null : request.getRolloutKey(),
                     operator,
                     operationId(context)).rollout());
         } catch (IllegalArgumentException | IllegalStateException | ConfigStateWriteException e) {
@@ -211,7 +381,7 @@ public class ConfigResourceController {
             @Path String rolloutId,
             Context context) {
         try {
-            User user = context.session("user", User.class);
+            User user = AdminSecurityContext.currentUser(context);
             String operator = user == null ? "system" : user.getUsername();
             return Result.succeed(stateManagementService.promoteRollout(
                     namespaceId,
@@ -234,7 +404,7 @@ public class ConfigResourceController {
             @Path String rolloutId,
             Context context) {
         try {
-            User user = context.session("user", User.class);
+            User user = AdminSecurityContext.currentUser(context);
             String operator = user == null ? "system" : user.getUsername();
             return Result.succeed(stateManagementService.abortRollout(
                     namespaceId,
@@ -257,7 +427,7 @@ public class ConfigResourceController {
             @Path String releaseId,
             Context context) {
         try {
-            User user = context.session("user", User.class);
+            User user = AdminSecurityContext.currentUser(context);
             String operator = user == null ? "system" : user.getUsername();
             return Result.succeed(stateManagementService.rollback(
                     namespaceId,
@@ -283,7 +453,55 @@ public class ConfigResourceController {
     public static class RolloutRequest {
         private String type;
         private List<String> ips;
+        private List<String> clientInstanceIds;
         private Integer percentage;
+        private String rolloutKey;
+    }
+
+    public static class SaveDraftRequest {
+        public String content;
+        public String contentType;
+        public String description;
+        public Long expectedDraftRevision;
+
+        ConfigResource toResource() {
+            ConfigResource resource = new ConfigResource();
+            resource.setContent(content);
+            resource.setContentType(contentType);
+            resource.setDescription(description);
+            return resource;
+        }
+    }
+
+    public static class ContentToolRequest {
+        public String action;
+        public String contentType;
+        public String content;
+    }
+
+    public record DraftConflictView(
+            long expectedDraftRevision,
+            long actualDraftRevision,
+            String submittedContent,
+            String submittedContentType,
+            String submittedDescription,
+            String currentContent,
+            String currentContentType,
+            String currentDescription) {
+
+        static DraftConflictView from(ConfigDraftConflictException conflict) {
+            ConfigResource submitted = conflict.submitted();
+            ConfigResource current = conflict.current();
+            return new DraftConflictView(
+                    conflict.expectedDraftRevision(),
+                    conflict.actualDraftRevision(),
+                    submitted == null ? null : submitted.getContent(),
+                    submitted == null ? null : submitted.getContentType(),
+                    submitted == null ? null : submitted.getDescription(),
+                    current == null ? null : current.getContent(),
+                    current == null ? null : current.getContentType(),
+                    current == null ? null : current.getDescription());
+        }
     }
 
     private ConfigRolloutPolicy policyOf(RolloutRequest request) {
@@ -298,9 +516,11 @@ public class ConfigResourceController {
         }
         return switch (type) {
             case GRAY_IP -> ConfigRolloutPolicy.ip(request.getIps());
+            case GRAY_CLIENT_INSTANCE -> ConfigRolloutPolicy.clientInstances(
+                    request.getClientInstanceIds());
             case GRAY_PERCENTAGE -> ConfigRolloutPolicy.percentage(request.getPercentage());
             default -> throw new IllegalArgumentException(
-                    "Rollout type must be GRAY_IP or GRAY_PERCENTAGE");
+                    "Rollout type must be GRAY_IP, GRAY_CLIENT_INSTANCE or GRAY_PERCENTAGE");
         };
     }
 

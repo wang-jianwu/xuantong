@@ -1,6 +1,7 @@
 package cloud.xuantong.integration.spring.cloud.discovery;
 
 import cloud.xuantong.client.XuantongDiscoveryClient;
+import cloud.xuantong.client.metrics.LeaseRenewalMetricsSnapshot;
 import cloud.xuantong.client.model.ServiceInstance;
 
 import java.util.List;
@@ -30,6 +31,11 @@ final class XuantongDiscoveryAgent implements XuantongDiscoveryOperations {
     @Override
     public List<String> getServices() {
         return delegate.getServices();
+    }
+
+    @Override
+    public LeaseRenewalMetricsSnapshot leaseRenewalMetrics() {
+        return delegate.getLeaseRenewalMetrics();
     }
 
     @Override

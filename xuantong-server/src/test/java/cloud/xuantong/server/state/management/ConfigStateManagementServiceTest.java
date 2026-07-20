@@ -1,19 +1,22 @@
 package cloud.xuantong.server.state.management;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.config.state.ConfigActor;
 import cloud.xuantong.config.state.ConfigKey;
 import cloud.xuantong.config.state.ConfigSnapshot;
 import cloud.xuantong.config.state.ConfigSnapshotRequest;
 import cloud.xuantong.config.state.ConfigStateCodec;
 import cloud.xuantong.config.state.ConfigStateMachine;
-import cloud.xuantong.config.state.ConfigClientIdentity;
-import cloud.xuantong.config.state.ConfigReleaseSelector;
 import cloud.xuantong.config.state.ReleaseDecision;
 import cloud.xuantong.config.state.ResolveConfigOperationRequest;
 import cloud.xuantong.config.state.ResolvedConfigOperation;
+import cloud.xuantong.config.state.RolloutSelectorType;
 import cloud.xuantong.config.management.model.AuditLog;
 import cloud.xuantong.config.management.model.ConfigRelease;
+import cloud.xuantong.config.management.model.ConfigLifecycleStatus;
 import cloud.xuantong.config.management.model.ConfigResource;
+import cloud.xuantong.config.management.content.ConfigContentService;
 import cloud.xuantong.resource.model.ConfigResourceKey;
 import cloud.xuantong.config.management.model.ConfigRollout;
 import cloud.xuantong.config.management.model.ConfigRolloutPolicy;
@@ -21,6 +24,7 @@ import cloud.xuantong.config.management.model.ConfigStateOperation;
 import cloud.xuantong.config.management.model.ConfigStateOperationStatus;
 import cloud.xuantong.config.management.model.RolloutStatus;
 import cloud.xuantong.config.management.repository.AuditLogRepository;
+import cloud.xuantong.config.management.repository.AuditLogFilter;
 import cloud.xuantong.config.management.repository.ConfigReleaseRepository;
 import cloud.xuantong.config.management.repository.ConfigResourceRepository;
 import cloud.xuantong.config.management.repository.ConfigRolloutRepository;
@@ -113,6 +117,7 @@ class ConfigStateManagementServiceTest {
                 "DEFAULT_GROUP",
                 "app.yml",
                 ConfigRolloutPolicy.percentage(25),
+                "rollout-preview-key",
                 "admin",
                 "rollout-start");
 
@@ -123,15 +128,11 @@ class ConfigStateManagementServiceTest {
         assertEquals(1, gray.rules().size());
         assertEquals(2L, gray.rules().getFirst().targetContentRevision());
         assertEquals(RolloutStatus.ACTIVE.name(), started.rollout().getStatus());
-        ConfigRolloutPolicy projectedPolicy = ConfigRolloutPolicy.restore(started.rollout());
-        for (int i = 0; i < 100; i++) {
-            String instanceId = "instance-" + i;
-            boolean stateMatched = ConfigReleaseSelector.matches(
-                    gray.rules().getFirst(),
-                    new ConfigClientIdentity(instanceId, "demo", "127.0.0.1", Map.of()));
-            assertEquals(stateMatched, projectedPolicy.matches(
-                    started.rollout().getRolloutId(), instanceId, "127.0.0.1"));
-        }
+        assertEquals("rollout-preview-key", started.rollout().getRolloutKey());
+        assertEquals("rollout-preview-key", gray.rules().getFirst().rolloutKey());
+        assertEquals(RolloutSelectorType.PERCENTAGE,
+                gray.rules().getFirst().selectorType());
+        assertEquals(2_500, gray.rules().getFirst().percentageBasisPoints());
 
         ConfigStateWriteResult promoted = fixture.service.promoteRollout(
                 "public",
@@ -150,6 +151,34 @@ class ConfigStateManagementServiceTest {
         assertEquals(3, fixture.releases.items.size());
         assertEquals(3, fixture.audits.items.size());
         assertEquals(3, fixture.state.applyCalls);
+    }
+
+    @Test
+    void startsExactClientInstanceRolloutWithAuthoritativeSelector() throws Exception {
+        Fixture fixture = fixture("baseline");
+        fixture.service.publish(
+                "public", "DEFAULT_GROUP", "app.yml", "admin", "publish-exact-base");
+        fixture.resources.resource.setContent("candidate");
+        fixture.resources.resource.setChecksum(checksum("candidate"));
+
+        ConfigStateWriteResult started = fixture.service.startRollout(
+                "public",
+                "DEFAULT_GROUP",
+                "app.yml",
+                ConfigRolloutPolicy.clientInstances(List.of("client-b", "client-a")),
+                "exact-preview-key",
+                "admin",
+                "rollout-exact-start");
+
+        ReleaseDecision decision = fixture.state.currentDecision(
+                new ConfigKey("public", "DEFAULT_GROUP", "app.yml"));
+        assertEquals(RolloutSelectorType.CLIENT_INSTANCE_ID,
+                decision.rules().getFirst().selectorType());
+        assertEquals(List.of("client-a", "client-b"),
+                decision.rules().getFirst().selectorValues());
+        assertEquals("exact-preview-key", decision.rules().getFirst().rolloutKey());
+        assertEquals("GRAY_CLIENT_INSTANCE", started.rollout().getRolloutType());
+        assertEquals("exact-preview-key", started.rollout().getRolloutKey());
     }
 
     @Test
@@ -180,6 +209,71 @@ class ConfigStateManagementServiceTest {
                         "public", "DEFAULT_GROUP", "app.yml"));
 
         assertTrue(error.getMessage().contains("cannot be deleted"));
+    }
+
+    @Test
+    void tombstonesRepublishesAndRestoresHistoricalContentWithoutPhysicalDelete()
+            throws Exception {
+        Fixture fixture = fixture("baseline");
+        ConfigStateWriteResult baseline = fixture.service.publish(
+                "public", "DEFAULT_GROUP", "app.yml", "admin", "publish-lifecycle");
+        assertEquals(ConfigLifecycleStatus.ACTIVE.name(),
+                fixture.resources.resource.getLifecycleStatus());
+
+        ConfigStateWriteResult tombstoned = fixture.service.tombstone(
+                "public", "DEFAULT_GROUP", "app.yml", "admin", "tombstone-1");
+        ReleaseDecision deleted = fixture.state.currentDecision(
+                new ConfigKey("public", "DEFAULT_GROUP", "app.yml"));
+        assertTrue(deleted.tombstone());
+        assertEquals(2L, deleted.decisionRevision());
+        assertEquals(2L, tombstoned.release().getEventRevision());
+        assertEquals("TOMBSTONE", tombstoned.release().getReleaseType());
+        assertEquals(null, tombstoned.release().getContentRevision());
+        assertEquals(null, tombstoned.release().getContent());
+        assertEquals(ConfigLifecycleStatus.TOMBSTONE.name(),
+                fixture.resources.resource.getLifecycleStatus());
+        assertThrows(IllegalStateException.class, () -> fixture.service.startRollout(
+                "public",
+                "DEFAULT_GROUP",
+                "app.yml",
+                ConfigRolloutPolicy.percentage(10),
+                "forbidden-while-deleted",
+                "admin",
+                "rollout-after-delete"));
+
+        fixture.resources.resource.setContent("rebuilt");
+        fixture.resources.resource.setChecksum(checksum("rebuilt"));
+        ConfigStateWriteResult republished = fixture.service.publish(
+                "public", "DEFAULT_GROUP", "app.yml", "admin", "publish-rebuilt");
+        ReleaseDecision rebuilt = fixture.state.currentDecision(
+                new ConfigKey("public", "DEFAULT_GROUP", "app.yml"));
+        assertTrue(rebuilt.active());
+        assertEquals(2L, rebuilt.stableContentRevision());
+        assertEquals(3L, republished.release().getDecisionRevision());
+        assertEquals(ConfigLifecycleStatus.ACTIVE.name(),
+                fixture.resources.resource.getLifecycleStatus());
+
+        fixture.service.tombstone(
+                "public", "DEFAULT_GROUP", "app.yml", "admin", "tombstone-2");
+        ConfigStateWriteResult restored = fixture.service.rollback(
+                "public",
+                "DEFAULT_GROUP",
+                "app.yml",
+                baseline.release().getReleaseId(),
+                "admin",
+                "restore-baseline");
+        ReleaseDecision restoredDecision = fixture.state.currentDecision(
+                new ConfigKey("public", "DEFAULT_GROUP", "app.yml"));
+        assertTrue(restoredDecision.active());
+        assertEquals(1L, restoredDecision.stableContentRevision());
+        assertEquals(5L, restored.release().getDecisionRevision());
+        assertEquals("baseline", restored.release().getContent());
+        assertEquals(ConfigLifecycleStatus.ACTIVE.name(),
+                fixture.resources.resource.getLifecycleStatus());
+        assertThrows(IllegalStateException.class, () -> fixture.service.assertDraftDeletable(
+                "public", "DEFAULT_GROUP", "app.yml"));
+        assertEquals(5, fixture.releases.items.size());
+        assertEquals(5, fixture.audits.items.size());
     }
 
     @Test
@@ -240,6 +334,7 @@ class ConfigStateManagementServiceTest {
         inject(service, "rolloutRepository", rollouts);
         inject(service, "operationRepository", operations);
         inject(service, "stateAccess", state);
+        inject(service, "contentService", new ConfigContentService());
         inject(service, "projectionService", projection);
         return service;
     }
@@ -254,6 +349,8 @@ class ConfigStateManagementServiceTest {
         resource.setContentType("yaml");
         resource.setChecksum(checksum(content));
         resource.setRevision(0L);
+        resource.setDraftRevision(0L);
+        resource.setLifecycleStatus(ConfigLifecycleStatus.DRAFT.name());
         return resource;
     }
 
@@ -375,13 +472,26 @@ class ConfigStateManagementServiceTest {
         @Override public List<ConfigResource> findByGroup(String namespaceId, String groupName) {
             return List.of(resource);
         }
+        @Override public PageResult<ConfigResource> findPage(
+                String namespaceId, String groupName, String keyword,
+                String lifecycleStatus, PageQuery pageQuery) {
+            boolean matches = resource.getNamespaceId().equals(namespaceId)
+                    && resource.getGroupName().equals(groupName)
+                    && (keyword == null || keyword.isBlank()
+                    || resource.getDataId().contains(keyword))
+                    && (lifecycleStatus == null || lifecycleStatus.isBlank()
+                    || lifecycleStatus.equals(resource.getLifecycleStatus()));
+            return PageResult.of(pageQuery, matches ? 1 : 0,
+                    matches && pageQuery.page() == 1 ? List.of(resource) : List.of());
+        }
         @Override public long save(ConfigResource value) { return 1; }
-        @Override public long updateDraft(ConfigResource value) { return 1; }
+        @Override public long updateDraft(ConfigResource value, long expectedDraftRevision) { return 1; }
         @Override public long updateRevision(Long id, long expected, String checksum, long next) {
             resource.setRevision(next); return 1;
         }
-        @Override public long advanceRevision(Long id, long next) {
+        @Override public long advanceLifecycle(Long id, long next, String lifecycleStatus) {
             if (resource.getRevision() < next) resource.setRevision(next);
+            resource.setLifecycleStatus(lifecycleStatus);
             return 1;
         }
         @Override public long deleteUnpublishedDraft(ConfigResourceKey key) { return 0; }
@@ -407,11 +517,16 @@ class ConfigStateManagementServiceTest {
             return items.stream()
                     .filter(x -> configId.equals(x.getConfigId()))
                     .filter(x -> !x.getReleaseType().startsWith("GRAY_"))
+                    .filter(x -> !"TOMBSTONE".equals(x.getReleaseType()))
                     .max(java.util.Comparator.comparingLong(ConfigRelease::getRevision))
                     .orElse(null);
         }
         @Override public List<ConfigRelease> findByConfigId(Long configId) {
             return items.stream().filter(x -> configId.equals(x.getConfigId())).toList();
+        }
+        @Override public PageResult<ConfigRelease> findPageByConfigId(
+                Long configId, PageQuery pageQuery) {
+            return page(pageQuery, findByConfigId(configId));
         }
     }
 
@@ -435,6 +550,10 @@ class ConfigStateManagementServiceTest {
         @Override public List<ConfigRollout> findByConfigId(Long configId) {
             return items.values().stream()
                     .filter(x -> configId.equals(x.getConfigId())).toList();
+        }
+        @Override public PageResult<ConfigRollout> findPageByConfigId(
+                Long configId, PageQuery pageQuery) {
+            return page(pageQuery, findByConfigId(configId));
         }
         @Override public long complete(
                 String rolloutId, RolloutStatus expected, RolloutStatus status, String operator) {
@@ -471,6 +590,16 @@ class ConfigStateManagementServiceTest {
             return List.copyOf(items);
         }
         @Override public List<AuditLog> findRecent(int limit) { return List.copyOf(items); }
+        @Override public PageResult<AuditLog> findPage(
+                AuditLogFilter filter, PageQuery pageQuery) {
+            return page(pageQuery, items);
+        }
+    }
+
+    private static <T> PageResult<T> page(PageQuery query, List<T> items) {
+        int from = (int) Math.min(query.offset(), items.size());
+        int to = Math.min(from + query.pageSize(), items.size());
+        return PageResult.of(query, items.size(), items.subList(from, to));
     }
 
     private static final class OperationRepository

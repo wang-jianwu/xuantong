@@ -1,5 +1,7 @@
 package cloud.xuantong.discovery.management.service;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.resource.model.ConfigNamespace;
 import cloud.xuantong.discovery.management.model.ServiceDefinition;
 import cloud.xuantong.resource.model.ServiceKey;
@@ -32,6 +34,20 @@ public class ServiceDefinitionService {
         return serviceRepository.findByGroup(
                 ResourceNameRules.validate("namespaceId", namespaceId),
                 ResourceNameRules.validate("groupName", groupName));
+    }
+
+    public PageResult<ServiceDefinition> findPageByGroup(
+            String namespaceId,
+            String groupName,
+            String keyword,
+            String lifecycleState,
+            PageQuery pageQuery) {
+        return serviceRepository.findPageByGroup(
+                ResourceNameRules.validate("namespaceId", namespaceId),
+                ResourceNameRules.validate("groupName", groupName),
+                keyword,
+                lifecycleState,
+                pageQuery);
     }
 
     public ServiceDefinition find(String namespaceId, String groupName, String serviceName) {

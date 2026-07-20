@@ -44,6 +44,9 @@ class ControlPlaneGatewayLifecycleTest {
 
         runtime.sessionOpened("session-1", 7L, "127.0.0.1");
         runtime.sessionIdentified("session-1", hello);
+        runtime.recordConfigSelection(
+                "session-1", "public", "DEFAULT_GROUP", "app.yml",
+                "ACTIVE", 8L, 5L, "rule-gray-client");
 
         assertEquals(1, runtime.activeSessions());
         assertEquals(1, runtime.logicalClients());
@@ -55,6 +58,11 @@ class ControlPlaneGatewayLifecycleTest {
         assertEquals("gateway-test", view.gatewayId());
         assertEquals(7L, view.connectionGeneration());
         assertEquals(2, view.capabilities().size());
+        assertEquals("app.yml", view.lastConfigSelection().dataId());
+        assertEquals("ACTIVE", view.lastConfigSelection().valueState());
+        assertEquals(8L, view.lastConfigSelection().decisionRevision());
+        assertEquals(5L, view.lastConfigSelection().contentRevision());
+        assertEquals("rule-gray-client", view.lastConfigSelection().matchedRuleId());
 
         runtime.sessionClosed("session-1");
         assertEquals(0, runtime.activeSessions());

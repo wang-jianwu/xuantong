@@ -85,7 +85,7 @@ public class FileKit {
 
             // 小内容直接写入，大内容使用流式写入
             if (content.length() < 10 * 1024 * 1024) {
-                Files.write(path, content.getBytes(StandardCharsets.UTF_8),
+                Files.writeString(path, content,
                         StandardOpenOption.CREATE,
                         StandardOpenOption.TRUNCATE_EXISTING);
             } else {

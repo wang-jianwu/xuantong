@@ -30,6 +30,7 @@ public final class ConfigStateOperationRecovery {
     private long recoveryIntervalMs;
 
     private ScheduledExecutorService executor;
+    private volatile boolean running;
 
     @Init(index = 1_700)
     public void start() {
@@ -45,6 +46,7 @@ public final class ConfigStateOperationRecovery {
             thread.setDaemon(true);
             return thread;
         });
+        running = true;
         executor.scheduleWithFixedDelay(
                 this::recoverSafely,
                 recoveryIntervalMs,
@@ -75,14 +77,20 @@ public final class ConfigStateOperationRecovery {
         try {
             recoverOnce();
         } catch (RuntimeException e) {
+            if (!running) {
+                return;
+            }
             log.warn("Config State operation recovery scan failed; it will retry", e);
         }
     }
 
     @Destroy
     public void stop() {
-        if (executor != null) {
-            executor.shutdownNow();
+        running = false;
+        ScheduledExecutorService current = executor;
+        executor = null;
+        if (current != null) {
+            current.shutdownNow();
         }
     }
 }

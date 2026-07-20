@@ -60,7 +60,8 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
                 defaults.connectTimeoutMs(),
                 defaults.requestTimeoutMs(),
                 defaults.operationTimeoutMs(),
-                defaults.closingTimeoutMs());
+                defaults.closingTimeoutMs(),
+                SolonCloudTlsOptions.load());
     }
 
     @Override
@@ -89,13 +90,14 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
         CloudConfigObserverEntity entity = new CloudConfigObserverEntity(normalizedGroup, name, observer);
         //配置监听器
         clientFor(normalizedGroup).addListener(entity.key, event -> {
-            // 配置被删除时（value=null），不通知 observer（CloudConfig 不支持 null value）
             if (event.getNewValue() == null) {
-                log.warn("cloud config deleted: {}, observer not notified", entity.key);
+                log.info("cloud config tombstoned: {}", entity.key);
+                entity.handler.handle(new Config(entity.group, entity.key, null, event.getRevision()));
                 return;
             }
             log.info("cloud config change: {} -> {}", entity.key, event.getNewValue());
-            entity.handler.handle(new Config(entity.group, entity.key, event.getNewValue(), 0));
+            entity.handler.handle(new Config(
+                    entity.group, entity.key, event.getNewValue(), event.getRevision()));
         });
     }
 

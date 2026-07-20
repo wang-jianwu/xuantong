@@ -8,7 +8,7 @@
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link href="/lib/bootstrap/5.3.8/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/css/admin.css?v=2.0.0-20260713-connection">
+<link rel="stylesheet" href="/css/admin.css?v=2.0.2-20260719-cluster">
 </head>
 <body>
 <div class="app-container">#include("_sidebar.shtm")
@@ -16,7 +16,8 @@
         <div class="content">
             <div class="page-intro">
                 <div><h2>控制面客户端连接</h2>
-                    <p>Config 与 Discovery 都进入统一 `/control-v2` Gateway，不再按旧通道拆分；逻辑客户端按进程实例 ID 去重。</p></div>
+                    <p>Config 与 Discovery 都进入统一 `/control-v2` Gateway，不再按旧通道拆分；逻辑客户端按进程实例 ID
+                        在集群内去重。</p></div>
                 <button class="btn btn-outline-secondary" onclick="loadConnections()"><i class="fas fa-rotate"></i> 刷新
                 </button>
             </div>
@@ -45,16 +46,18 @@
                 <div class="stat-card">
                     <div class="stat-icon bg-warning-subtle text-warning"><i class="fas fa-gauge-high"></i></div>
                     <div>
-                        <div class="stat-label">连接配额 / 限流拒绝</div>
-                        <div class="stat-value" id="quotaRejects">0 / 0</div>
+                        <div class="stat-label">配额 / 限流 / 协调拒绝</div>
+                        <div class="stat-value" id="quotaRejects">0 / 0 / 0</div>
                     </div>
                 </div>
             </div>
+            <div class="alert alert-info" id="clusterViewStatus">正在加载集群连接视图...</div>
             <div class="card">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-10"><label class="form-label" for="connectionKeyword">客户端</label><input
                             id="connectionKeyword" class="form-control"
-                            placeholder="搜索应用名、客户端实例 ID、SDK、Transport Pool、远端地址或 Gateway" oninput="filterConnections()">
+                            placeholder="搜索应用名、客户端实例 ID、SDK、Transport Pool、远端地址或 Gateway"
+                            oninput="filterConnections()">
                     </div>
                     <div class="col-md-2">
                         <button class="btn btn-primary w-100" onclick="filterConnections()"><i
@@ -65,8 +68,9 @@
             </div>
             <div class="card">
                 <div class="card-heading">
-                    <div><h3>当前节点连接</h3>
-                        <p>Token 原文不会进入连接视图</p></div>
+                    <div><h3>集群连接</h3>
+                        <p>Token 原文不会进入连接视图；最近配置记录表示 Gateway
+                            已成功返回权威选择，不代表客户端已经应用；同一实例的短暂重连会保留物理 Session 明细</p></div>
                     <span class="badge badge-info" id="connectionTotal">0 条</span></div>
                 <div class="table-responsive">
                     <table class="table align-middle">
@@ -80,6 +84,7 @@
                             <th>远端地址</th>
                             <th>Gateway / 连接代次</th>
                             <th>能力</th>
+                            <th>Gateway 最近返回</th>
                             <th>连接时间</th>
                             <th>最近活跃</th>
                         </tr>
@@ -92,7 +97,7 @@
     </div>
 </div>
 <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
-<script src="/js/common.js?v=2.0.0-20260718-config-state"></script>
+<script src="/js/common.js?v=2.0.2-20260719-cluster"></script>
 <script>
     let connectionRows = [], connectionTimer;
 
@@ -102,19 +107,34 @@
         document.getElementById('logicalClients').textContent = data.logicalClients || 0;
         document.getElementById('sessions').textContent = data.sessions || 0;
         document.getElementById('runtimeLoads').textContent = (data.inFlightRequests || 0) + ' / ' + (data.subscriptions || 0);
-        document.getElementById('quotaRejects').textContent = (data.sessionQuotaRejectedTotal || 0) + ' / ' + (data.rateLimitedTotal || 0);
+        document.getElementById('quotaRejects').textContent = (data.sessionQuotaRejectedTotal || 0) + ' / ' + (data.rateLimitedTotal || 0) + ' / ' + (data.clusterCoordinationRejectedTotal || 0);
+        const allocation = data.localQuotaAllocation || {};
+        const status = document.getElementById('clusterViewStatus');
+        const issues = [];
+        if (!data.clusterAggregated) issues.push('当前为本 Gateway 降级视图');
+        if (data.staleGatewayCount) issues.push(`${data.staleGatewayCount} 个过期 Gateway 快照已剔除`);
+        if (data.truncatedGatewayCount) issues.push(`${data.truncatedGatewayCount} 个 Gateway 的连接明细被截断`);
+        if (allocation.enabled && !allocation.admissionsEnabled) issues.push('本 Gateway 尚未取得安全接入额度');
+        status.className = `alert ${issues.length ? 'alert-warning' : 'alert-info'}`;
+        status.textContent = `集群 ${data.clusterId || '-'} · 活跃 Gateway ${data.activeGatewayCount || 0} · 视图${data.clusterViewComplete ? '完整' : '不完整'} · 本地 Session 配额 ${allocation.maxSessions || '-'} / Tenant ${allocation.maxSessionsPerTenant || '-'} / Credential ${allocation.maxSessionsPerCredential || '-'}${issues.length ? `；${issues.join('；')}` : ''}`;
         filterConnections()
     }
 
     function filterConnections() {
         const keyword = document.getElementById('connectionKeyword').value.trim().toLowerCase();
-        const rows = connectionRows.filter(item => !keyword || [item.applicationName, item.clientInstanceId, item.principalId, item.tenant, item.namespaceId, item.groupName, item.sdkName, item.clientVersion, item.transportPool, item.remoteAddress, item.gatewayId, ...(item.capabilities || [])].some(value => String(value || '').toLowerCase().includes(keyword)));
+        const rows = connectionRows.filter(item => !keyword || [item.applicationName, item.clientInstanceId, item.principalId, item.tenant, item.namespaceId, item.groupName, item.sdkName, item.clientVersion, item.transportPool, item.remoteAddress, item.gatewayId, item.lastConfigSelection && item.lastConfigSelection.dataId, item.lastConfigSelection && item.lastConfigSelection.matchedRuleId, ...(item.capabilities || [])].some(value => String(value || '').toLowerCase().includes(keyword)));
         renderConnections(rows)
     }
 
     function renderConnections(rows) {
         document.getElementById('connectionTotal').textContent = rows.length + ' 条';
-        document.getElementById('connectionBody').innerHTML = rows.length ? rows.map(item => `<tr><td><strong>${escapeHtml(item.applicationName || '等待 Hello')}</strong></td><td><code class="text-break">${escapeHtml(item.clientInstanceId || '-')}</code></td><td><div>${escapeHtml(item.principalId || '等待鉴权')}</div><small class="text-muted">${escapeHtml((item.tenant || '-') + ' / ' + (item.namespaceId || '-') + ' / ' + (item.groupName || '-'))}</small></td><td>${escapeHtml((item.sdkName || '-') + ' / ' + (item.clientVersion || '-'))}</td><td>${escapeHtml(item.transportPool || '-')}</td><td>${escapeHtml(item.remoteAddress || '-')}</td><td>${escapeHtml((item.gatewayId || '-') + ' / ' + (item.connectionGeneration || '-'))}</td><td>${escapeHtml((item.capabilities || []).join(', ') || '-')}</td><td class="text-nowrap">${escapeHtml(formatDateTime(item.connectedAt))}</td><td class="text-nowrap">${escapeHtml(formatDateTime(item.lastActiveAt))}</td></tr>`).join('') : '<tr><td colspan="10" class="text-center text-muted">暂无匹配的客户端连接</td></tr>'
+        document.getElementById('connectionBody').innerHTML = rows.length ? rows.map(item => {
+            const selection = item.lastConfigSelection;
+            const decision = selection
+                ? `<div><code>${escapeHtml(selection.dataId)}</code> <span class="badge ${selection.valueState === 'TOMBSTONE' ? 'text-bg-secondary' : 'text-bg-success'}">${selection.valueState === 'TOMBSTONE' ? '已下线' : 'ACTIVE'}</span></div><small class="text-muted">${selection.valueState === 'TOMBSTONE' ? 'tombstone' : `content ${escapeHtml(selection.contentRevision)}`} / decision ${escapeHtml(selection.decisionRevision)}<br>rule ${escapeHtml(selection.matchedRuleId || 'stable')} · ${escapeHtml(formatDateTime(selection.observedAt))}</small>`
+                : '<span class="text-muted">尚未成功 Fetch</span>';
+            return `<tr><td><strong>${escapeHtml(item.applicationName || '等待 Hello')}</strong></td><td><code class="text-break">${escapeHtml(item.clientInstanceId || '-')}</code></td><td><div>${escapeHtml(item.principalId || '等待鉴权')}</div><small class="text-muted">${escapeHtml((item.tenant || '-') + ' / ' + (item.namespaceId || '-') + ' / ' + (item.groupName || '-'))}</small></td><td>${escapeHtml((item.sdkName || '-') + ' / ' + (item.clientVersion || '-'))}</td><td>${escapeHtml(item.transportPool || '-')}</td><td>${escapeHtml(item.remoteAddress || '-')}</td><td>${escapeHtml((item.gatewayId || '-') + ' / ' + (item.connectionGeneration || '-'))}</td><td>${escapeHtml((item.capabilities || []).join(', ') || '-')}</td><td>${decision}</td><td class="text-nowrap">${escapeHtml(formatDateTime(item.connectedAt))}</td><td class="text-nowrap">${escapeHtml(formatDateTime(item.lastActiveAt))}</td></tr>`;
+        }).join('') : '<tr><td colspan="11" class="text-center text-muted">暂无匹配的客户端连接</td></tr>'
     }
 
     document.addEventListener('DOMContentLoaded', () => {

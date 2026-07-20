@@ -34,6 +34,8 @@ public class ConfigRollout implements ProxyEntityAvailable<ConfigRollout, Config
     @Column
     private String targetValue;
     @Column
+    private String rolloutKey;
+    @Column
     private String status;
     @Column
     private String createdBy;

@@ -8,6 +8,7 @@ import cloud.xuantong.state.api.StateCommand;
 import cloud.xuantong.state.api.StateGroupId;
 import cloud.xuantong.state.api.StateGroupType;
 import cloud.xuantong.state.api.StateMachine;
+import cloud.xuantong.state.api.StateMachineCompatibility;
 import cloud.xuantong.state.api.StateQuery;
 import cloud.xuantong.state.api.StateRevision;
 import cloud.xuantong.state.api.WatchBatch;
@@ -37,7 +38,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * apply advances one monotonic logical clock with that committed value.</p>
  */
 public final class RegistryStateMachine implements StateMachine {
-    private static final int SNAPSHOT_SCHEMA_VERSION = 2;
+    public static final int SNAPSHOT_SCHEMA_VERSION = 2;
     private static final int SNAPSHOT_MAGIC = 0x58525332;
 
     private final StateGroupId groupId;
@@ -120,12 +121,8 @@ public final class RegistryStateMachine implements StateMachine {
                 return existing.toApplyResult(
                         groupId, command.operationId(), appliedIndex, replayStatus);
             }
-            if (operations.size() >= options.maxOperationRecords()) {
-                return rejected(command.operationId(), "IDEMPOTENCY_CAPACITY_EXCEEDED",
-                        "Registry operation history reached its safe capacity");
-            }
-
             OperationRecord result = mutate(mutation, requestHash);
+            compactOperationHistory();
             operations.put(operationKey, result);
             return result.toApplyResult(
                     groupId, command.operationId(), appliedIndex, result.status());
@@ -144,6 +141,8 @@ public final class RegistryStateMachine implements StateMachine {
                 case RegistryStateCodec.QUERY_SNAPSHOT -> snapshot(query);
                 case RegistryStateCodec.QUERY_LEASE_STATE -> leaseState(query);
                 case RegistryStateCodec.QUERY_SERVICE_LIFECYCLE -> serviceLifecycle(query);
+                case RegistryStateCodec.QUERY_SERVICE_LIFECYCLE_SNAPSHOT ->
+                        serviceLifecycleSnapshot(query);
                 case RegistryStateCodec.QUERY_RESOLVE_OPERATION -> resolveOperation(query);
                 case RegistryStateCodec.QUERY_OVERVIEW -> overview(query);
                 default -> throw new IllegalArgumentException(
@@ -400,6 +399,10 @@ public final class RegistryStateMachine implements StateMachine {
         validateTtl(command.ttlMs());
         RegistryInstance existing = requireLease(
                 null, command.expectedLease(), true);
+        if (!existing.ownerApplicationName().equals(command.actor().applicationName())) {
+            throw reject("LEASE_FENCED",
+                    "Service instance lease belongs to another application");
+        }
         long nextLeaseEpoch = increment(existing.leaseEpoch(), "leaseEpoch");
         long nextRecoveryEpoch = increment(existing.recoveryEpoch(), "recoveryEpoch");
         RegistryInstance replacement = new RegistryInstance(
@@ -501,6 +504,36 @@ public final class RegistryStateMachine implements StateMachine {
                                 registryRevision,
                                 logicalTimeEpochMs,
                                 lifecycle)));
+    }
+
+    private QueryResult serviceLifecycleSnapshot(StateQuery query) {
+        ServiceLifecycleSnapshotRequest request;
+        try {
+            request = RegistryStateCodec.decodeServiceLifecycleSnapshotRequest(
+                    query.payload());
+        } catch (IOException e) {
+            throw new IllegalArgumentException(
+                    "Malformed Registry lifecycle snapshot query", e);
+        }
+        NavigableMap<ServiceKey, ServiceLifecycle> selected =
+                request.afterExclusive() == null
+                        ? services
+                        : services.tailMap(request.afterExclusive(), false);
+        List<ServiceLifecycle> page = selected.values().stream()
+                .limit((long) request.limit() + 1L)
+                .toList();
+        boolean hasMore = page.size() > request.limit();
+        if (hasMore) {
+            page = page.subList(0, request.limit());
+        }
+        ServiceLifecycleSnapshot snapshot = new ServiceLifecycleSnapshot(
+                registryRevision,
+                logicalTimeEpochMs,
+                page,
+                hasMore);
+        return queryResult(
+                RegistryStateCodec.RESULT_SERVICE_LIFECYCLE_SNAPSHOT,
+                RegistryStateCodec.encodeServiceLifecycleSnapshot(snapshot));
     }
 
     private QueryResult resolveOperation(StateQuery query) {
@@ -678,6 +711,12 @@ public final class RegistryStateMachine implements StateMachine {
     @Override
     public int snapshotSchemaVersion() {
         return SNAPSHOT_SCHEMA_VERSION;
+    }
+
+    @Override
+    public StateMachineCompatibility compatibility() {
+        return StateMachineCompatibility.exact(
+                RegistryStateCodec.SCHEMA_VERSION, SNAPSHOT_SCHEMA_VERSION);
     }
 
     @Override
@@ -935,6 +974,17 @@ public final class RegistryStateMachine implements StateMachine {
 
     private static MutationRejected reject(String code, String message) {
         return new MutationRejected(code, message);
+    }
+
+    private void compactOperationHistory() {
+        while (operations.size() >= options.operationReplayWindow()) {
+            var iterator = operations.entrySet().iterator();
+            if (!iterator.hasNext()) {
+                return;
+            }
+            iterator.next();
+            iterator.remove();
+        }
     }
 
     private record OperationKey(String actorScope, String operationId) {

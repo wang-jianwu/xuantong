@@ -1,5 +1,7 @@
 package cloud.xuantong.config.management.repository.impl;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.config.management.model.ConfigResource;
 import cloud.xuantong.resource.model.ConfigResourceKey;
 import cloud.xuantong.config.management.repository.ConfigResourceRepository;
@@ -27,6 +29,17 @@ public class ConfigResourceRepositoryImpl implements ConfigResourceRepository {
     }
 
     @Override
+    public List<ConfigResource> findAll() {
+        return easyQuery.queryable(ConfigResource.class)
+                .orderBy(o -> {
+                    o.namespaceId().asc();
+                    o.groupName().asc();
+                    o.dataId().asc();
+                })
+                .toList();
+    }
+
+    @Override
     public List<ConfigResource> findByGroup(String namespaceId, String groupName) {
         return easyQuery.queryable(ConfigResource.class)
                 .where(o -> {
@@ -38,23 +51,49 @@ public class ConfigResourceRepositoryImpl implements ConfigResourceRepository {
     }
 
     @Override
+    public PageResult<ConfigResource> findPage(
+            String namespaceId,
+            String groupName,
+            String keyword,
+            String lifecycleStatus,
+            PageQuery pageQuery) {
+        String normalizedKeyword = normalize(keyword);
+        String normalizedLifecycle = normalize(lifecycleStatus);
+        var query = easyQuery.queryable(ConfigResource.class)
+                .where(o -> {
+                    o.namespaceId().eq(namespaceId);
+                    o.groupName().eq(groupName);
+                    o.lifecycleStatus().eq(normalizedLifecycle != null, normalizedLifecycle);
+                    if (normalizedKeyword != null) {
+                        o.or(() -> {
+                            o.dataId().contains(normalizedKeyword);
+                            o.description().contains(normalizedKeyword);
+                        });
+                    }
+                })
+                .orderBy(o -> o.dataId().asc());
+        var result = query.toPageResult(pageQuery.page(), pageQuery.pageSize());
+        return PageResult.of(pageQuery, result.getTotal(), result.getData());
+    }
+
+    @Override
     public long save(ConfigResource resource) {
         return easyQuery.insertable(resource).executeRows(true);
     }
 
     @Override
-    public long updateDraft(ConfigResource resource) {
+    public long updateDraft(ConfigResource resource, long expectedDraftRevision) {
         return easyQuery.updatable(ConfigResource.class)
                 .setColumns(o -> o.content().set(resource.getContent()))
                 .setColumns(o -> o.contentType().set(resource.getContentType()))
                 .setColumns(o -> o.checksum().set(resource.getChecksum()))
-                .setColumns(o -> o.isEncrypted().set(resource.getIsEncrypted()))
                 .setColumns(o -> o.description().set(resource.getDescription()))
                 .setColumns(o -> o.updatedBy().set(resource.getUpdatedBy()))
                 .setColumns(o -> o.updatedAt().set(new Date()))
+                .setColumns(o -> o.draftRevision().set(expectedDraftRevision + 1L))
                 .where(o -> {
                     o.id().eq(resource.getId());
-                    o.revision().eq(resource.getRevision());
+                    o.draftRevision().eq(expectedDraftRevision);
                 })
                 .executeRows();
     }
@@ -74,9 +113,10 @@ public class ConfigResourceRepositoryImpl implements ConfigResourceRepository {
     }
 
     @Override
-    public long advanceRevision(Long configId, long newRevision) {
+    public long advanceLifecycle(Long configId, long newRevision, String lifecycleStatus) {
         return easyQuery.updatable(ConfigResource.class)
                 .setColumns(o -> o.revision().set(newRevision))
+                .setColumns(o -> o.lifecycleStatus().set(lifecycleStatus))
                 .setColumns(o -> o.updatedAt().set(new Date()))
                 .where(o -> {
                     o.id().eq(configId);
@@ -96,5 +136,9 @@ public class ConfigResourceRepositoryImpl implements ConfigResourceRepository {
                     o.revision().eq(0L);
                 })
                 .executeRows();
+    }
+
+    private String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

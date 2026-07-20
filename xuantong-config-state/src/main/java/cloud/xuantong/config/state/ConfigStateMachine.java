@@ -8,6 +8,7 @@ import cloud.xuantong.state.api.StateCommand;
 import cloud.xuantong.state.api.StateGroupId;
 import cloud.xuantong.state.api.StateGroupType;
 import cloud.xuantong.state.api.StateMachine;
+import cloud.xuantong.state.api.StateMachineCompatibility;
 import cloud.xuantong.state.api.StateQuery;
 import cloud.xuantong.state.api.StateRevision;
 import cloud.xuantong.state.api.WatchBatch;
@@ -43,7 +44,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * one state.</p>
  */
 public final class ConfigStateMachine implements StateMachine {
-    private static final int SNAPSHOT_SCHEMA_VERSION = 1;
+    public static final int SNAPSHOT_SCHEMA_VERSION = 2;
     private static final int SNAPSHOT_MAGIC = 0x58435332;
 
     private final StateGroupId groupId;
@@ -132,14 +133,8 @@ public final class ConfigStateMachine implements StateMachine {
                         replayStatus);
             }
 
-            if (operations.size() >= options.maxOperationRecords()) {
-                return rejected(
-                        command.operationId(),
-                        "IDEMPOTENCY_CAPACITY_EXCEEDED",
-                        "Config operation history reached its safe capacity");
-            }
-
             OperationRecord result = mutate(mutation, requestHash);
+            compactOperationHistory();
             operations.put(operationKey, result);
             return result.toApplyResult(
                     groupId, command.operationId(), appliedIndex, result.status());
@@ -157,6 +152,8 @@ public final class ConfigStateMachine implements StateMachine {
             return switch (query.queryType()) {
                 case ConfigStateCodec.QUERY_APPLICABLE_RELEASE -> applicableRelease(query);
                 case ConfigStateCodec.QUERY_SNAPSHOT -> configSnapshot(query);
+                case ConfigStateCodec.QUERY_PROJECTION_SNAPSHOT ->
+                        projectionSnapshot(query);
                 case ConfigStateCodec.QUERY_RESOLVE_OPERATION -> resolveOperation(query);
                 default -> throw new IllegalArgumentException(
                         "Unsupported Config State query: " + query.queryType());
@@ -234,6 +231,12 @@ public final class ConfigStateMachine implements StateMachine {
     @Override
     public int snapshotSchemaVersion() {
         return SNAPSHOT_SCHEMA_VERSION;
+    }
+
+    @Override
+    public StateMachineCompatibility compatibility() {
+        return StateMachineCompatibility.exact(
+                ConfigStateCodec.SCHEMA_VERSION, SNAPSHOT_SCHEMA_VERSION);
     }
 
     @Override
@@ -381,44 +384,47 @@ public final class ConfigStateMachine implements StateMachine {
         }
 
         long decisionRevision = currentDecisionRevision + 1;
-        long stableContentRevision;
-        List<RolloutRule> rules;
-        try {
-            stableContentRevision = resolveContentReference(
-                    mutation.stableContent(), newContentRevision, keyContents);
-            List<RolloutRule> resolvedRules = new ArrayList<>(mutation.rules().size());
-            for (RolloutRuleDraft draft : mutation.rules()) {
-                long targetRevision = resolveContentReference(
-                        draft.targetContent(), newContentRevision, keyContents);
-                resolvedRules.add(new RolloutRule(
-                        draft.ruleId(),
-                        draft.ruleGeneration(),
-                        draft.selectorVersion(),
-                        draft.priority(),
-                        targetRevision,
-                        draft.rolloutKey(),
-                        draft.selectorType(),
-                        draft.selectorKey(),
-                        draft.selectorValues(),
-                        draft.percentageBasisPoints(),
-                        draft.seed(),
-                        draft.status(),
-                        decisionRevision));
+        long stableContentRevision = 0;
+        List<RolloutRule> rules = List.of();
+        if (mutation.decisionState() == ConfigDecisionState.ACTIVE) {
+            try {
+                stableContentRevision = resolveContentReference(
+                        mutation.stableContent(), newContentRevision, keyContents);
+                List<RolloutRule> resolvedRules = new ArrayList<>(mutation.rules().size());
+                for (RolloutRuleDraft draft : mutation.rules()) {
+                    long targetRevision = resolveContentReference(
+                            draft.targetContent(), newContentRevision, keyContents);
+                    resolvedRules.add(new RolloutRule(
+                            draft.ruleId(),
+                            draft.ruleGeneration(),
+                            draft.selectorVersion(),
+                            draft.priority(),
+                            targetRevision,
+                            draft.rolloutKey(),
+                            draft.selectorType(),
+                            draft.selectorKey(),
+                            draft.selectorValues(),
+                            draft.percentageBasisPoints(),
+                            draft.seed(),
+                            draft.status(),
+                            decisionRevision));
+                }
+                rules = resolvedRules.stream().sorted(RolloutRule.SELECTION_ORDER).toList();
+                validateContentExists(stableContentRevision, newContentRevision, keyContents);
+                for (RolloutRule rule : rules) {
+                    validateContentExists(
+                            rule.targetContentRevision(), newContentRevision, keyContents);
+                }
+            } catch (IllegalArgumentException e) {
+                return operationError(requestHash, "INVALID_DECISION", safeMessage(e));
             }
-            rules = resolvedRules.stream().sorted(RolloutRule.SELECTION_ORDER).toList();
-            validateContentExists(stableContentRevision, newContentRevision, keyContents);
-            for (RolloutRule rule : rules) {
-                validateContentExists(
-                        rule.targetContentRevision(), newContentRevision, keyContents);
-            }
-        } catch (IllegalArgumentException e) {
-            return operationError(requestHash, "INVALID_DECISION", safeMessage(e));
         }
 
         ReleaseDecision decision;
         try {
             decision = new ReleaseDecision(
-                    mutation.configKey(), decisionRevision, stableContentRevision, rules);
+                    mutation.configKey(), decisionRevision, mutation.decisionState(),
+                    stableContentRevision, rules);
         } catch (IllegalArgumentException e) {
             return operationError(requestHash, "INVALID_RULES", safeMessage(e));
         }
@@ -462,6 +468,9 @@ public final class ConfigStateMachine implements StateMachine {
         long decisionRevision = 0;
         if (decision == null) {
             result = ApplicableRelease.missing();
+        } else if (decision.tombstone()) {
+            decisionRevision = decision.decisionRevision();
+            result = ApplicableRelease.tombstone(decision);
         } else {
             decisionRevision = decision.decisionRevision();
             result = ConfigReleaseSelector.select(
@@ -514,6 +523,69 @@ public final class ConfigStateMachine implements StateMachine {
                 ConfigStateCodec.RESULT_SNAPSHOT,
                 ConfigStateCodec.encodeSnapshot(snapshot),
                 revisions);
+    }
+
+    private QueryResult projectionSnapshot(StateQuery query) {
+        ConfigProjectionSnapshotRequest request;
+        try {
+            request = ConfigStateCodec.decodeProjectionSnapshotRequest(query.payload());
+        } catch (IOException e) {
+            throw new IllegalArgumentException(
+                    "Malformed Config projection snapshot query", e);
+        }
+        NavigableMap<ConfigKey, ReleaseDecision> selected =
+                request.afterExclusive() == null
+                        ? decisions
+                        : decisions.tailMap(request.afterExclusive(), false);
+        List<ReleaseDecision> page = selected.values().stream()
+                .limit((long) request.limit() + 1L)
+                .toList();
+        boolean hasMore = page.size() > request.limit();
+        if (hasMore) {
+            page = page.subList(0, request.limit());
+        }
+        List<ConfigProjectionEntry> entries = page.stream()
+                .map(decision -> {
+                    Set<Long> referenced = new LinkedHashSet<>();
+                    if (decision.active()) {
+                        referenced.add(decision.stableContentRevision());
+                        decision.rules().forEach(
+                                rule -> referenced.add(rule.targetContentRevision()));
+                    }
+                    NavigableMap<Long, ConfigContent> versions =
+                            contents.getOrDefault(decision.configKey(), new TreeMap<>());
+                    List<ConfigContentDigest> digests = referenced.stream()
+                            .sorted()
+                            .map(revision -> {
+                                ConfigContent content = versions.get(revision);
+                                if (content == null) {
+                                    throw new IllegalStateException(
+                                            "Decision references missing content revision "
+                                                    + revision);
+                                }
+                                return ConfigContentDigest.from(content);
+                            })
+                            .toList();
+                    return new ConfigProjectionEntry(
+                            decision.configKey(),
+                            decision.decisionRevision(),
+                            decision.state(),
+                            decision.stableContentRevision(),
+                            decision.rules().stream()
+                                    .map(ConfigRolloutDigest::from)
+                                    .toList(),
+                            digests);
+                })
+                .toList();
+        ConfigProjectionSnapshot snapshot = new ConfigProjectionSnapshot(
+                eventRevision, compactionRevision, entries, hasMore);
+        return new QueryResult(
+                groupId,
+                appliedIndex,
+                false,
+                ConfigStateCodec.RESULT_PROJECTION_SNAPSHOT,
+                ConfigStateCodec.encodeProjectionSnapshot(snapshot),
+                List.of(StateRevision.configEvent(groupId, eventRevision)));
     }
 
     private QueryResult resolveOperation(StateQuery query) {
@@ -599,6 +671,17 @@ public final class ConfigStateMachine implements StateMachine {
         while (changeLog.size() > options.changeLogCapacity()) {
             Map.Entry<Long, ConfigChangeEvent> removed = changeLog.pollFirstEntry();
             compactionRevision = removed.getKey();
+        }
+    }
+
+    private void compactOperationHistory() {
+        while (operations.size() >= options.operationReplayWindow()) {
+            var iterator = operations.entrySet().iterator();
+            if (!iterator.hasNext()) {
+                return;
+            }
+            iterator.next();
+            iterator.remove();
         }
     }
 
@@ -733,6 +816,9 @@ public final class ConfigStateMachine implements StateMachine {
         for (ReleaseDecision decision : restoredDecisions.values()) {
             NavigableMap<Long, ConfigContent> versions =
                     restoredContents.get(decision.configKey());
+            if (decision.tombstone()) {
+                continue;
+            }
             if (versions == null || !versions.containsKey(decision.stableContentRevision())) {
                 throw new IOException("Snapshot decision references missing stable content");
             }

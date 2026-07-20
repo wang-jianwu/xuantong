@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -100,6 +101,39 @@ class ConfigCoreTest {
     }
 
     @Test
+    void staleFetchAfterInvalidationNeverRollsBackOrCommitsTheWatchCursor()
+            throws Exception {
+        withUserDir(() -> {
+            seed("app.yml", "stable-v3");
+            MutableConfigTransport transport = new MutableConfigTransport(
+                    new ConfigSnapshot(
+                            "app.yml", "stable-v3", 3L, "sum-3", "text"),
+                    3L);
+
+            try (ConfigCore core = new ConfigCore(
+                    List.of("gateway-a:8090"),
+                    "public", "DEFAULT_GROUP", "", transport)) {
+                transport.announce(
+                        new ConfigSnapshot(
+                                "app.yml", "stale-v2", 2L, "sum-2", "text"),
+                        4L,
+                        4L);
+
+                await(() -> transport.fetchCount.get() >= 2);
+                assertEquals("stable-v3", core.get("app.yml", null),
+                        "A stale Gateway response must not roll back last-known-good");
+
+                transport.publish(new ConfigSnapshot(
+                        "app.yml", "stable-v4", 4L, "sum-4", "text"), 4L);
+                await(() -> "stable-v4".equals(core.get("app.yml", null)));
+                assertTrue(transport.requestedWatchCursors.stream()
+                                .filter(cursor -> cursor == 3L).count() >= 2,
+                        "The invalidation cursor must remain retryable until revision 4 is fetched");
+            }
+        });
+    }
+
+    @Test
     void reconnectRunsSnapshotRepairAndNeverDeletesLastKnownGood() throws Exception {
         withUserDir(() -> {
             seed("app.yml", "baseline");
@@ -122,6 +156,73 @@ class ConfigCoreTest {
                 await(() -> "recovered".equals(core.get("app.yml", null)));
                 assertTrue(transport.snapshotCount.get() >= 2);
             }
+        });
+    }
+
+    @Test
+    void authoritativeTombstoneDeletesCacheNotifiesNullAndCanBeReactivated()
+            throws Exception {
+        withUserDir(() -> {
+            seed("app.yml", "baseline");
+            MutableConfigTransport transport = new MutableConfigTransport(
+                    new ConfigSnapshot("app.yml", "baseline", 1L, "sum-1", "text"),
+                    1L);
+            AtomicBoolean tombstoneNotified = new AtomicBoolean();
+            AtomicReference<String> lastValue = new AtomicReference<>("not-called");
+
+            try (ConfigCore core = new ConfigCore(
+                    List.of("gateway-a:8090"),
+                    "public", "DEFAULT_GROUP", "", transport)) {
+                core.addConfigListener("app.yml", event -> {
+                    lastValue.set(event.getNewValue());
+                    if (event.getNewValue() == null) {
+                        tombstoneNotified.set(true);
+                    }
+                });
+
+                transport.publish(ConfigSnapshot.tombstone("app.yml", 2L), 2L);
+                await(() -> "fallback".equals(core.get("app.yml", "fallback")));
+                await(tombstoneNotified::get);
+                assertEquals(null, lastValue.get());
+                int fetchesAfterDelete = transport.fetchCount.get();
+                assertEquals("fallback", core.get("app.yml", "fallback"));
+                assertEquals(fetchesAfterDelete, transport.fetchCount.get(),
+                        "known tombstone must act as a negative cache");
+
+                transport.publish(new ConfigSnapshot(
+                        "app.yml", "rebuilt", 3L, "sum-3", "text"), 3L);
+                await(() -> "rebuilt".equals(core.get("app.yml", null)));
+                await(() -> "rebuilt".equals(lastValue.get()));
+            }
+
+            ConfigCacheManager reloaded = new ConfigCacheManager(
+                    "public", "DEFAULT_GROUP");
+            assertEquals("rebuilt", reloaded.get("app.yml"));
+            reloaded.shutdown();
+        });
+    }
+
+    @Test
+    void coldFetchOfAuthoritativeTombstoneReturnsDefaultAndNegativeCaches() {
+        withUserDir(() -> {
+            MutableConfigTransport transport = new MutableConfigTransport(
+                    ConfigSnapshot.tombstone("app.yml", 2L),
+                    2L);
+
+            try (ConfigCore core = new ConfigCore(
+                    List.of("gateway-a:8090"),
+                    "public", "DEFAULT_GROUP", "", transport)) {
+                assertEquals("fallback", core.get("app.yml", "fallback"));
+                int fetchesAfterTombstone = transport.fetchCount.get();
+                assertEquals("fallback", core.get("app.yml", "fallback"));
+                assertEquals(fetchesAfterTombstone, transport.fetchCount.get(),
+                        "cold-fetched tombstone must become a negative cache entry");
+            }
+
+            ConfigCacheManager reloaded = new ConfigCacheManager(
+                    "public", "DEFAULT_GROUP");
+            assertEquals(null, reloaded.get("app.yml"));
+            reloaded.shutdown();
         });
     }
 
@@ -168,6 +269,7 @@ class ConfigCoreTest {
                 new java.util.concurrent.CopyOnWriteArrayList<>();
         private volatile ConfigSnapshot current;
         private volatile long eventRevision;
+        private volatile long announcedDecisionRevision;
         private volatile Runnable reconnectListener;
         private volatile boolean reconnectListenerInstalledBeforeConnect;
         private volatile long lastFetchMinRevision;
@@ -175,10 +277,21 @@ class ConfigCoreTest {
         private MutableConfigTransport(ConfigSnapshot current, long eventRevision) {
             this.current = current;
             this.eventRevision = eventRevision;
+            this.announcedDecisionRevision = current.getRevision();
         }
 
         private void publish(ConfigSnapshot snapshot, long newEventRevision) {
             this.current = snapshot;
+            this.eventRevision = newEventRevision;
+            this.announcedDecisionRevision = snapshot.getRevision();
+        }
+
+        private void announce(
+                ConfigSnapshot returnedSnapshot,
+                long decisionRevision,
+                long newEventRevision) {
+            this.current = returnedSnapshot;
+            this.announcedDecisionRevision = decisionRevision;
             this.eventRevision = newEventRevision;
         }
 
@@ -231,7 +344,7 @@ class ConfigCoreTest {
                         List.of(new ConfigInvalidation(
                                 current.getDataId(),
                                 eventRevision,
-                                current.getRevision())));
+                                announcedDecisionRevision)));
             }
             return new ConfigWatchBatch(
                     afterEventRevision,

@@ -3,6 +3,7 @@ package cloud.xuantong.server.state;
 import cloud.xuantong.config.state.ConfigActor;
 import cloud.xuantong.config.state.ConfigContentDraft;
 import cloud.xuantong.config.state.ConfigContentReference;
+import cloud.xuantong.config.state.ConfigDecisionState;
 import cloud.xuantong.config.state.ConfigKey;
 import cloud.xuantong.config.state.ConfigMutation;
 import cloud.xuantong.config.state.ConfigStateCodec;
@@ -17,6 +18,7 @@ import cloud.xuantong.protocol.v2.ConfigCoordinate;
 import cloud.xuantong.protocol.v2.ConfigFetchRequest;
 import cloud.xuantong.protocol.v2.ConfigFetchResponse;
 import cloud.xuantong.protocol.v2.ConfigSnapshotRequest;
+import cloud.xuantong.protocol.v2.ConfigSnapshotResponse;
 import cloud.xuantong.protocol.v2.ConfigWatchBatchRequest;
 import cloud.xuantong.protocol.v2.ConfigWatchBatchResponse;
 import cloud.xuantong.protocol.v2.ControlPlaneProtocol;
@@ -43,6 +45,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigControlPlaneHandlerTest {
@@ -112,10 +115,69 @@ class ConfigControlPlaneHandlerTest {
         ConfigFetchResponse response = ConfigFetchResponse.parseFrom(reply.payload());
 
         assertEquals(ResponseCode.OK, reply.status().getCode());
-        assertTrue(response.getFound());
+        assertEquals(cloud.xuantong.protocol.v2.ConfigValueState
+                .CONFIG_VALUE_STATE_ACTIVE, response.getState());
         assertEquals("candidate", response.getContent().getPayload().toStringUtf8());
         assertEquals("ip-gray", response.getMatchedRuleId());
         assertEquals(2, response.getDecisionRevision());
+    }
+
+    @Test
+    void fetchAndSnapshotExposeAuthoritativeTombstoneState() throws Exception {
+        publishStable("publish-before-delete", "stable");
+        stateClient.submit(ConfigStateCodec.mutationCommand(
+                groupId,
+                "tombstone",
+                new ConfigMutation(
+                        new ConfigActor("tenant-a", "admin-a"),
+                        key,
+                        1,
+                        null,
+                        ConfigDecisionState.TOMBSTONE,
+                        null,
+                        List.of()))).toCompletableFuture().join();
+
+        ConfigFetchControlPlaneHandler fetchHandler = new ConfigFetchControlPlaneHandler(
+                new ControlPlaneStateExecutor(stateClient));
+        ConfigFetchRequest fetch = ConfigFetchRequest.newBuilder()
+                .setGroupName(key.group())
+                .setDataId(key.dataId())
+                .build();
+        ControlPlaneReply fetchReply = fetchHandler.handle(context, baseEnvelope()
+                        .setRevisionType(RevisionType.CONFIG_DECISION)
+                        .setPayloadType(ControlPlaneProtocol.CONFIG_FETCH_REQUEST_TYPE)
+                        .setPayload(fetch.toByteString())
+                        .build())
+                .toCompletableFuture().get(5, TimeUnit.SECONDS);
+        ConfigFetchResponse fetchResponse = ConfigFetchResponse.parseFrom(fetchReply.payload());
+
+        assertEquals(cloud.xuantong.protocol.v2.ConfigValueState
+                .CONFIG_VALUE_STATE_TOMBSTONE, fetchResponse.getState());
+        assertEquals(2L, fetchResponse.getDecisionRevision());
+        assertFalse(fetchResponse.hasContent());
+
+        ConfigSnapshotControlPlaneHandler snapshotHandler =
+                new ConfigSnapshotControlPlaneHandler(
+                        new ControlPlaneStateExecutor(stateClient));
+        ConfigSnapshotRequest snapshot = ConfigSnapshotRequest.newBuilder()
+                .addConfigs(ConfigCoordinate.newBuilder()
+                        .setNamespaceId(key.namespace())
+                        .setGroupName(key.group())
+                        .setDataId(key.dataId()))
+                .build();
+        ControlPlaneReply snapshotReply = snapshotHandler.handle(context, baseEnvelope()
+                        .setRevisionType(RevisionType.CONFIG_EVENT)
+                        .setPayloadType(ControlPlaneProtocol.CONFIG_SNAPSHOT_REQUEST_TYPE)
+                        .setPayload(snapshot.toByteString())
+                        .build())
+                .toCompletableFuture().get(5, TimeUnit.SECONDS);
+        ConfigSnapshotResponse snapshotResponse = ConfigSnapshotResponse.parseFrom(
+                snapshotReply.payload());
+        assertEquals(1, snapshotResponse.getDecisionsCount());
+        assertEquals(cloud.xuantong.protocol.v2.ConfigValueState
+                        .CONFIG_VALUE_STATE_TOMBSTONE,
+                snapshotResponse.getDecisions(0).getState());
+        assertEquals(0L, snapshotResponse.getDecisions(0).getStableContentRevision());
     }
 
     @Test

@@ -1,5 +1,6 @@
 package cloud.xuantong.integration.spring.boot.autoconfigure;
 
+import cloud.xuantong.client.TlsOptions;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.List;
@@ -47,6 +48,9 @@ public class XuantongConfigProperties {
 
     /** 租户标识。 */
     private String tenant = "default";
+
+    /** Socket.D 控制面 TLS/mTLS。 */
+    private final Tls tls = new Tls();
 
     // Getters and Setters
 
@@ -136,5 +140,60 @@ public class XuantongConfigProperties {
 
     public void setTenant(String tenant) {
         this.tenant = tenant;
+    }
+
+    public Tls getTls() {
+        return tls;
+    }
+
+    public static class Tls {
+        private boolean enabled;
+        private String trustStore = "";
+        private String trustStoreType = "PKCS12";
+        private String trustStorePassword = "";
+        private String keyStore = "";
+        private String keyStoreType = "PKCS12";
+        private String keyStorePassword = "";
+        private String keyPassword = "";
+        private boolean hostnameVerification = true;
+        private long reloadIntervalMs = 30_000L;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getTrustStore() { return trustStore; }
+        public void setTrustStore(String trustStore) { this.trustStore = trustStore; }
+        public String getTrustStoreType() { return trustStoreType; }
+        public void setTrustStoreType(String trustStoreType) {
+            this.trustStoreType = trustStoreType;
+        }
+        public String getTrustStorePassword() { return trustStorePassword; }
+        public void setTrustStorePassword(String trustStorePassword) {
+            this.trustStorePassword = trustStorePassword;
+        }
+        public String getKeyStore() { return keyStore; }
+        public void setKeyStore(String keyStore) { this.keyStore = keyStore; }
+        public String getKeyStoreType() { return keyStoreType; }
+        public void setKeyStoreType(String keyStoreType) { this.keyStoreType = keyStoreType; }
+        public String getKeyStorePassword() { return keyStorePassword; }
+        public void setKeyStorePassword(String keyStorePassword) {
+            this.keyStorePassword = keyStorePassword;
+        }
+        public String getKeyPassword() { return keyPassword; }
+        public void setKeyPassword(String keyPassword) { this.keyPassword = keyPassword; }
+        public boolean isHostnameVerification() { return hostnameVerification; }
+        public void setHostnameVerification(boolean hostnameVerification) {
+            this.hostnameVerification = hostnameVerification;
+        }
+        public long getReloadIntervalMs() { return reloadIntervalMs; }
+        public void setReloadIntervalMs(long reloadIntervalMs) {
+            this.reloadIntervalMs = reloadIntervalMs;
+        }
+
+        public TlsOptions toOptions() {
+            return new TlsOptions(
+                    enabled, trustStore, trustStoreType, trustStorePassword,
+                    keyStore, keyStoreType, keyStorePassword, keyPassword,
+                    hostnameVerification, reloadIntervalMs);
+        }
     }
 }

@@ -1,25 +1,185 @@
 #set(activeMenu = "token")
 #set(pageHeading = "访问令牌")
-<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>#(pageTitle)</title><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml"><link href="/lib/bootstrap/5.3.8/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css"><link rel="stylesheet" href="/css/admin.css?v=2.0.0-20260713-connection"></head>
-<body><div class="app-container">#include("_sidebar.shtm")<div class="main-content">#include("_header.shtm")<div class="content">
-    <div class="page-intro"><div><h2>客户端访问令牌</h2><p>明文只在签发后显示一次，服务端仅保存 SHA-256 指纹。</p></div><button class="btn btn-primary" onclick="openIssueModal()"><i class="fas fa-plus"></i> 签发令牌</button></div>
-    <div class="card"><div class="table-responsive"><table class="table align-middle"><thead><tr><th>名称</th><th>租户</th><th>命名空间</th><th>资源组</th><th>状态</th><th>创建者</th><th>过期时间</th><th class="text-end">操作</th></tr></thead><tbody id="tokenBody"></tbody></table></div></div>
-</div></div></div>
-<div class="modal fade" id="issueModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">签发访问令牌</h5><button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div><div class="modal-body">
-    <div class="mb-3"><label class="form-label" for="tokenName">令牌名称</label><input id="tokenName" class="form-control" placeholder="例如：order-service-prod"></div>
-    <div class="mb-3"><label class="form-label" for="tokenTenant">租户</label><input id="tokenTenant" class="form-control" value="default" placeholder="default"></div>
-    <div class="mb-3"><label class="form-label" for="tokenNamespace">命名空间</label><select id="tokenNamespace" class="form-select"></select><div class="form-text">选择“全部命名空间”将使用通配符 *</div></div>
-    <div class="mb-3"><label class="form-label" for="tokenGroup">资源组</label><select id="tokenGroup" class="form-select"></select></div>
-    <div><label class="form-label" for="tokenExpires">过期时间</label><input id="tokenExpires" type="datetime-local" class="form-control"><div class="form-text">留空表示永不过期</div></div>
-    </div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary" onclick="issueToken()">确认签发</button></div></div></div></div>
-<div class="modal fade" id="rawTokenModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">请立即保存令牌</h5><button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div><div class="modal-body"><div class="alert alert-warning"><i class="fas fa-triangle-exclamation"></i> 关闭后无法再次查看明文。</div><label class="form-label" for="rawToken">访问令牌</label><div class="input-group"><input id="rawToken" class="form-control font-monospace" readonly><button class="btn btn-outline-primary" onclick="copyRawToken()"><i class="fas fa-copy"></i> 复制</button></div></div></div></div></div>
-<script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script><script src="/js/common.js?v=2.0.0-20260718-config-state"></script><script>
-const issueModal=new bootstrap.Modal(document.getElementById('issueModal')),rawTokenModal=new bootstrap.Modal(document.getElementById('rawTokenModal'));const tokenNamespace=document.getElementById('tokenNamespace'),tokenGroup=document.getElementById('tokenGroup');
-async function loadTokens(){const result=await apiGet('/api/v2/tokens');const rows=requireApiSuccess(result)||[];document.getElementById('tokenBody').innerHTML=rows.length?rows.map(t=>`<tr><td><strong>${escapeHtml(t.tokenName)}</strong></td><td><code>${escapeHtml(t.tenant||'default')}</code></td><td><code>${escapeHtml(t.namespaceId)}</code></td><td><code>${escapeHtml(t.groupName)}</code></td><td><span class="badge ${t.isActive?'badge-success':'badge-danger'}">${t.isActive?'有效':'已吊销'}</span></td><td>${escapeHtml(t.createdBy||'-')}</td><td>${escapeHtml(t.expiresAt?formatDateTime(t.expiresAt):'永不过期')}</td><td class="text-end">${t.isActive?`<button class="btn btn-sm btn-outline-danger" data-token-id="${t.id}" data-token-name="${escapeHtml(t.tokenName)}">吊销</button>`:'-'}</td></tr>`).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无访问令牌</td></tr>';document.querySelectorAll('[data-token-id]').forEach(b=>b.addEventListener('click',()=>revokeToken(b.dataset.tokenId,b.dataset.tokenName)))}
-async function openIssueModal(){const namespaces=requireApiSuccess(await apiGet('/api/v2/namespaces'))||[];tokenNamespace.innerHTML='<option value="*">全部命名空间 (*)</option>'+namespaces.map(n=>`<option value="${escapeHtml(n.namespaceId)}">${escapeHtml(n.name)} (${escapeHtml(n.namespaceId)})</option>`).join('');tokenNamespace.onchange=loadTokenGroups;document.getElementById('tokenName').value='';document.getElementById('tokenTenant').value='default';document.getElementById('tokenExpires').value='';await loadTokenGroups();issueModal.show()}
-async function loadTokenGroups(){if(tokenNamespace.value==='*'){tokenGroup.innerHTML='<option value="*">全部资源组 (*)</option>';return}const groups=requireApiSuccess(await apiGet(`/api/v2/namespaces/${encodeURIComponent(tokenNamespace.value)}/groups`))||[];tokenGroup.innerHTML='<option value="*">全部资源组 (*)</option>'+groups.map(g=>`<option value="${escapeHtml(g.groupName)}">${escapeHtml(g.groupName)}</option>`).join('')}
-async function issueToken(){const name=document.getElementById('tokenName').value.trim(),tenant=document.getElementById('tokenTenant').value.trim(),expires=document.getElementById('tokenExpires').value;if(!name)return showToast('请输入令牌名称','warning');if(!tenant)return showToast('请输入租户','warning');const result=await apiPost('/api/v2/tokens',{tokenName:name,tenant,namespaceId:tokenNamespace.value,groupName:tokenGroup.value,expiresAt:expires?new Date(expires).getTime():null});const issued=requireApiSuccess(result);issueModal.hide();document.getElementById('rawToken').value=issued.accessToken;rawTokenModal.show();await loadTokens()}
-async function revokeToken(id,name){if(!await showConfirm('吊销令牌',`确认吊销 ${name}？相关客户端连接会被关闭。`,'吊销'))return;requireApiSuccess(await apiDelete('/api/v2/tokens/'+encodeURIComponent(id)));showToast('令牌已吊销','success');await loadTokens()}
-async function copyRawToken(){const input=document.getElementById('rawToken');try{await navigator.clipboard.writeText(input.value);showToast('已复制到剪贴板','success')}catch(e){input.select();document.execCommand('copy');showToast('已复制到剪贴板','success')}}
-document.addEventListener('DOMContentLoaded',()=>loadTokens().catch(e=>showToast(e.message||'加载失败','error')));
-</script></body></html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>#(pageTitle)</title>
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <link href="/lib/bootstrap/5.3.8/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="/css/admin.css?v=2.0.2-20260719-cluster">
+</head>
+<body>
+<div class="app-container">#include("_sidebar.shtm")
+    <div class="main-content">#include("_header.shtm")
+        <div class="content">
+            <div class="page-intro">
+                <div><h2>客户端访问令牌</h2>
+                    <p>明文只在签发后显示一次，服务端仅保存 SHA-256 指纹。</p></div>
+                <button class="btn btn-primary" onclick="openIssueModal()"><i class="fas fa-plus"></i> 签发令牌</button>
+            </div>
+            <div class="card">
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>租户</th>
+                            <th>命名空间</th>
+                            <th>资源组</th>
+                            <th>状态</th>
+                            <th>创建者</th>
+                            <th>过期时间</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                        </thead>
+                        <tbody id="tokenBody"></tbody>
+                    </table>
+                </div>
+                <div id="tokenPagination"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="issueModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">签发访问令牌</h5>
+                <button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3"><label class="form-label" for="tokenName">令牌名称</label><input id="tokenName"
+                                                                                                   class="form-control"
+                                                                                                   placeholder="例如：order-service-prod">
+                </div>
+                <div class="mb-3"><label class="form-label" for="tokenTenant">租户</label><input id="tokenTenant"
+                                                                                                 class="form-control"
+                                                                                                 value="default"
+                                                                                                 placeholder="default">
+                </div>
+                <div class="mb-3"><label class="form-label" for="tokenNamespace">命名空间</label><select
+                        id="tokenNamespace" class="form-select"></select>
+                    <div class="form-text">选择“全部命名空间”将使用通配符 *</div>
+                </div>
+                <div class="mb-3"><label class="form-label" for="tokenGroup">资源组</label><select id="tokenGroup"
+                                                                                                   class="form-select"></select>
+                </div>
+                <div><label class="form-label" for="tokenExpires">过期时间</label><input id="tokenExpires"
+                                                                                         type="datetime-local"
+                                                                                         class="form-control">
+                    <div class="form-text">留空表示永不过期</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" onclick="issueToken()">确认签发</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="rawTokenModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">请立即保存令牌</h5>
+                <button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning"><i class="fas fa-triangle-exclamation"></i> 关闭后无法再次查看明文。
+                </div>
+                <label class="form-label" for="rawToken">访问令牌</label>
+                <div class="input-group"><input id="rawToken" class="form-control font-monospace" readonly>
+                    <button class="btn btn-outline-primary" onclick="copyRawToken()"><i class="fas fa-copy"></i> 复制
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
+<script src="/js/common.js?v=2.0.2-20260719-cluster"></script>
+<script>
+    const issueModal = new bootstrap.Modal(document.getElementById('issueModal')),
+        rawTokenModal = new bootstrap.Modal(document.getElementById('rawTokenModal'));
+    const tokenNamespace = document.getElementById('tokenNamespace'),
+        tokenGroup = document.getElementById('tokenGroup');
+    let tokenPage = 1;
+    let tokenPageSize = 20;
+
+    async function loadTokens(page, pageSize) {
+        tokenPage = page || tokenPage;
+        tokenPageSize = pageSize || tokenPageSize;
+        const result = await apiGet(withQuery('/api/v2/tokens', {
+            page: tokenPage,
+            pageSize: tokenPageSize
+        }));
+        const pageResult = requirePageResult(result);
+        const rows = pageResult.items;
+        document.getElementById('tokenBody').innerHTML = rows.length ? rows.map(t => `<tr><td><strong>${escapeHtml(t.tokenName)}</strong></td><td><code>${escapeHtml(t.tenant || 'default')}</code></td><td><code>${escapeHtml(t.namespaceId)}</code></td><td><code>${escapeHtml(t.groupName)}</code></td><td><span class="badge ${t.isActive ? 'badge-success' : 'badge-danger'}">${t.isActive ? '有效' : '已吊销'}</span></td><td>${escapeHtml(t.createdBy || '-')}</td><td>${escapeHtml(t.expiresAt ? formatDateTime(t.expiresAt) : '永不过期')}</td><td class="text-end">${t.isActive ? `<button class="btn btn-sm btn-outline-danger" data-token-id="${t.id}" data-token-name="${escapeHtml(t.tokenName)}">吊销</button>` : '-'}</td></tr>`).join('') : '<tr><td colspan="8" class="text-center text-muted">暂无访问令牌</td></tr>';
+        document.querySelectorAll('[data-token-id]').forEach(b => b.addEventListener('click', () => revokeToken(b.dataset.tokenId, b.dataset.tokenName)));
+        renderPagination('tokenPagination', pageResult, loadTokens);
+    }
+
+    async function openIssueModal() {
+        const namespaces = requireApiSuccess(await apiGet('/api/v2/namespaces')) || [];
+        tokenNamespace.innerHTML = '<option value="*">全部命名空间 (*)</option>' + namespaces.map(n => `<option value="${escapeHtml(n.namespaceId)}">${escapeHtml(n.name)} (${escapeHtml(n.namespaceId)})</option>`).join('');
+        tokenNamespace.onchange = loadTokenGroups;
+        document.getElementById('tokenName').value = '';
+        document.getElementById('tokenTenant').value = 'default';
+        document.getElementById('tokenExpires').value = '';
+        await loadTokenGroups();
+        issueModal.show()
+    }
+
+    async function loadTokenGroups() {
+        if (tokenNamespace.value === '*') {
+            tokenGroup.innerHTML = '<option value="*">全部资源组 (*)</option>';
+            return
+        }
+        const groups = requireApiSuccess(await apiGet(`/api/v2/namespaces/${encodeURIComponent(tokenNamespace.value)}/groups`)) || [];
+        tokenGroup.innerHTML = '<option value="*">全部资源组 (*)</option>' + groups.map(g => `<option value="${escapeHtml(g.groupName)}">${escapeHtml(g.groupName)}</option>`).join('')
+    }
+
+    async function issueToken() {
+        const name = document.getElementById('tokenName').value.trim(),
+            tenant = document.getElementById('tokenTenant').value.trim(),
+            expires = document.getElementById('tokenExpires').value;
+        if (!name) return showToast('请输入令牌名称', 'warning');
+        if (!tenant) return showToast('请输入租户', 'warning');
+        const result = await apiPost('/api/v2/tokens', {
+            tokenName: name,
+            tenant,
+            namespaceId: tokenNamespace.value,
+            groupName: tokenGroup.value,
+            expiresAt: expires ? new Date(expires).getTime() : null
+        });
+        const issued = requireApiSuccess(result);
+        issueModal.hide();
+        document.getElementById('rawToken').value = issued.accessToken;
+        rawTokenModal.show();
+        await loadTokens()
+    }
+
+    async function revokeToken(id, name) {
+        if (!await showConfirm('吊销令牌', `确认吊销 ${name}？相关客户端连接会被关闭。`, '吊销')) return;
+        requireApiSuccess(await apiDelete('/api/v2/tokens/' + encodeURIComponent(id)));
+        showToast('令牌已吊销', 'success');
+        await loadTokens()
+    }
+
+    async function copyRawToken() {
+        const input = document.getElementById('rawToken');
+        try {
+            await navigator.clipboard.writeText(input.value);
+            showToast('已复制到剪贴板', 'success')
+        } catch (e) {
+            input.select();
+            document.execCommand('copy');
+            showToast('已复制到剪贴板', 'success')
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => loadTokens().catch(e => showToast(e.message || '加载失败', 'error')));
+</script>
+</body>
+</html>

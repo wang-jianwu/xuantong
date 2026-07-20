@@ -30,6 +30,8 @@ public final class RegistryStateCodec {
     public static final String QUERY_SNAPSHOT = "registry.snapshot";
     public static final String QUERY_LEASE_STATE = "registry.lease-state";
     public static final String QUERY_SERVICE_LIFECYCLE = "registry.service-lifecycle";
+    public static final String QUERY_SERVICE_LIFECYCLE_SNAPSHOT =
+            "registry.service-lifecycle-snapshot";
     public static final String QUERY_RESOLVE_OPERATION = "registry.resolve-operation";
     public static final String QUERY_OVERVIEW = "registry.overview";
     public static final String WATCH_CHANGES = "registry.changes";
@@ -39,6 +41,8 @@ public final class RegistryStateCodec {
     public static final String RESULT_SNAPSHOT = "registry.snapshot";
     public static final String RESULT_LEASE_STATE = "registry.lease-state";
     public static final String RESULT_SERVICE_LIFECYCLE = "registry.service-lifecycle";
+    public static final String RESULT_SERVICE_LIFECYCLE_SNAPSHOT =
+            "registry.service-lifecycle-snapshot";
     public static final String RESULT_RESOLVED_OPERATION = "registry.resolved-operation";
     public static final String RESULT_OVERVIEW = "registry.overview";
     public static final String EVENT_INSTANCE_CHANGED = "registry.instance-changed";
@@ -98,6 +102,25 @@ public final class RegistryStateCodec {
                 QUERY_SERVICE_LIFECYCLE,
                 SCHEMA_VERSION,
                 encodeServiceLifecycleRequest(request),
+                readOptions);
+    }
+
+    public static StateQuery serviceLifecycleSnapshotQuery(
+            StateGroupId groupId, ReadOptions readOptions) {
+        return serviceLifecycleSnapshotQuery(
+                groupId, new ServiceLifecycleSnapshotRequest(null, 100), readOptions);
+    }
+
+    public static StateQuery serviceLifecycleSnapshotQuery(
+            StateGroupId groupId,
+            ServiceLifecycleSnapshotRequest request,
+            ReadOptions readOptions) {
+        requireRegistryGroup(groupId);
+        return new StateQuery(
+                groupId,
+                QUERY_SERVICE_LIFECYCLE_SNAPSHOT,
+                SCHEMA_VERSION,
+                encodeServiceLifecycleSnapshotRequest(request),
                 readOptions);
     }
 
@@ -419,6 +442,43 @@ public final class RegistryStateCodec {
                     serverTime,
                     found ? readServiceLifecycle(data) : null);
         });
+    }
+
+    public static byte[] encodeServiceLifecycleSnapshot(
+            ServiceLifecycleSnapshot value) {
+        return encode(data -> {
+            data.writeLong(value.registryRevision());
+            data.writeLong(value.serverTimeEpochMs());
+            writeList(data, value.services(), RegistryStateCodec::writeServiceLifecycle);
+            data.writeBoolean(value.hasMore());
+        });
+    }
+
+    public static ServiceLifecycleSnapshot decodeServiceLifecycleSnapshot(byte[] bytes)
+            throws IOException {
+        return decode(bytes, data -> new ServiceLifecycleSnapshot(
+                data.readLong(),
+                data.readLong(),
+                readList(data, RegistryStateCodec::readServiceLifecycle),
+                data.readBoolean()));
+    }
+
+    public static byte[] encodeServiceLifecycleSnapshotRequest(
+            ServiceLifecycleSnapshotRequest value) {
+        return encode(data -> {
+            data.writeBoolean(value.afterExclusive() != null);
+            if (value.afterExclusive() != null) {
+                writeServiceKey(data, value.afterExclusive());
+            }
+            data.writeInt(value.limit());
+        });
+    }
+
+    public static ServiceLifecycleSnapshotRequest decodeServiceLifecycleSnapshotRequest(
+            byte[] bytes) throws IOException {
+        return decode(bytes, data -> new ServiceLifecycleSnapshotRequest(
+                data.readBoolean() ? readServiceKey(data) : null,
+                data.readInt()));
     }
 
     public static byte[] encodeResolveOperationRequest(

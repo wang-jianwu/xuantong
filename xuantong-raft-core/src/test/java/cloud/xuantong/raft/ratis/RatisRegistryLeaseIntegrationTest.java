@@ -2,6 +2,7 @@ package cloud.xuantong.raft.ratis;
 
 import cloud.xuantong.registry.state.InstanceKey;
 import cloud.xuantong.registry.state.ActivateServiceDefinition;
+import cloud.xuantong.registry.state.DeregisterLease;
 import cloud.xuantong.registry.state.LeaseReference;
 import cloud.xuantong.registry.state.LeaseRenewal;
 import cloud.xuantong.registry.state.RegisterLease;
@@ -14,7 +15,9 @@ import cloud.xuantong.registry.state.RegistryStateCodec;
 import cloud.xuantong.registry.state.RegistryStateMachine;
 import cloud.xuantong.registry.state.RenewLeaseBatch;
 import cloud.xuantong.registry.state.ServiceKey;
+import cloud.xuantong.registry.state.ServiceLifecycleSnapshot;
 import cloud.xuantong.registry.state.ServiceRegistration;
+import cloud.xuantong.registry.state.TakeoverLease;
 import cloud.xuantong.state.api.ApplyResult;
 import cloud.xuantong.state.api.ApplyStatus;
 import cloud.xuantong.state.api.QueryResult;
@@ -55,7 +58,8 @@ class RatisRegistryLeaseIntegrationTest {
     }
 
     @Test
-    void leaseSurvivesLeaderFailureWithoutClientMultiWrite() throws Exception {
+    void leaseSurvivesLeaderFailureAndOldOwnerCannotCrossTakeoverFence()
+            throws Exception {
         StateGroupId groupId = StateGroupId.registry("registry-ha-test");
         List<RatisPeerDefinition> peers = List.of(
                 new RatisPeerDefinition("state-1", "127.0.0.1", freePort()),
@@ -107,6 +111,15 @@ class RatisRegistryLeaseIntegrationTest {
                                     0L,
                                     500L)));
             assertEquals(ApplyStatus.APPLIED, serviceActivated.status());
+            QueryResult lifecycleQuery = client.query(
+                            RegistryStateCodec.serviceLifecycleSnapshotQuery(
+                                    groupId, ReadOptions.linearizable()))
+                    .get(5, TimeUnit.SECONDS);
+            ServiceLifecycleSnapshot lifecycles =
+                    RegistryStateCodec.decodeServiceLifecycleSnapshot(
+                            lifecycleQuery.payload());
+            assertEquals(1, lifecycles.services().size());
+            assertTrue(lifecycles.services().getFirst().active());
             ApplyResult applied = submitEventually(client, register);
             assertEquals(ApplyStatus.APPLIED, applied.status());
             lease = RegistryStateCodec.decodeMutationResult(applied.payload())
@@ -137,14 +150,88 @@ class RatisRegistryLeaseIntegrationTest {
             assertEquals(ApplyStatus.APPLIED, renewed.status());
             RegistryMutationResult result = RegistryStateCodec.decodeMutationResult(
                     renewed.payload());
-            assertEquals(1, result.instances().getFirst().renewSequence());
+            RegistryInstance renewedLease = result.instances().getFirst();
+            assertEquals(1, renewedLease.renewSequence());
+
+            RegistryActor replacementActor = new RegistryActor(
+                    "tenant-a", "orders@node-2", "orders");
+            ApplyResult takeover = submitEventually(
+                    client,
+                    RegistryStateCodec.mutationCommand(
+                            groupId,
+                            "takeover-after-leader-failure",
+                            new TakeoverLease(
+                                    replacementActor,
+                                    reference(renewedLease),
+                                    "lease-2",
+                                    30_000,
+                                    3_000)));
+            assertEquals(ApplyStatus.APPLIED, takeover.status());
+            RegistryInstance replacement = RegistryStateCodec.decodeMutationResult(
+                    takeover.payload()).instances().getFirst();
+            assertEquals("orders@node-2", replacement.ownerClientInstanceId());
+            assertEquals(2L, replacement.leaseEpoch());
+            assertEquals(2L, replacement.recoveryEpoch());
+
+            ApplyResult staleRenew = submitEventually(
+                    client,
+                    RegistryStateCodec.mutationCommand(
+                            groupId,
+                            "stale-owner-renew",
+                            new RenewLeaseBatch(
+                                    actor,
+                                    List.of(new LeaseRenewal(
+                                            reference(renewedLease),
+                                            2L,
+                                            30_000)),
+                                    4_000)));
+            assertEquals(ApplyStatus.REJECTED, staleRenew.status());
+            assertEquals("LEASE_FENCED",
+                    RegistryStateCodec.decodeMutationError(
+                            staleRenew.payload()).code());
+
+            ApplyResult staleDeregister = submitEventually(
+                    client,
+                    RegistryStateCodec.mutationCommand(
+                            groupId,
+                            "stale-owner-deregister",
+                            new DeregisterLease(
+                                    actor, reference(renewedLease), 4_100)));
+            assertEquals(ApplyStatus.REJECTED, staleDeregister.status());
+            assertEquals("LEASE_FENCED",
+                    RegistryStateCodec.decodeMutationError(
+                            staleDeregister.payload()).code());
+
+            ApplyResult replacementRenew = submitEventually(
+                    client,
+                    RegistryStateCodec.mutationCommand(
+                            groupId,
+                            "replacement-owner-renew",
+                            new RenewLeaseBatch(
+                                    replacementActor,
+                                    List.of(new LeaseRenewal(
+                                            reference(replacement),
+                                            1L,
+                                            30_000)),
+                                    5_000)));
+            assertEquals(ApplyStatus.APPLIED, replacementRenew.status());
 
             QueryResult query = queryEventually(client, groupId, key.service());
             RegistrySnapshot snapshot = RegistryStateCodec.decodeSnapshot(query.payload());
             assertEquals(1, snapshot.instances().size());
-            assertEquals("lease-1", snapshot.instances().getFirst().leaseId());
+            assertEquals("lease-2", snapshot.instances().getFirst().leaseId());
+            assertEquals("orders@node-2",
+                    snapshot.instances().getFirst().ownerClientInstanceId());
             assertEquals(1, snapshot.instances().getFirst().renewSequence());
         }
+    }
+
+    private LeaseReference reference(RegistryInstance lease) {
+        return new LeaseReference(
+                lease.instanceKey(),
+                lease.leaseId(),
+                lease.leaseEpoch(),
+                lease.recoveryEpoch());
     }
 
     private RatisStateNode awaitLeader() throws Exception {

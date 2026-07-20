@@ -7,6 +7,7 @@ import cloud.xuantong.state.api.StateCommand;
 import cloud.xuantong.state.api.StateGroupId;
 import cloud.xuantong.state.api.StateQuery;
 import cloud.xuantong.state.api.StateRevision;
+import cloud.xuantong.state.api.StateMachineCompatibility;
 import cloud.xuantong.state.api.WatchBatch;
 import cloud.xuantong.state.api.WatchEvent;
 import org.junit.jupiter.api.Test;
@@ -88,5 +89,21 @@ class RatisStateMessageCodecTest {
         byte[] withTrailingByte = Arrays.copyOf(command, command.length + 1);
         assertThrows(IOException.class,
                 () -> RatisStateMessageCodec.decodeCommand(withTrailingByte));
+    }
+
+    @Test
+    void roundTripsRuntimeCapability() throws Exception {
+        StateMachineCompatibility compatibility = new StateMachineCompatibility(
+                2, 3, 1, 3, 2);
+        byte[] encoded = RatisStateMessageCodec.encodeCapabilityResponse(
+                groupId, "2.1.0", compatibility);
+
+        RatisStateNodeCapability decoded =
+                RatisStateMessageCodec.decodeCapabilityResponse("state-1", encoded);
+
+        assertEquals("state-1", decoded.nodeId());
+        assertEquals(groupId, decoded.groupId());
+        assertEquals("2.1.0", decoded.implementationVersion());
+        assertEquals(compatibility, decoded.stateMachine());
     }
 }

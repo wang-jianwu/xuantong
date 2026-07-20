@@ -55,7 +55,7 @@
             width: 64px;
             height: 64px;
             margin: 0 auto 12px;
-            background: rgba(255,255,255,0.2);
+            background: rgba(255, 255, 255, 0.2);
             border-radius: 16px;
             display: flex;
             align-items: center;
@@ -155,7 +155,7 @@
             display: none;
             width: 18px;
             height: 18px;
-            border: 2px solid rgba(255,255,255,0.3);
+            border: 2px solid rgba(255, 255, 255, 0.3);
             border-top-color: white;
             border-radius: 50%;
             animation: spin 0.6s linear infinite;
@@ -171,7 +171,9 @@
         }
 
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         .remember-row {
@@ -217,138 +219,142 @@
     </style>
 </head>
 <body>
-    <div class="login-card">
-        <div class="login-header">
-            <div class="logo-icon"><i class="fas fa-cubes"></i></div>
-            <div class="logo-text">玄同</div>
-            <div class="logo-sub">Xuantong Control Plane</div>
-        </div>
-
-        <div class="login-body">
-            <div class="error-message" id="error-alert">
-                <i class="fas fa-exclamation-circle"></i>
-                <span id="error-text"></span>
-            </div>
-
-            <form id="loginForm">
-                <div class="input-group">
-                    <span class="input-icon"><i class="fas fa-user"></i></span>
-                    <input type="text" class="form-control" id="username" name="username"
-                           placeholder="用户名" required autocomplete="username" autofocus>
-                </div>
-
-                <div class="input-group">
-                    <span class="input-icon"><i class="fas fa-lock"></i></span>
-                    <input type="password" class="form-control" id="password" name="password"
-                           placeholder="密码" required autocomplete="current-password">
-                    <button type="button" class="password-toggle" id="toggle-password" tabindex="-1">
-                        <i class="fas fa-eye"></i>
-                    </button>
-                </div>
-
-                <div class="remember-row">
-                    <label>
-                        <input type="checkbox" id="remember-me"> 记住我
-                    </label>
-                </div>
-
-                <button type="submit" class="btn-login" id="login-btn">
-                    <span class="spinner"></span>
-                    <span class="btn-text">登 录</span>
-                </button>
-            </form>
-        </div>
-
-        <div class="login-footer">
-            &copy; 2026 Xuantong
-        </div>
+<div class="login-card">
+    <div class="login-header">
+        <div class="logo-icon"><i class="fas fa-cubes"></i></div>
+        <div class="logo-text">玄同</div>
+        <div class="logo-sub">Xuantong Control Plane</div>
     </div>
 
-    <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
-    <script src="/js/common.js?v=2.0.0-20260718-config-state"></script>
-    <script>
-        // 密码显隐切换
-        document.getElementById('toggle-password').addEventListener('click', function() {
-            const pwd = document.getElementById('password');
-            const icon = this.querySelector('i');
-            if (pwd.type === 'password') {
-                pwd.type = 'text';
-                icon.className = 'fas fa-eye-slash';
-            } else {
-                pwd.type = 'password';
-                icon.className = 'fas fa-eye';
-            }
-        });
+    <div class="login-body">
+        <div class="error-message" id="error-alert">
+            <i class="fas fa-exclamation-circle"></i>
+            <span id="error-text"></span>
+        </div>
 
-        // 记住我
-        const savedUsername = safeStorage.get('remembered_username');
-        if (savedUsername) {
-            document.getElementById('username').value = savedUsername;
-            document.getElementById('remember-me').checked = true;
+        <form id="loginForm">
+            <div class="input-group">
+                <span class="input-icon"><i class="fas fa-user"></i></span>
+                <input type="text" class="form-control" id="username" name="username"
+                       placeholder="用户名" required autocomplete="username" autofocus>
+            </div>
+
+            <div class="input-group">
+                <span class="input-icon"><i class="fas fa-lock"></i></span>
+                <input type="password" class="form-control" id="password" name="password"
+                       placeholder="密码" required autocomplete="current-password">
+                <button type="button" class="password-toggle" id="toggle-password" tabindex="-1">
+                    <i class="fas fa-eye"></i>
+                </button>
+            </div>
+
+            <div class="remember-row">
+                <label>
+                    <input type="checkbox" id="remember-me"> 记住我
+                </label>
+            </div>
+
+            <button type="submit" class="btn-login" id="login-btn">
+                <span class="spinner"></span>
+                <span class="btn-text">登 录</span>
+            </button>
+        </form>
+    </div>
+
+    <div class="login-footer">
+        &copy; 2026 Xuantong
+    </div>
+</div>
+
+<script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
+<script src="/js/common.js?v=2.0.2-20260719-cluster"></script>
+<script>
+    // 密码显隐切换
+    document.getElementById('toggle-password').addEventListener('click', function () {
+        const pwd = document.getElementById('password');
+        const icon = this.querySelector('i');
+        if (pwd.type === 'password') {
+            pwd.type = 'text';
+            icon.className = 'fas fa-eye-slash';
+        } else {
+            pwd.type = 'password';
+            icon.className = 'fas fa-eye';
+        }
+    });
+
+    // 记住我
+    const savedUsername = safeStorage.get('remembered_username');
+    if (savedUsername) {
+        document.getElementById('username').value = savedUsername;
+        document.getElementById('remember-me').checked = true;
+    }
+
+    // 表单提交
+    document.getElementById('loginForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        const errorAlert = document.getElementById('error-alert');
+        const errorText = document.getElementById('error-text');
+        const loginBtn = document.getElementById('login-btn');
+
+        if (!username || !password) {
+            showError('请输入用户名和密码');
+            return;
         }
 
-        // 表单提交
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
+        // 加载状态
+        loginBtn.classList.add('loading');
+        loginBtn.disabled = true;
+        errorAlert.classList.remove('show');
 
-            const username = document.getElementById('username').value.trim();
-            const password = document.getElementById('password').value;
-            const errorAlert = document.getElementById('error-alert');
-            const errorText = document.getElementById('error-text');
-            const loginBtn = document.getElementById('login-btn');
+        try {
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, password})
+            });
 
-            if (!username || !password) {
-                showError('请输入用户名和密码');
-                return;
-            }
+            const data = await response.json();
 
-            // 加载状态
-            loginBtn.classList.add('loading');
-            loginBtn.disabled = true;
-            errorAlert.classList.remove('show');
-
-            try {
-                const response = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
-
-                const data = await response.json();
-
-                if (data.code === 200) {
-                    // 记住用户名
-                    if (document.getElementById('remember-me').checked) {
-                        safeStorage.set('remembered_username', username);
-                    } else {
-                        safeStorage.remove('remembered_username');
-                    }
-                    window.location.href = '/dashboard';
+            if (data.code === 200) {
+                // 记住用户名
+                if (document.getElementById('remember-me').checked) {
+                    safeStorage.set('remembered_username', username);
                 } else {
-                    showError(data.description || '用户名或密码错误');
+                    safeStorage.remove('remembered_username');
                 }
-            } catch (error) {
-                showError('网络错误，请稍后再试');
-                console.error('登录错误:', error);
-            } finally {
-                loginBtn.classList.remove('loading');
-                loginBtn.disabled = false;
+                window.location.href = '/dashboard';
+            } else {
+                const retryAfter = Number(response.headers.get('Retry-After') || 0);
+                const suffix = response.status === 429 && retryAfter > 0
+                    ? `（${retryAfter} 秒后重试）`
+                    : '';
+                showError((data.description || '用户名或密码错误') + suffix);
             }
-        });
-
-        function showError(msg) {
-            document.getElementById('error-text').textContent = msg;
-            document.getElementById('error-alert').classList.add('show');
-            document.getElementById('password').value = '';
-            document.getElementById('password').focus();
+        } catch (error) {
+            showError('网络错误，请稍后再试');
+            console.error('登录错误:', error);
+        } finally {
+            loginBtn.classList.remove('loading');
+            loginBtn.disabled = false;
         }
+    });
 
-        // 回车键提交
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && document.activeElement !== document.getElementById('login-btn')) {
-                document.getElementById('loginForm').dispatchEvent(new Event('submit'));
-            }
-        });
-    </script>
+    function showError(msg) {
+        document.getElementById('error-text').textContent = msg;
+        document.getElementById('error-alert').classList.add('show');
+        document.getElementById('password').value = '';
+        document.getElementById('password').focus();
+    }
+
+    // 回车键提交
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && document.activeElement !== document.getElementById('login-btn')) {
+            document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+        }
+    });
+</script>
 </body>
 </html>

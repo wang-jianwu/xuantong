@@ -3,6 +3,7 @@ package cloud.xuantong.integration.solon.cloud;
 import cloud.xuantong.client.XuantongDiscoveryClient;
 import cloud.xuantong.client.ClientIdentity;
 import cloud.xuantong.client.ControlPlaneOptions;
+import cloud.xuantong.client.metrics.LeaseRenewalMetricsSnapshot;
 import cloud.xuantong.client.model.ServiceInstance;
 import cloud.xuantong.client.serializer.Serializer;
 import org.noear.solon.cloud.CloudDiscoveryHandler;
@@ -63,7 +64,8 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
                 defaults.connectTimeoutMs(),
                 defaults.requestTimeoutMs(),
                 defaults.operationTimeoutMs(),
-                defaults.closingTimeoutMs());
+                defaults.closingTimeoutMs(),
+                SolonCloudTlsOptions.load());
     }
 
     @Override
@@ -140,6 +142,13 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
         return new XuantongDiscoveryClient(
                 serverAddresses, namespace, group, serviceName, accessToken,
                 heartbeatIntervalMs, clientIdentity, controlPlaneOptions);
+    }
+
+    /** Returns fixed-memory renewal telemetry for locally registered leases. */
+    public List<LeaseRenewalMetricsSnapshot> leaseRenewalMetrics() {
+        return registrationClients.values().stream()
+                .map(XuantongDiscoveryClient::getLeaseRenewalMetrics)
+                .toList();
     }
 
     private ServiceInstance toXuantongInstance(

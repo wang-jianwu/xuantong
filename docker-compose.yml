@@ -29,14 +29,19 @@ services:
       XUANTONG_DB_URL: jdbc:mysql://mysql:3306/xuantong_config?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8
       XUANTONG_DB_DRIVER: com.mysql.cj.jdbc.Driver
       XUANTONG_DB_DIALECT: mysql
-      CONFIG_ENCRYPT_KEY: ${CONFIG_ENCRYPT_KEY:?CONFIG_ENCRYPT_KEY must be set}
+      XUANTONG_ADMIN_SESSION_SECRET: ${XUANTONG_ADMIN_SESSION_SECRET:?XUANTONG_ADMIN_SESSION_SECRET must be set}
+      XUANTONG_CLUSTER_ID: ${XUANTONG_CLUSTER_ID:-xuantong-local}
+      XUANTONG_GATEWAY_ID: ${XUANTONG_GATEWAY_ID:-gateway-dev}
       # Docker Compose 是本地单节点开发拓扑，不具备生产容错能力。
       XUANTONG_CONFIG_STATE_ENABLED: "true"
       XUANTONG_REGISTRY_STATE_ENABLED: "true"
       XUANTONG_STATE_NODE_ID: state-dev
       XUANTONG_CONFIG_STATE_PEERS: state-dev@xuantong-server:9101
+      XUANTONG_STATE_RPC_BIND_HOST: 0.0.0.0
+      XUANTONG_STATE_RPC_BIND_PORT: 9101
       XUANTONG_CONFIG_STATE_ALLOW_SINGLE_NODE: "true"
       XUANTONG_STATE_DIR: /var/lib/xuantong/state
+      XUANTONG_STATE_STORAGE_FREE_MIN_BYTES: ${XUANTONG_STATE_STORAGE_FREE_MIN_BYTES:-536870912}
     volumes:
       - state_data:/var/lib/xuantong/state
     depends_on:
@@ -48,6 +53,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  xuantong-probe:
+    build:
+      context: .
+      dockerfile: xuantong-probe/Dockerfile
+    ports:
+      - "9118:9118"
+    environment:
+      XUANTONG_PROBE_SERVERS: xuantong-server:8090
+      XUANTONG_PROBE_PROFILE: config
+      XUANTONG_PROBE_NAMESPACE: public
+      XUANTONG_PROBE_GROUP: DEFAULT_GROUP
+      XUANTONG_PROBE_TOKEN: ${XUANTONG_ACCESS_TOKEN:-}
+      XUANTONG_PROBE_PORT: 9118
+    depends_on:
+      xuantong-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9118/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   mysql_data:

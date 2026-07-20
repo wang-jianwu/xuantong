@@ -16,6 +16,11 @@
     <dependencies>
         <dependency>
             <groupId>cloud.xuantong</groupId>
+            <artifactId>xuantong-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cloud.xuantong</groupId>
             <artifactId>xuantong-state-api</artifactId>
             <version>${project.version}</version>
         </dependency>

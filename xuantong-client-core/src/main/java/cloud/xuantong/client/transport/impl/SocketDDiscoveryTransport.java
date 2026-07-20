@@ -5,6 +5,7 @@ import cloud.xuantong.client.ControlPlaneOptions;
 import cloud.xuantong.client.exception.DiscoveryLeaseException;
 import cloud.xuantong.client.exception.XuantongException;
 import cloud.xuantong.client.model.ServiceInstance;
+import cloud.xuantong.client.model.LeaseRenewalResult;
 import cloud.xuantong.client.model.ServiceInvalidation;
 import cloud.xuantong.client.model.ServiceSnapshot;
 import cloud.xuantong.client.model.ServiceWatchBatch;
@@ -24,6 +25,7 @@ import cloud.xuantong.protocol.v2.DiscoveryResolveOperationResponse;
 import cloud.xuantong.protocol.v2.DiscoveryServiceInstance;
 import cloud.xuantong.protocol.v2.DiscoverySnapshotRequest;
 import cloud.xuantong.protocol.v2.DiscoverySnapshotResponse;
+import cloud.xuantong.protocol.v2.DiscoveryTakeoverRequest;
 import cloud.xuantong.protocol.v2.DiscoveryWatchBatchRequest;
 import cloud.xuantong.protocol.v2.DiscoveryWatchBatchResponse;
 import cloud.xuantong.protocol.v2.Envelope;
@@ -44,10 +46,13 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
     private static final long DEFAULT_LEASE_TTL_MS = 30_000L;
 
     private final SocketDTransport controlTransport;
+    private final SharedDiscoveryConnection sharedConnection;
+    private final boolean ownsControlTransport;
     private final long leaseTtlMs;
     private volatile String namespace = "";
     private volatile String group = "";
     private volatile String serviceName = "";
+    private volatile AutoCloseable reconnectRegistration;
 
     public SocketDDiscoveryTransport() {
         this(ClientIdentity.defaultIdentity(), ControlPlaneOptions.registryDefaults(),
@@ -67,10 +72,24 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
             ClientIdentity identity,
             ControlPlaneOptions options,
             long leaseTtlMs) {
-        this(SocketDTransport.discovery(identity, options), leaseTtlMs);
+        this(SocketDTransport.forDiscovery(identity, options), null, leaseTtlMs, true);
     }
 
     SocketDDiscoveryTransport(SocketDTransport controlTransport, long leaseTtlMs) {
+        this(controlTransport, null, leaseTtlMs, true);
+    }
+
+    SocketDDiscoveryTransport(
+            SharedDiscoveryConnection sharedConnection, long leaseTtlMs) {
+        this(sharedConnection.controlTransport(), sharedConnection,
+                leaseTtlMs, false);
+    }
+
+    private SocketDDiscoveryTransport(
+            SocketDTransport controlTransport,
+            SharedDiscoveryConnection sharedConnection,
+            long leaseTtlMs,
+            boolean ownsControlTransport) {
         if (controlTransport == null) {
             throw new IllegalArgumentException("controlTransport must not be null");
         }
@@ -78,6 +97,8 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
             throw new IllegalArgumentException("leaseTtlMs must be at least 1000");
         }
         this.controlTransport = controlTransport;
+        this.sharedConnection = sharedConnection;
+        this.ownsControlTransport = ownsControlTransport;
         this.leaseTtlMs = leaseTtlMs;
     }
 
@@ -91,11 +112,19 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
         this.namespace = requireName("namespace", namespace);
         this.group = requireName("group", group);
         this.serviceName = requireName("serviceName", serviceName);
-        controlTransport.connect(
-                serverAddresses,
-                this.namespace,
-                this.group,
-                accessToken == null ? "" : accessToken);
+        if (sharedConnection == null) {
+            controlTransport.connect(
+                    serverAddresses,
+                    this.namespace,
+                    this.group,
+                    accessToken == null ? "" : accessToken);
+        } else {
+            sharedConnection.connect(
+                    serverAddresses,
+                    this.namespace,
+                    this.group,
+                    accessToken);
+        }
     }
 
     @Override
@@ -229,6 +258,11 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
 
     @Override
     public ServiceInstance heartbeat(ServiceInstance instance) {
+        return heartbeatResult(instance).instance();
+    }
+
+    @Override
+    public LeaseRenewalResult heartbeatResult(ServiceInstance instance) {
         DiscoveryLeaseReference lease = lease(instance);
         long nextSequence = requiredNonNegative("renewSequence",
                 instance.getRenewSequence()) + 1;
@@ -246,6 +280,26 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
                 UUID.randomUUID().toString());
         if (response.getInstancesCount() != 1) {
             throw new XuantongException("Discovery renew returned no lease");
+        }
+        return new LeaseRenewalResult(
+                toClientInstance(response.getInstances(0), true),
+                response.getServerTimeEpochMs());
+    }
+
+    @Override
+    public ServiceInstance takeover(ServiceInstance expectedLease) {
+        DiscoveryTakeoverRequest payload = DiscoveryTakeoverRequest.newBuilder()
+                .setExpectedLease(lease(expectedLease))
+                .setTtlMs(leaseTtlMs(expectedLease))
+                .build();
+        DiscoveryMutationResponse response = mutate(
+                "discovery/takeover-and-renew",
+                ControlPlaneProtocol.DISCOVERY_TAKEOVER,
+                ControlPlaneProtocol.DISCOVERY_TAKEOVER_REQUEST_TYPE,
+                payload.toByteString(),
+                UUID.randomUUID().toString());
+        if (response.getInstancesCount() != 1) {
+            throw new XuantongException("Discovery takeover returned no lease");
         }
         return toClientInstance(response.getInstances(0), true);
     }
@@ -492,12 +546,31 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
     }
 
     @Override
-    public void setOnReconnect(Runnable listener) {
-        controlTransport.setOnReconnect(listener);
+    public synchronized void setOnReconnect(Runnable listener) {
+        closeReconnectRegistration();
+        if (sharedConnection == null) {
+            controlTransport.setOnReconnect(listener);
+        } else {
+            reconnectRegistration = controlTransport.addReconnectListener(listener);
+        }
     }
 
     @Override
-    public void close() {
-        controlTransport.close();
+    public synchronized void close() {
+        closeReconnectRegistration();
+        if (ownsControlTransport) {
+            controlTransport.close();
+        }
+    }
+
+    private void closeReconnectRegistration() {
+        AutoCloseable registration = reconnectRegistration;
+        reconnectRegistration = null;
+        if (registration != null) {
+            try {
+                registration.close();
+            } catch (Exception ignored) {
+            }
+        }
     }
 }

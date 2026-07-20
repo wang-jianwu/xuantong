@@ -1,5 +1,7 @@
 package cloud.xuantong.gateway.socketd;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.security.model.ClientAccessToken;
 import cloud.xuantong.security.repository.ClientAccessTokenRepository;
 import cloud.xuantong.server.security.ClientAccessTokenControlPlaneAuthenticator;
@@ -236,6 +238,22 @@ class ClientAccessTokenControlPlaneNetworkTest {
         }
 
         @Override
+        public PageResult<ClientAccessToken> findPage(
+                String keyword, Boolean active, PageQuery pageQuery) {
+            String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase();
+            List<ClientAccessToken> filtered = tokens.values().stream()
+                    .filter(token -> active == null || active.equals(token.getIsActive()))
+                    .filter(token -> normalizedKeyword.isEmpty()
+                            || containsIgnoreCase(token.getTokenName(), normalizedKeyword)
+                            || containsIgnoreCase(token.getTenant(), normalizedKeyword))
+                    .sorted(java.util.Comparator.comparing(ClientAccessToken::getId))
+                    .toList();
+            int from = (int) Math.min(pageQuery.offset(), filtered.size());
+            int to = Math.min(from + pageQuery.pageSize(), filtered.size());
+            return PageResult.of(pageQuery, filtered.size(), filtered.subList(from, to));
+        }
+
+        @Override
         public long save(ClientAccessToken token) {
             long id = tokens.size() + 1L;
             token.setId(id);
@@ -259,6 +277,10 @@ class ClientAccessTokenControlPlaneNetworkTest {
             return tokens.values().stream()
                     .filter(token -> Boolean.TRUE.equals(token.getIsActive()))
                     .count();
+        }
+
+        private boolean containsIgnoreCase(String value, String normalizedKeyword) {
+            return value != null && value.toLowerCase().contains(normalizedKeyword);
         }
     }
 }

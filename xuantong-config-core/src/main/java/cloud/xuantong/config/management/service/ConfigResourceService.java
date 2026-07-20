@@ -1,8 +1,13 @@
 package cloud.xuantong.config.management.service;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.resource.model.ConfigNamespace;
+import cloud.xuantong.config.management.content.ConfigContentService;
+import cloud.xuantong.config.management.content.ConfigContentType;
 import cloud.xuantong.config.management.model.AuditLog;
 import cloud.xuantong.config.management.model.ConfigResource;
+import cloud.xuantong.config.management.model.ConfigLifecycleStatus;
 import cloud.xuantong.resource.model.ConfigResourceKey;
 import cloud.xuantong.config.management.model.ConfigRelease;
 import cloud.xuantong.config.management.model.ConfigRollout;
@@ -12,6 +17,7 @@ import cloud.xuantong.config.management.repository.ConfigReleaseRepository;
 import cloud.xuantong.config.management.repository.ConfigRolloutRepository;
 import cloud.xuantong.config.management.repository.ConfigResourceRepository;
 import cloud.xuantong.config.management.repository.AuditLogRepository;
+import cloud.xuantong.config.management.repository.AuditLogFilter;
 import cloud.xuantong.resource.repository.NamespaceRepository;
 import cloud.xuantong.resource.repository.ResourceGroupRepository;
 import org.noear.solon.annotation.Component;
@@ -31,7 +37,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class ConfigResourceService {
-    private static final Set<String> CONTENT_TYPES = Set.of("text", "properties", "yaml", "json", "xml");
     private final AtomicLong publishTotal = new AtomicLong();
     private final AtomicLong rollbackTotal = new AtomicLong();
     private final AtomicLong batchTotal = new AtomicLong();
@@ -51,6 +56,8 @@ public class ConfigResourceService {
     private AuditLogRepository auditLogRepository;
     @Inject
     private ConfigReleaseManager releaseManager;
+    @Inject
+    private ConfigContentService contentService;
 
     public ConfigResource find(String namespaceId, String groupName, String dataId) {
         return resourceRepository.find(ConfigResourceKey.of(namespaceId, groupName, dataId));
@@ -62,8 +69,23 @@ public class ConfigResourceService {
                 ResourceNameRules.validate("groupName", groupName));
     }
 
+    public PageResult<ConfigResource> findPage(
+            String namespaceId,
+            String groupName,
+            String keyword,
+            String lifecycleStatus,
+            PageQuery pageQuery) {
+        return resourceRepository.findPage(
+                ResourceNameRules.validate("namespaceId", namespaceId),
+                ResourceNameRules.validate("groupName", groupName),
+                keyword,
+                lifecycleStatus,
+                pageQuery);
+    }
+
     @Transaction
-    public ConfigResource saveDraft(ConfigResource draft, String operator) {
+    public ConfigResource saveDraft(
+            ConfigResource draft, Long expectedDraftRevision, String operator) {
         ConfigResourceKey key = ConfigResourceKey.of(
                 draft.getNamespaceId(), draft.getGroupName(), draft.getDataId());
         ConfigNamespace namespace = namespaceRepository.findByNamespaceId(key.namespaceId());
@@ -74,35 +96,50 @@ public class ConfigResourceService {
             throw new IllegalArgumentException("Group does not exist: " + key.groupName());
         }
 
-        String contentType = draft.getContentType() == null ? "text" : draft.getContentType().trim().toLowerCase();
-        if (!CONTENT_TYPES.contains(contentType)) {
-            throw new IllegalArgumentException("Unsupported contentType: " + draft.getContentType());
-        }
+        String contentType = ConfigContentType.parse(draft.getContentType()).wireName();
+        contentService.requireValid(contentType, draft.getContent());
 
         draft.setNamespaceId(key.namespaceId());
         draft.setGroupName(key.groupName());
         draft.setDataId(key.dataId());
         draft.setContentType(contentType);
         draft.setChecksum(checksum(draft.getContent()));
-        draft.setIsEncrypted(Boolean.TRUE.equals(draft.getIsEncrypted()));
         draft.setUpdatedBy(operator);
         draft.setUpdatedAt(new Date());
 
         ConfigResource existing = resourceRepository.find(key);
         if (existing == null) {
+            long expected = expectedDraftRevision == null ? 0L : expectedDraftRevision;
+            if (expected != 0L) {
+                throw new ConfigDraftConflictException(expected, 0L, null, draft);
+            }
             draft.setRevision(0L);
+            draft.setDraftRevision(1L);
+            draft.setLifecycleStatus(ConfigLifecycleStatus.DRAFT.name());
             draft.setCreatedBy(operator);
             draft.setCreatedAt(new Date());
             resourceRepository.save(draft);
         } else {
             ensureNoActiveRollout(existing);
+            long actualDraftRevision = draftRevision(existing);
+            long expected = expectedDraftRevision == null ? -1L : expectedDraftRevision;
+            if (expected != actualDraftRevision) {
+                throw new ConfigDraftConflictException(
+                        expected, actualDraftRevision, existing, draft);
+            }
             draft.setId(existing.getId());
             draft.setRevision(existing.getRevision());
+            draft.setDraftRevision(actualDraftRevision + 1L);
+            draft.setLifecycleStatus(existing.getLifecycleStatus());
             draft.setCreatedBy(existing.getCreatedBy());
             draft.setCreatedAt(existing.getCreatedAt());
-            if (resourceRepository.updateDraft(draft) != 1) {
-                throw new IllegalStateException(
-                        "Config draft was modified concurrently: " + key.canonicalName());
+            if (resourceRepository.updateDraft(draft, actualDraftRevision) != 1) {
+                ConfigResource current = resourceRepository.find(key);
+                throw new ConfigDraftConflictException(
+                        expected,
+                        current == null ? actualDraftRevision : draftRevision(current),
+                        current,
+                        draft);
             }
         }
         return draft;
@@ -118,10 +155,31 @@ public class ConfigResourceService {
         return resource == null ? List.of() : releaseRepository.findByConfigId(resource.getId());
     }
 
+    public PageResult<ConfigRelease> findReleasePage(
+            String namespaceId,
+            String groupName,
+            String dataId,
+            PageQuery pageQuery) {
+        ConfigResource resource = find(namespaceId, groupName, dataId);
+        return resource == null
+                ? PageResult.of(pageQuery, 0, List.of())
+                : releaseRepository.findPageByConfigId(resource.getId(), pageQuery);
+    }
+
     public List<AuditLog> findAudits(String namespaceId, String groupName, String dataId) {
         ConfigResourceKey key = ConfigResourceKey.of(namespaceId, groupName, dataId);
         return auditLogRepository.findByResource(
                 key.namespaceId(), key.groupName(), "CONFIG", key.dataId());
+    }
+
+    public PageResult<AuditLog> findAuditPage(
+            String namespaceId,
+            String groupName,
+            String dataId,
+            PageQuery pageQuery) {
+        ConfigResourceKey key = ConfigResourceKey.of(namespaceId, groupName, dataId);
+        return auditLogRepository.findPage(AuditLogFilter.resource(
+                key.namespaceId(), key.groupName(), "CONFIG", key.dataId()), pageQuery);
     }
 
     @Transaction
@@ -133,6 +191,7 @@ public class ConfigResourceService {
             throw new IllegalArgumentException("Config resource does not exist: " + key.canonicalName());
         }
         ensureNoActiveRollout(resource);
+        contentService.requireValid(resource.getContentType(), resource.getContent());
 
         ConfigRelease release = releaseManager.create(resource, key, ReleaseType.FULL,
                 operator, "CONFIG_PUBLISHED", false,
@@ -170,6 +229,7 @@ public class ConfigResourceService {
                         "Config resource does not exist: " + key.canonicalName());
             }
             ensureNoActiveRollout(resource);
+            contentService.requireValid(resource.getContentType(), resource.getContent());
             keys.add(key);
             resources.add(resource);
         }
@@ -205,9 +265,11 @@ public class ConfigResourceService {
         resource.setChecksum(target.getChecksum());
         resource.setUpdatedBy(operator);
         resource.setUpdatedAt(new Date());
-        if (resourceRepository.updateDraft(resource) != 1) {
+        long expectedDraftRevision = draftRevision(resource);
+        if (resourceRepository.updateDraft(resource, expectedDraftRevision) != 1) {
             throw new IllegalStateException("Failed to restore release content: " + releaseId);
         }
+        resource.setDraftRevision(expectedDraftRevision + 1L);
         ConfigRelease release = releaseManager.create(resource, key, ReleaseType.ROLLBACK, operator,
                 "CONFIG_ROLLED_BACK", false,
                 resource.getContent(), resource.getContentType(), resource.getChecksum(),
@@ -237,5 +299,9 @@ public class ConfigResourceService {
         } catch (Exception e) {
             throw new IllegalStateException("SHA-256 is unavailable", e);
         }
+    }
+
+    private long draftRevision(ConfigResource resource) {
+        return resource.getDraftRevision() == null ? 0L : resource.getDraftRevision();
     }
 }

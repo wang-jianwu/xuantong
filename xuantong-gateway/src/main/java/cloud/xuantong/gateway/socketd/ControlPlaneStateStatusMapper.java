@@ -57,6 +57,7 @@ final class ControlPlaneStateStatusMapper {
             case LEASE_EXPIRED -> ResponseCode.LEASE_EXPIRED;
             case UNAUTHORIZED -> ResponseCode.UNAUTHORIZED;
             case RATE_LIMITED -> ResponseCode.RATE_LIMITED;
+            case STORAGE_EXHAUSTED -> ResponseCode.STORAGE_EXHAUSTED;
             case INTERNAL_ERROR -> ResponseCode.INTERNAL_ERROR;
         };
     }
@@ -64,6 +65,7 @@ final class ControlPlaneStateStatusMapper {
     private static CommitStatus commitStatus(StateCommitStatus status) {
         return switch (status) {
             case NOT_APPLICABLE -> CommitStatus.NOT_APPLICABLE;
+            case NOT_COMMITTED -> CommitStatus.NOT_COMMITTED;
             case UNKNOWN -> CommitStatus.UNKNOWN;
         };
     }

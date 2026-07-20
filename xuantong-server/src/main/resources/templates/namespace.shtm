@@ -1,6 +1,5 @@
 #set(activeMenu = "namespace")
 #set(pageHeading = "命名空间")
-<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -9,7 +8,7 @@
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link href="/lib/bootstrap/5.3.8/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/css/admin.css?v=2.0.0-20260713-connection">
+<link rel="stylesheet" href="/css/admin.css?v=2.0.2-20260719-cluster">
 </head>
 <body>
 <div class="app-container">
@@ -19,9 +18,11 @@
         <div class="content">
             <div class="card">
                 <div class="row g-3 align-items-end">
-                    <div class="col-lg-5"><label class="form-label" for="namespaceId">Namespace ID</label><input id="namespaceId" class="form-control"
-                                            placeholder="Namespace ID，例如 mall-prod"></div>
-                    <div class="col-lg-5"><label class="form-label" for="namespaceName">显示名称</label><input id="namespaceName" class="form-control" placeholder="例如：商城生产环境"></div>
+                    <div class="col-lg-5"><label class="form-label" for="namespaceId">Namespace ID</label><input
+                            id="namespaceId" class="form-control"
+                            placeholder="Namespace ID，例如 mall-prod"></div>
+                    <div class="col-lg-5"><label class="form-label" for="namespaceName">显示名称</label><input
+                            id="namespaceName" class="form-control" placeholder="例如：商城生产环境"></div>
                     <div class="col-lg-2">
                         <button class="btn btn-primary" onclick="createNamespace()">创建</button>
                     </div>
@@ -29,36 +30,47 @@
             </div>
             <div class="card">
                 <div class="table-responsive">
-                <table class="table">
-                    <thead>
-                    <tr>
-                        <th>Namespace ID</th>
-                        <th>名称</th>
-                        <th>状态</th>
-                        <th>资源组</th>
-                    </tr>
-                    </thead>
-                    <tbody id="namespace-body"></tbody>
-                </table>
+                    <table class="table">
+                        <thead>
+                        <tr>
+                            <th>Namespace ID</th>
+                            <th>名称</th>
+                            <th>状态</th>
+                            <th>资源组</th>
+                        </tr>
+                        </thead>
+                        <tbody id="namespace-body"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
     </div>
 </div>
 <div class="modal fade" id="groupModal" tabindex="-1" aria-labelledby="groupModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-lg"><div class="modal-content">
-        <div class="modal-header"><div><h5 class="modal-title" id="groupModalTitle">资源组管理</h5><small class="text-muted" id="groupNamespace"></small></div><button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
-        <div class="modal-body">
-            <div class="input-group mb-3"><input id="newGroupName" class="form-control" placeholder="Group 名称，例如 PAYMENT"><button class="btn btn-primary" onclick="createGroup()">新增资源组</button></div>
-            <div id="groupList" class="list-group"></div>
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div><h5 class="modal-title" id="groupModalTitle">资源组管理</h5><small class="text-muted"
+                                                                                        id="groupNamespace"></small>
+                </div>
+                <button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group mb-3"><input id="newGroupName" class="form-control"
+                                                     placeholder="Group 名称，例如 PAYMENT">
+                    <button class="btn btn-primary" onclick="createGroup()">新增资源组</button>
+                </div>
+                <div id="groupList" class="list-group"></div>
+            </div>
         </div>
-    </div></div>
+    </div>
 </div>
 <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
-<script src="/js/common.js?v=2.0.0-20260718-config-state"></script>
+<script src="/js/common.js?v=2.0.2-20260719-cluster"></script>
 <script>
     const groupModal = new bootstrap.Modal(document.getElementById('groupModal'));
     let selectedNamespace = null;
+
     async function loadNamespaces() {
         const r = await apiGet('/api/v2/namespaces');
         const rows = r.data || [];

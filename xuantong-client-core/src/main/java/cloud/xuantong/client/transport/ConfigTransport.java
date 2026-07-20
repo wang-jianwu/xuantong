@@ -7,7 +7,7 @@ import cloud.xuantong.client.model.ConfigWatchBatch;
 import java.util.Collection;
 import java.util.List;
 
-public interface ConfigTransport {
+public interface ConfigTransport extends AutoCloseable {
     void connect(List<String> serverAddresses,
                  String namespace,
                  String group,
@@ -29,6 +29,7 @@ public interface ConfigTransport {
         throw new UnsupportedOperationException("Config Watch subscription is not supported");
     }
 
+    @Override
     void close();
 
     default void setOnReconnect(Runnable listener) {

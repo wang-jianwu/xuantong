@@ -27,11 +27,12 @@ import java.util.Map;
 
 /** Versioned deterministic binary contract between Gateway and Config State. */
 public final class ConfigStateCodec {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     public static final String COMMAND_MUTATE = "config.mutate";
     public static final String QUERY_APPLICABLE_RELEASE = "config.applicable-release";
     public static final String QUERY_SNAPSHOT = "config.snapshot";
+    public static final String QUERY_PROJECTION_SNAPSHOT = "config.projection-snapshot";
     public static final String QUERY_RESOLVE_OPERATION = "config.resolve-operation";
     public static final String WATCH_CHANGES = "config.changes";
 
@@ -39,6 +40,7 @@ public final class ConfigStateCodec {
     public static final String RESULT_MUTATION_ERROR = "config.mutation-error";
     public static final String RESULT_APPLICABLE_RELEASE = "config.applicable-release";
     public static final String RESULT_SNAPSHOT = "config.snapshot";
+    public static final String RESULT_PROJECTION_SNAPSHOT = "config.projection-snapshot";
     public static final String RESULT_RESOLVED_OPERATION = "config.resolved-operation";
     public static final String EVENT_INVALIDATED = "config.invalidated";
 
@@ -103,6 +105,25 @@ public final class ConfigStateCodec {
                 readOptions);
     }
 
+    public static StateQuery projectionSnapshotQuery(
+            StateGroupId groupId, ReadOptions readOptions) {
+        return projectionSnapshotQuery(
+                groupId, new ConfigProjectionSnapshotRequest(null, 100), readOptions);
+    }
+
+    public static StateQuery projectionSnapshotQuery(
+            StateGroupId groupId,
+            ConfigProjectionSnapshotRequest request,
+            ReadOptions readOptions) {
+        requireConfigGroup(groupId);
+        return new StateQuery(
+                groupId,
+                QUERY_PROJECTION_SNAPSHOT,
+                SCHEMA_VERSION,
+                encodeProjectionSnapshotRequest(request),
+                readOptions);
+    }
+
     public static StateQuery resolveOperationQuery(
             StateGroupId groupId,
             ResolveConfigOperationRequest request,
@@ -137,23 +158,40 @@ public final class ConfigStateCodec {
             writeActor(output, value.actor());
             writeConfigKey(output, value.configKey());
             output.writeLong(value.expectedDecisionRevision());
+            writeString(output, value.decisionState().name());
             output.writeBoolean(value.newContent() != null);
             if (value.newContent() != null) {
                 writeContentDraft(output, value.newContent());
             }
-            writeContentReference(output, value.stableContent());
+            output.writeBoolean(value.stableContent() != null);
+            if (value.stableContent() != null) {
+                writeContentReference(output, value.stableContent());
+            }
             writeList(output, value.rules(), ConfigStateCodec::writeRuleDraft);
         });
     }
 
     public static ConfigMutation decodeMutation(byte[] bytes) throws IOException {
-        return decode(bytes, input -> new ConfigMutation(
-                readActor(input),
-                readConfigKey(input),
-                input.readLong(),
-                input.readBoolean() ? readContentDraft(input) : null,
-                readContentReference(input),
-                readList(input, ConfigStateCodec::readRuleDraft)));
+        return decode(bytes, input -> {
+            ConfigActor actor = readActor(input);
+            ConfigKey configKey = readConfigKey(input);
+            long expectedDecisionRevision = input.readLong();
+            ConfigDecisionState state = ConfigDecisionState.valueOf(readString(input));
+            ConfigContentDraft newContent = input.readBoolean()
+                    ? readContentDraft(input)
+                    : null;
+            ConfigContentReference stableContent = input.readBoolean()
+                    ? readContentReference(input)
+                    : null;
+            return new ConfigMutation(
+                    actor,
+                    configKey,
+                    expectedDecisionRevision,
+                    newContent,
+                    state,
+                    stableContent,
+                    readList(input, ConfigStateCodec::readRuleDraft));
+        });
     }
 
     public static byte[] encodeMutationResult(ConfigMutationResult value) {
@@ -196,10 +234,12 @@ public final class ConfigStateCodec {
 
     public static byte[] encodeApplicableRelease(ApplicableRelease value) {
         return encode(output -> {
-            output.writeBoolean(value.found());
-            if (value.found()) {
+            writeString(output, value.state().name());
+            if (value.state() != ConfigValueState.MISSING) {
                 writeConfigKey(output, value.configKey());
                 output.writeLong(value.decisionRevision());
+            }
+            if (value.found()) {
                 writeContent(output, value.content());
                 writeString(output, value.matchedRuleId());
             }
@@ -208,13 +248,20 @@ public final class ConfigStateCodec {
 
     public static ApplicableRelease decodeApplicableRelease(byte[] bytes) throws IOException {
         return decode(bytes, input -> {
-            if (!input.readBoolean()) {
+            ConfigValueState state = ConfigValueState.valueOf(readString(input));
+            if (state == ConfigValueState.MISSING) {
                 return ApplicableRelease.missing();
             }
+            ConfigKey configKey = readConfigKey(input);
+            long decisionRevision = input.readLong();
+            if (state == ConfigValueState.TOMBSTONE) {
+                return new ApplicableRelease(
+                        state, configKey, decisionRevision, null, "");
+            }
             return new ApplicableRelease(
-                    true,
-                    readConfigKey(input),
-                    input.readLong(),
+                    state,
+                    configKey,
+                    decisionRevision,
                     readContent(input),
                     readString(input));
         });
@@ -258,6 +305,42 @@ public final class ConfigStateCodec {
                 input.readLong(),
                 input.readLong(),
                 readList(input, ConfigStateCodec::readDecision)));
+    }
+
+    public static byte[] encodeProjectionSnapshot(ConfigProjectionSnapshot value) {
+        return encode(output -> {
+            output.writeLong(value.eventRevision());
+            output.writeLong(value.compactionRevision());
+            writeList(output, value.entries(), ConfigStateCodec::writeProjectionEntry);
+            output.writeBoolean(value.hasMore());
+        });
+    }
+
+    public static ConfigProjectionSnapshot decodeProjectionSnapshot(byte[] bytes)
+            throws IOException {
+        return decode(bytes, input -> new ConfigProjectionSnapshot(
+                input.readLong(),
+                input.readLong(),
+                readList(input, ConfigStateCodec::readProjectionEntry),
+                input.readBoolean()));
+    }
+
+    public static byte[] encodeProjectionSnapshotRequest(
+            ConfigProjectionSnapshotRequest value) {
+        return encode(output -> {
+            output.writeBoolean(value.afterExclusive() != null);
+            if (value.afterExclusive() != null) {
+                writeConfigKey(output, value.afterExclusive());
+            }
+            output.writeInt(value.limit());
+        });
+    }
+
+    public static ConfigProjectionSnapshotRequest decodeProjectionSnapshotRequest(
+            byte[] bytes) throws IOException {
+        return decode(bytes, input -> new ConfigProjectionSnapshotRequest(
+                input.readBoolean() ? readConfigKey(input) : null,
+                input.readInt()));
     }
 
     public static byte[] encodeChangeEvent(ConfigChangeEvent value) {
@@ -462,6 +545,7 @@ public final class ConfigStateCodec {
             throws IOException {
         writeConfigKey(output, value.configKey());
         output.writeLong(value.decisionRevision());
+        writeString(output, value.state().name());
         output.writeLong(value.stableContentRevision());
         writeList(output, value.rules(), ConfigStateCodec::writeRule);
     }
@@ -470,8 +554,64 @@ public final class ConfigStateCodec {
         return new ReleaseDecision(
                 readConfigKey(input),
                 input.readLong(),
+                ConfigDecisionState.valueOf(readString(input)),
                 input.readLong(),
                 readList(input, ConfigStateCodec::readRule));
+    }
+
+    static void writeProjectionEntry(
+            DataOutputStream output, ConfigProjectionEntry value) throws IOException {
+        writeConfigKey(output, value.configKey());
+        output.writeLong(value.decisionRevision());
+        writeString(output, value.state().name());
+        output.writeLong(value.stableContentRevision());
+        writeList(output, value.rules(), ConfigStateCodec::writeRolloutDigest);
+        writeList(output, value.referencedContents(), ConfigStateCodec::writeContentDigest);
+    }
+
+    static ConfigProjectionEntry readProjectionEntry(DataInputStream input)
+            throws IOException {
+        return new ConfigProjectionEntry(
+                readConfigKey(input),
+                input.readLong(),
+                ConfigDecisionState.valueOf(readString(input)),
+                input.readLong(),
+                readList(input, ConfigStateCodec::readRolloutDigest),
+                readList(input, ConfigStateCodec::readContentDigest));
+    }
+
+    static void writeRolloutDigest(
+            DataOutputStream output, ConfigRolloutDigest value) throws IOException {
+        writeString(output, value.ruleId());
+        output.writeLong(value.targetContentRevision());
+        writeString(output, value.status().name());
+    }
+
+    static ConfigRolloutDigest readRolloutDigest(DataInputStream input)
+            throws IOException {
+        return new ConfigRolloutDigest(
+                readString(input),
+                input.readLong(),
+                RolloutRuleStatus.valueOf(readString(input)));
+    }
+
+    static void writeContentDigest(
+            DataOutputStream output, ConfigContentDigest value) throws IOException {
+        output.writeLong(value.contentRevision());
+        writeString(output, value.contentHash());
+        writeString(output, value.contentType());
+        output.writeInt(value.schemaVersion());
+        writeString(output, value.blobReference());
+    }
+
+    static ConfigContentDigest readContentDigest(DataInputStream input)
+            throws IOException {
+        return new ConfigContentDigest(
+                input.readLong(),
+                readString(input),
+                readString(input),
+                input.readInt(),
+                readString(input));
     }
 
     static void writeIdentity(DataOutputStream output, ConfigClientIdentity value)

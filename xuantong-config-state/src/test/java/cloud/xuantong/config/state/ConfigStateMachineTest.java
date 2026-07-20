@@ -111,6 +111,131 @@ class ConfigStateMachineTest {
     }
 
     @Test
+    void projectionSnapshotContainsOnlyReferencedContentDigests() throws Exception {
+        apply("projection-stable", stablePublish(KEY, 0, "stable"));
+        RolloutRuleDraft rule = new RolloutRuleDraft(
+                "projection-rule",
+                1,
+                1,
+                100,
+                ConfigContentReference.newContent(),
+                "projection-rollout",
+                RolloutSelectorType.CLIENT_INSTANCE_ID,
+                "",
+                List.of("client-a"),
+                0,
+                7,
+                RolloutRuleStatus.ACTIVE);
+        apply("projection-gray", new ConfigMutation(
+                ACTOR,
+                KEY,
+                1,
+                ConfigContentDraft.inline("text", 1, bytes("candidate")),
+                ConfigContentReference.existing(1),
+                List.of(rule)));
+
+        QueryResult result = stateMachine.query(
+                ConfigStateCodec.projectionSnapshotQuery(
+                        groupId, ReadOptions.linearizable()));
+        ConfigProjectionSnapshot snapshot =
+                ConfigStateCodec.decodeProjectionSnapshot(result.payload());
+
+        assertEquals(ConfigStateCodec.RESULT_PROJECTION_SNAPSHOT, result.resultType());
+        assertEquals(2, snapshot.eventRevision());
+        assertEquals(1, snapshot.entries().size());
+        ConfigProjectionEntry entry = snapshot.entries().getFirst();
+        assertEquals(2, entry.decisionRevision());
+        assertEquals(List.of(1L, 2L), entry.referencedContents().stream()
+                .map(ConfigContentDigest::contentRevision).toList());
+        assertEquals(64, entry.referencedContents().getFirst().contentHash().length());
+    }
+
+    @Test
+    void projectionSnapshotPagesByConfigKeyWithStableWatermark() throws Exception {
+        ConfigKey firstKey = new ConfigKey("public", "g", "a");
+        ConfigKey secondKey = new ConfigKey("public", "g", "b");
+        ConfigKey thirdKey = new ConfigKey("public", "g", "c");
+        apply("page-a", stablePublish(firstKey, 0, "a"));
+        apply("page-b", stablePublish(secondKey, 0, "b"));
+        apply("page-c", stablePublish(thirdKey, 0, "c"));
+
+        ConfigProjectionSnapshot first = ConfigStateCodec.decodeProjectionSnapshot(
+                stateMachine.query(ConfigStateCodec.projectionSnapshotQuery(
+                        groupId,
+                        new ConfigProjectionSnapshotRequest(null, 2),
+                        ReadOptions.linearizable())).payload());
+        ConfigProjectionSnapshot second = ConfigStateCodec.decodeProjectionSnapshot(
+                stateMachine.query(ConfigStateCodec.projectionSnapshotQuery(
+                        groupId,
+                        new ConfigProjectionSnapshotRequest(
+                                first.entries().getLast().configKey(), 2),
+                        ReadOptions.linearizable())).payload());
+
+        assertTrue(first.hasMore());
+        assertFalse(second.hasMore());
+        assertEquals(List.of(firstKey, secondKey), first.entries().stream()
+                .map(ConfigProjectionEntry::configKey).toList());
+        assertEquals(List.of(thirdKey), second.entries().stream()
+                .map(ConfigProjectionEntry::configKey).toList());
+        assertEquals(first.eventRevision(), second.eventRevision());
+    }
+
+    @Test
+    void tombstoneSurvivesSnapshotAndAllowsRepublishAndHistoricalRollback() throws Exception {
+        apply("op-publish", stablePublish(KEY, 0, "v1"));
+        ConfigMutation tombstone = new ConfigMutation(
+                ACTOR,
+                KEY,
+                1,
+                null,
+                ConfigDecisionState.TOMBSTONE,
+                null,
+                List.of());
+
+        ConfigMutationResult deleted = ConfigStateCodec.decodeMutationResult(
+                apply("op-tombstone", tombstone).payload());
+
+        assertEquals(ConfigDecisionState.TOMBSTONE, deleted.decision().state());
+        assertEquals(0, deleted.createdContentRevision());
+        assertEquals(2, deleted.decision().decisionRevision());
+        assertEquals(2, deleted.eventRevision());
+        ApplicableRelease deletedFetch = fetch(KEY, identity("client-a"));
+        assertFalse(deletedFetch.found());
+        assertTrue(deletedFetch.tombstone());
+        assertEquals(KEY, deletedFetch.configKey());
+        assertEquals(2, deletedFetch.decisionRevision());
+
+        ByteArrayOutputStream snapshotBytes = new ByteArrayOutputStream();
+        stateMachine.writeSnapshot(snapshotBytes);
+        ConfigStateMachine restored = new ConfigStateMachine(groupId);
+        restored.installSnapshot(
+                stateMachine.snapshotSchemaVersion(),
+                new ByteArrayInputStream(snapshotBytes.toByteArray()));
+        stateMachine = restored;
+        assertTrue(fetch(KEY, identity("client-after-restart")).tombstone());
+
+        ConfigMutationResult republished = ConfigStateCodec.decodeMutationResult(
+                apply("op-republish", stablePublish(KEY, 2, "v2")).payload());
+        assertEquals(ConfigDecisionState.ACTIVE, republished.decision().state());
+        assertEquals(2, republished.createdContentRevision());
+        assertEquals(3, republished.decision().decisionRevision());
+        assertEquals("v2", text(fetch(KEY, identity("client-a")).content().payload()));
+
+        ConfigMutation rollback = new ConfigMutation(
+                ACTOR,
+                KEY,
+                3,
+                null,
+                ConfigContentReference.existing(1),
+                List.of());
+        ConfigMutationResult restoredHistorical = ConfigStateCodec.decodeMutationResult(
+                apply("op-restore-v1", rollback).payload());
+        assertEquals(4, restoredHistorical.decision().decisionRevision());
+        assertEquals(1, restoredHistorical.decision().stableContentRevision());
+        assertEquals("v1", text(fetch(KEY, identity("client-a")).content().payload()));
+    }
+
+    @Test
     void percentageSelectionIsStableAndUsesFullBasisPointRange() {
         RolloutRule rule = new RolloutRule(
                 "percentage",
@@ -170,6 +295,30 @@ class ConfigStateMachineTest {
         assertTrue(resolved.found());
         assertEquals(ApplyStatus.APPLIED, resolved.status());
         assertArrayEquals(first.payload(), resolved.payload());
+    }
+
+    @Test
+    void operationReplayWindowCompactsOldestRecordsWithoutPermanentWriteOutage()
+            throws Exception {
+        stateMachine = new ConfigStateMachine(
+                groupId, new ConfigStateOptions(1024, 10, 10, 2, 10));
+
+        StateCommand first = ConfigStateCodec.mutationCommand(
+                groupId, "op-1", stablePublish(KEY, 0, "v1"));
+        apply(first);
+        StateCommand second = ConfigStateCodec.mutationCommand(
+                groupId, "op-2", stablePublish(KEY, 1, "v2"));
+        apply(second);
+        apply("op-3", stablePublish(KEY, 2, "v3"));
+
+        ResolvedConfigOperation compacted = ConfigStateCodec.decodeResolvedOperation(
+                stateMachine.query(ConfigStateCodec.resolveOperationQuery(
+                        groupId,
+                        new ResolveConfigOperationRequest(ACTOR, "op-1"),
+                        ReadOptions.linearizable())).payload());
+        assertFalse(compacted.found());
+        assertEquals(ApplyStatus.UNCHANGED, apply(second).status());
+        assertEquals(3, snapshot().eventRevision());
     }
 
     @Test

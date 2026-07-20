@@ -20,12 +20,25 @@ import java.net.ServerSocket;
 import java.net.SocketException;
 import java.lang.reflect.Field;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ControlPlaneGatewayNetworkTest {
+    private static final AtomicInteger WORKER_IDS = new AtomicInteger();
+    private static final ExecutorService SOCKETD_WORK_EXECUTOR =
+            Executors.newFixedThreadPool(4, runnable -> {
+                Thread thread = new Thread(
+                        runnable,
+                        "gateway-network-test-work-" + WORKER_IDS.incrementAndGet());
+                thread.setDaemon(true);
+                return thread;
+            });
+
     @Test
     void helloAndProbeCompleteOverNativeTcpNettyWithReplyEnd() throws Exception {
         int port = freePort();
@@ -35,14 +48,15 @@ class ControlPlaneGatewayNetworkTest {
         PathListenerPlus router = new PathListenerPlus(true);
         router.doOf(ControlPlaneProtocol.CONTROL_PATH, endpoint);
         Server server = SocketD.createServer("sd:tcp")
-                .config(config -> config.host("127.0.0.1").port(port))
+                .config(config -> configureServer(config, port))
                 .listen(router)
                 .start();
         ClientSession client = null;
         try {
             client = SocketD.createClient("sd:tcp://127.0.0.1:" + port
                             + ControlPlaneProtocol.CONTROL_PATH)
-                    .config(config -> config.connectTimeout(3_000L)
+                    .config(config -> configureClient(config)
+                            .connectTimeout(3_000L)
                             .requestTimeout(2_000L).autoReconnect(false))
                     .openOrThow();
 
@@ -95,14 +109,15 @@ class ControlPlaneGatewayNetworkTest {
         router.doOf(ControlPlaneProtocol.CONTROL_PATH,
                 new ControlPlaneGatewayEndpoint(properties));
         Server server = SocketD.createServer("sd:tcp")
-                .config(config -> config.host("127.0.0.1").port(port))
+                .config(config -> configureServer(config, port))
                 .listen(router)
                 .start();
         ClientSession client = null;
         try {
             client = SocketD.createClient("sd:tcp://127.0.0.1:" + port
                             + ControlPlaneProtocol.CONTROL_PATH)
-                    .config(config -> config.connectTimeout(3_000L)
+                    .config(config -> configureClient(config)
+                            .connectTimeout(3_000L)
                             .requestTimeout(2_000L).autoReconnect(false))
                     .openOrThow();
 
@@ -142,14 +157,15 @@ class ControlPlaneGatewayNetworkTest {
                         new ControlPlaneRequestDispatcher(),
                         authenticator));
         Server server = SocketD.createServer("sd:tcp")
-                .config(config -> config.host("127.0.0.1").port(port))
+                .config(config -> configureServer(config, port))
                 .listen(router)
                 .start();
         ClientSession client = null;
         try {
             client = SocketD.createClient("sd:tcp://127.0.0.1:" + port
                             + ControlPlaneProtocol.CONTROL_PATH)
-                    .config(config -> config.connectTimeout(3_000L)
+                    .config(config -> configureClient(config)
+                            .connectTimeout(3_000L)
                             .requestTimeout(2_000L)
                             .autoReconnect(false))
                     .openOrThow();
@@ -186,7 +202,7 @@ class ControlPlaneGatewayNetworkTest {
                         new ControlPlaneRequestDispatcher(),
                         authenticator()));
         Server server = SocketD.createServer("sd:tcp")
-                .config(config -> config.host("127.0.0.1").port(port))
+                .config(config -> configureServer(config, port))
                 .listen(router)
                 .start();
         ClientSession first = null;
@@ -221,10 +237,26 @@ class ControlPlaneGatewayNetworkTest {
     private ClientSession openClient(int port) throws Exception {
         return SocketD.createClient("sd:tcp://127.0.0.1:" + port
                         + ControlPlaneProtocol.CONTROL_PATH)
-                .config(config -> config.connectTimeout(3_000L)
+                .config(config -> configureClient(config)
+                        .connectTimeout(3_000L)
                         .requestTimeout(2_000L)
                         .autoReconnect(false))
                 .openOrThow();
+    }
+
+    private org.noear.socketd.transport.server.ServerConfig configureServer(
+            org.noear.socketd.transport.server.ServerConfig config, int port) {
+        return config.host("127.0.0.1")
+                .port(port)
+                .ioThreads(1)
+                .codecThreads(1)
+                .workExecutor(SOCKETD_WORK_EXECUTOR);
+    }
+
+    private org.noear.socketd.transport.client.ClientConfig configureClient(
+            org.noear.socketd.transport.client.ClientConfig config) {
+        return config.codecThreads(1)
+                .workExecutor(SOCKETD_WORK_EXECUTOR);
     }
 
     private ControlPlaneAuthenticator authenticator() {

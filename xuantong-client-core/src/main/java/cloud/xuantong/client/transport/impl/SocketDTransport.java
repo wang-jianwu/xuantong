@@ -2,10 +2,13 @@ package cloud.xuantong.client.transport.impl;
 
 import cloud.xuantong.client.ClientIdentity;
 import cloud.xuantong.client.ControlPlaneOptions;
+import cloud.xuantong.client.ControlPlaneProbeResult;
+import cloud.xuantong.client.metrics.ControlPlaneTransportMetricsSnapshot;
 import cloud.xuantong.client.model.ConfigGroupSnapshot;
 import cloud.xuantong.client.model.ConfigInvalidation;
 import cloud.xuantong.client.model.ConfigSnapshot;
 import cloud.xuantong.client.model.ConfigWatchBatch;
+import cloud.xuantong.client.tls.TlsContextFactory;
 import cloud.xuantong.client.transport.ConfigTransport;
 import cloud.xuantong.client.transport.WatchBatchHandler;
 import cloud.xuantong.client.transport.WatchSubscription;
@@ -43,6 +46,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -56,7 +60,7 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -96,6 +100,7 @@ public class SocketDTransport implements ConfigTransport {
     private final ClientIdentity identity;
     private final ControlPlaneOptions options;
     private final ClientProfile clientProfile;
+    private final TlsContextFactory tlsContextFactory;
     private final ReentrantLock lifecycleLock = new ReentrantLock();
     private final AtomicReference<GatewayConnection> activeConnection =
             new AtomicReference<>();
@@ -111,12 +116,12 @@ public class SocketDTransport implements ConfigTransport {
     private volatile String accessToken = "";
     private volatile String pinnedClusterId;
     private volatile long pinnedTransportGeneration;
-    private volatile Runnable reconnectListener;
+    private final List<Runnable> reconnectListeners = new CopyOnWriteArrayList<>();
     private volatile Throwable terminalFailure;
     private volatile boolean closed;
     private volatile boolean everActive;
     private volatile int nextAddressIndex;
-    private ScheduledExecutorService maintenanceExecutor;
+    private ScheduledFuture<?> maintenanceTask;
     private ExecutorService watchExecutor;
 
     public SocketDTransport() {
@@ -147,13 +152,19 @@ public class SocketDTransport implements ConfigTransport {
         this.identity = identity;
         this.options = options;
         this.clientProfile = clientProfile;
+        this.tlsContextFactory = new TlsContextFactory(options.tls());
         this.pinnedClusterId = options.clusterId();
         this.pinnedTransportGeneration = options.transportGeneration();
     }
 
-    static SocketDTransport discovery(
+    public static SocketDTransport forDiscovery(
             ClientIdentity identity, ControlPlaneOptions options) {
         return new SocketDTransport(identity, options, ClientProfile.DISCOVERY);
+    }
+
+    static SocketDTransport discovery(
+            ClientIdentity identity, ControlPlaneOptions options) {
+        return forDiscovery(identity, options);
     }
 
     @Override
@@ -162,20 +173,11 @@ public class SocketDTransport implements ConfigTransport {
             String namespace,
             String group,
             String accessToken) {
-        if (serverAddresses == null || serverAddresses.isEmpty()) {
-            throw new IllegalArgumentException("serverAddresses must not be empty");
+        configureEndpoint(serverAddresses, namespace, group, accessToken);
+        ScheduledFuture<?> previousMaintenance = maintenanceTask;
+        if (previousMaintenance != null) {
+            previousMaintenance.cancel(false);
         }
-        this.namespace = requireName("namespace", namespace);
-        this.group = requireName("group", group);
-        this.accessToken = accessToken == null ? "" : accessToken.trim();
-        this.gatewayUrls = buildGatewayUrls(serverAddresses);
-        this.terminalFailure = null;
-        this.closed = false;
-        this.maintenanceExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "xuantong-control-plane-maintainer");
-            thread.setDaemon(true);
-            return thread;
-        });
         this.watchExecutor = Executors.newSingleThreadExecutor(runnable -> {
             Thread thread = new Thread(runnable, "xuantong-control-plane-watch");
             thread.setDaemon(true);
@@ -195,7 +197,8 @@ public class SocketDTransport implements ConfigTransport {
                         + "using last-known-good cache and retrying in background", e);
             }
         }
-        maintenanceExecutor.scheduleWithFixedDelay(
+        maintenanceTask = ControlPlaneClientExecutors.maintenanceScheduler()
+                .scheduleWithFixedDelay(
                 this::maintenanceSafely,
                 MAINTENANCE_INTERVAL_MS,
                 MAINTENANCE_INTERVAL_MS,
@@ -224,32 +227,108 @@ public class SocketDTransport implements ConfigTransport {
                         timeoutMs);
                 requireOk(response, ControlPlaneProtocol.CONFIG_FETCH_RESPONSE_TYPE);
                 ConfigFetchResponse fetch = ConfigFetchResponse.parseFrom(response.getPayload());
-                if (!fetch.getFound()) {
-                    return null;
-                }
-                validateCoordinate(fetch.getConfig(), normalizedDataId);
-                if (!fetch.hasContent()) {
-                    throw new ProtocolException("Config fetch response has no content");
-                }
-                if (fetch.getDecisionRevision() < minDecisionRevision) {
-                    throw new ProtocolException("Config decision revision moved backwards");
-                }
-                if (!fetch.getContent().getBlobReference().isBlank()) {
-                    throw new ProtocolException(
-                            "External config blobs are not supported by this client build");
-                }
-                return new ConfigSnapshot(
-                        normalizedDataId,
-                        fetch.getContent().getPayload().toString(StandardCharsets.UTF_8),
-                        fetch.getDecisionRevision(),
-                        fetch.getContent().getContentHash(),
-                        fetch.getContent().getContentType());
+                return switch (fetch.getState()) {
+                    case CONFIG_VALUE_STATE_MISSING -> null;
+                    case CONFIG_VALUE_STATE_TOMBSTONE -> {
+                        validateCoordinate(fetch.getConfig(), normalizedDataId);
+                        if (fetch.getDecisionRevision() < minDecisionRevision) {
+                            throw new ProtocolException(
+                                    "Config tombstone decision revision moved backwards");
+                        }
+                        if (fetch.hasContent()) {
+                            throw new ProtocolException(
+                                    "Config tombstone response must not carry content");
+                        }
+                        yield ConfigSnapshot.tombstone(
+                                normalizedDataId, fetch.getDecisionRevision());
+                    }
+                    case CONFIG_VALUE_STATE_ACTIVE -> {
+                        validateCoordinate(fetch.getConfig(), normalizedDataId);
+                        if (!fetch.hasContent()) {
+                            throw new ProtocolException("Config fetch response has no content");
+                        }
+                        if (fetch.getDecisionRevision() < minDecisionRevision) {
+                            throw new ProtocolException("Config decision revision moved backwards");
+                        }
+                        if (!fetch.getContent().getBlobReference().isBlank()) {
+                            throw new ProtocolException(
+                                    "External config blobs are not supported by this client build");
+                        }
+                        yield new ConfigSnapshot(
+                                normalizedDataId,
+                                fetch.getContent().getPayload().toString(StandardCharsets.UTF_8),
+                                fetch.getDecisionRevision(),
+                                fetch.getContent().getContentHash(),
+                                fetch.getContent().getContentType());
+                    }
+                    case CONFIG_VALUE_STATE_UNSPECIFIED, UNRECOGNIZED ->
+                            throw new ProtocolException("Config fetch response has no valid state");
+                };
             });
         } catch (Exception e) {
             warnRateLimited("Config fetch failed; retaining last-known-good value: dataId="
                     + normalizedDataId, e);
             return null;
         }
+    }
+
+    /**
+     * Executes a real {@code system/probe} Request/Reply on one Gateway.
+     *
+     * <p>Unlike config reads, failure is never converted to {@code null}. The
+     * caller receives the transport, authentication, compatibility, timeout or
+     * protocol exception so this method can be used by an external availability
+     * probe. If the active Gateway fails, the existing routing contract permits
+     * at most one sequential failover inside the pinned compatibility pool and
+     * the original total deadline.</p>
+     */
+    public ControlPlaneProbeResult probe() throws Exception {
+        return execute("system/probe", this::performProbe);
+    }
+
+    /**
+     * Opens a fresh native Socket.D connection and returns the Probe that
+     * validated its Hello exchange.
+     *
+     * <p>This is the preferred external monitoring API. It does not start the
+     * background reconnect loop and it never hides the initial failure behind
+     * last-known-good cache behavior. Use a fresh transport in a
+     * try-with-resources block for every observation so each sample proves that
+     * DNS/TCP/TLS, Hello and Request/Reply all work at observation time.</p>
+     */
+    public ControlPlaneProbeResult probeOnce(
+            List<String> serverAddresses,
+            String namespace,
+            String group,
+            String accessToken) throws Exception {
+        if (!gatewayUrls.isEmpty() || activeConnection.get() != null
+                || maintenanceTask != null) {
+            throw new IllegalStateException(
+                    "probeOnce requires a fresh SocketDTransport instance");
+        }
+        configureEndpoint(serverAddresses, namespace, group, accessToken);
+        GatewayConnection connection = acquireAvailableConnection(
+                deadlineAfter(options.operationTimeoutMs()));
+        if (connection.validationProbe == null) {
+            throw new ProtocolException("Gateway connection has no validation Probe");
+        }
+        return connection.validationProbe;
+    }
+
+    private void configureEndpoint(
+            List<String> serverAddresses,
+            String namespace,
+            String group,
+            String accessToken) {
+        if (serverAddresses == null || serverAddresses.isEmpty()) {
+            throw new IllegalArgumentException("serverAddresses must not be empty");
+        }
+        this.namespace = requireName("namespace", namespace);
+        this.group = requireName("group", group);
+        this.accessToken = accessToken == null ? "" : accessToken.trim();
+        this.gatewayUrls = buildGatewayUrls(serverAddresses);
+        this.terminalFailure = null;
+        this.closed = false;
     }
 
     @Override
@@ -488,9 +567,15 @@ public class SocketDTransport implements ConfigTransport {
         return SocketD.createClient(url)
                 .config(config -> {
                     config.heartbeatInterval(HEARTBEAT_INTERVAL_MS)
+                            .codecThreads(1)
                             .connectTimeout(Math.max(1L, connectTimeoutMs))
                             .requestTimeout(options.requestTimeoutMs())
+                            .workExecutor(
+                                    ControlPlaneClientExecutors.socketdWorkExecutor())
                             .autoReconnect(true);
+                    if (tlsContextFactory.enabled()) {
+                        config.sslContext(tlsContextFactory.create(peerHost(url)));
+                    }
                 })
                 .listen(listener)
                 .openOrThow();
@@ -767,6 +852,29 @@ public class SocketDTransport implements ConfigTransport {
         return isRoutable(connection) ? connection.gatewayIndex : -1;
     }
 
+    public ControlPlaneTransportMetricsSnapshot metricsSnapshot() {
+        int registeredWatches = 0;
+        int activeSubscribeStreams = 0;
+        for (WatchRegistration<?> registration : watchRegistrations) {
+            if (registration.closed.get()) {
+                continue;
+            }
+            registeredWatches++;
+            synchronized (registration) {
+                SubscribeStream stream = registration.stream;
+                if (stream != null && !stream.isDone()) {
+                    activeSubscribeStreams++;
+                }
+            }
+        }
+        return new ControlPlaneTransportMetricsSnapshot(
+                activeSessionCount(),
+                inFlightRequests.get(),
+                registeredWatches,
+                activeSubscribeStreams,
+                closed);
+    }
+
     private <T> T execute(String operation, RpcCall<T> call) throws Exception {
         if (closed) {
             throw new IllegalStateException("Socket.D transport is closed");
@@ -945,14 +1053,16 @@ public class SocketDTransport implements ConfigTransport {
             candidate.connectionGeneration = hello.getConnectionGeneration();
             candidate.serverMaxRequestBudgetMs = hello.getMaxRequestBudgetMs();
 
-            ProbeResponse probe = probe(candidate, requestBudget(deadline));
-            if (probe.getConnectionGeneration() != candidate.connectionGeneration
-                    || !probe.getGatewayId().equals(candidate.gatewayId)) {
+            ControlPlaneProbeResult probe = performProbe(
+                    candidate, requestBudget(deadline));
+            if (probe.connectionGeneration() != candidate.connectionGeneration
+                    || !probe.gatewayId().equals(candidate.gatewayId)) {
                 throw new ProtocolException(
                         "Probe response does not match the Hello connection");
             }
             candidate.state = ConnectionState.ACTIVE;
             candidate.helloComplete = true;
+            candidate.validationProbe = probe;
             candidate.lastRpcSuccessNanos = System.nanoTime();
             return candidate;
         } catch (Exception e) {
@@ -1011,15 +1121,18 @@ public class SocketDTransport implements ConfigTransport {
         }
     }
 
-    private ProbeResponse probe(GatewayConnection connection, long timeoutMs) throws Exception {
+    private ControlPlaneProbeResult performProbe(
+            GatewayConnection connection, long timeoutMs) throws Exception {
         if (timeoutMs <= 0) {
             throw new SocketDTimeoutException("No remaining budget for system/probe");
         }
         String nonce = UUID.randomUUID().toString();
+        long clientSendEpochMs = System.currentTimeMillis();
         ProbeRequest probe = ProbeRequest.newBuilder()
                 .setNonce(nonce)
-                .setClientSendEpochMs(System.currentTimeMillis())
+                .setClientSendEpochMs(clientSendEpochMs)
                 .build();
+        long startedAtNanos = System.nanoTime();
         Envelope response = request(
                 connection.session,
                 ControlPlaneProtocol.SYSTEM_PROBE,
@@ -1028,12 +1141,30 @@ public class SocketDTransport implements ConfigTransport {
                         .setPayload(probe.toByteString())
                         .build(),
                 timeoutMs);
+        long rpcDurationNanos = Math.max(0L, System.nanoTime() - startedAtNanos);
+        long clientReceiveEpochMs = System.currentTimeMillis();
         requireOk(response, ControlPlaneProtocol.PROBE_RESPONSE_TYPE);
         ProbeResponse result = ProbeResponse.parseFrom(response.getPayload());
         if (!nonce.equals(result.getNonce())) {
             throw new ProtocolException("Gateway Probe nonce does not match");
         }
-        return result;
+        if (result.getConnectionGeneration() != connection.connectionGeneration
+                || !result.getGatewayId().equals(connection.gatewayId)) {
+            throw new ProtocolException(
+                    "Probe response does not match the Hello connection");
+        }
+        return new ControlPlaneProbeResult(
+                result.getGatewayId(),
+                pinnedClusterId,
+                pinnedTransportGeneration,
+                result.getConnectionGeneration(),
+                connection.url,
+                connection.gatewayIndex,
+                rpcDurationNanos,
+                clientSendEpochMs,
+                clientReceiveEpochMs,
+                result.getServerReceiveEpochMs(),
+                result.getServerSendEpochMs());
     }
 
     private Envelope.Builder baseEnvelope(long remainingBudgetMs) {
@@ -1202,6 +1333,14 @@ public class SocketDTransport implements ConfigTransport {
             return;
         }
         try {
+            if (tlsContextFactory.reloadRequired()) {
+                GatewayConnection rotating = activeConnection.get();
+                if (rotating != null) {
+                    logger.info("Xuantong TLS material changed; rebuilding control-plane "
+                            + "connection within the configured reload interval");
+                    retire(rotating);
+                }
+            }
             GatewayConnection current = activeConnection.get();
             if (current != null) {
                 if (current.state == ConnectionState.SUSPECT
@@ -1404,6 +1543,15 @@ public class SocketDTransport implements ConfigTransport {
         return List.copyOf(unique);
     }
 
+    private String peerHost(String url) {
+        URI uri = URI.create(url.startsWith("sd:") ? url.substring(3) : url);
+        String host = uri.getHost();
+        if (host == null || host.isBlank()) {
+            throw new IllegalArgumentException("Control-plane address has no host: " + url);
+        }
+        return host;
+    }
+
     private long requestBudget(long deadline) {
         long remaining = remainingMillis(deadline);
         if (remaining <= 0) {
@@ -1431,8 +1579,10 @@ public class SocketDTransport implements ConfigTransport {
     }
 
     private void notifyReconnectListener() {
-        Runnable listener = reconnectListener;
-        if (listener != null && !closed) {
+        if (closed) {
+            return;
+        }
+        for (Runnable listener : reconnectListeners) {
             try {
                 listener.run();
             } catch (RuntimeException e) {
@@ -1447,8 +1597,6 @@ public class SocketDTransport implements ConfigTransport {
         if (now - previous >= WARNING_INTERVAL_MS
                 && lastWarningAt.compareAndSet(previous, now)) {
             logger.warn("{}: {}", message, rootMessage(error));
-        } else {
-            logger.debug(message, error);
         }
     }
 
@@ -1491,7 +1639,18 @@ public class SocketDTransport implements ConfigTransport {
 
     @Override
     public void setOnReconnect(Runnable listener) {
-        this.reconnectListener = listener;
+        reconnectListeners.clear();
+        if (listener != null) {
+            reconnectListeners.add(listener);
+        }
+    }
+
+    AutoCloseable addReconnectListener(Runnable listener) {
+        if (listener == null) {
+            return () -> { };
+        }
+        reconnectListeners.add(listener);
+        return () -> reconnectListeners.remove(listener);
     }
 
     @Override
@@ -1500,18 +1659,20 @@ public class SocketDTransport implements ConfigTransport {
             return;
         }
         closed = true;
-        ScheduledExecutorService executor = maintenanceExecutor;
-        if (executor != null) {
-            executor.shutdownNow();
-        }
-        ExecutorService watches = watchExecutor;
-        if (watches != null) {
-            watches.shutdownNow();
+        ScheduledFuture<?> scheduled = maintenanceTask;
+        maintenanceTask = null;
+        if (scheduled != null) {
+            scheduled.cancel(false);
         }
         for (WatchRegistration<?> registration : watchRegistrations) {
             registration.close();
         }
         watchRegistrations.clear();
+        ExecutorService watches = watchExecutor;
+        if (watches != null) {
+            watches.shutdownNow();
+        }
+        reconnectListeners.clear();
 
         GatewayConnection connection;
         lifecycleLock.lock();
@@ -1569,6 +1730,7 @@ public class SocketDTransport implements ConfigTransport {
         private volatile String gatewayId = "";
         private volatile long connectionGeneration;
         private volatile long serverMaxRequestBudgetMs;
+        private volatile ControlPlaneProbeResult validationProbe;
         private volatile long lastRpcSuccessNanos;
         private volatile long closingSinceNanos;
         private volatile int consecutiveRpcFailures;
@@ -1645,6 +1807,9 @@ public class SocketDTransport implements ConfigTransport {
         }
 
         private void failed(Throwable error, long requestedDelayMs) {
+            if (closed.get() || SocketDTransport.this.closed) {
+                return;
+            }
             try {
                 handler.onError(error);
             } catch (RuntimeException handlerFailure) {

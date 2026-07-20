@@ -6,50 +6,48 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigRolloutPolicyTest {
     @Test
-    void normalizesIpTargetsAndMatchesObservedAddress() {
+    void normalizesIpTargets() {
         ConfigRolloutPolicy policy = ConfigRolloutPolicy.ip(
                 List.of("10.0.0.8", "2001:db8::1", "10.0.0.8"));
 
         assertEquals(2, policy.ipTargets().size());
-        assertTrue(policy.matches("rollout-a", "client-a", "10.0.0.8"));
-        assertTrue(policy.matches("rollout-a", "client-a", "2001:db8:0:0:0:0:0:1"));
-        assertFalse(policy.matches("rollout-a", "client-a", "10.0.0.9"));
+        assertEquals("10.0.0.8,2001:db8:0:0:0:0:0:1", policy.targetValue());
         assertThrows(IllegalArgumentException.class,
                 () -> ConfigRolloutPolicy.ip(List.of("example.com")));
     }
 
     @Test
-    void percentageUsesStableInstanceHashAndReasonableDistribution() {
+    void validatesPercentageRange() {
         ConfigRolloutPolicy policy = ConfigRolloutPolicy.percentage(35);
-        boolean first = policy.matches("rollout-a", "order-service@node-1", "10.0.0.8");
-        assertEquals(first, ConfigRolloutPolicy.percentage(35)
-                .matches("rollout-a", "order-service@node-1", null));
-        for (int i = 0; i < 20; i++) {
-            assertEquals(first,
-                    policy.matches("rollout-a", "order-service@node-1", "192.168.1." + i));
-        }
-
-        int matched = 0;
-        for (int i = 0; i < 10_000; i++) {
-            if (policy.matches("rollout-a", "instance-" + i, null)) matched++;
-        }
-        assertTrue(matched > 3_300 && matched < 3_700, "matched=" + matched);
-        assertFalse(policy.matches("rollout-a", null, null));
-
-        ConfigRolloutPolicy expanded = ConfigRolloutPolicy.percentage(60);
-        for (int i = 0; i < 1_000; i++) {
-            String instanceId = "scaled-instance-" + i;
-            if (policy.matches("rollout-a", instanceId, null)) {
-                assertTrue(expanded.matches("rollout-a", instanceId, null));
-            }
-        }
+        assertEquals(35, policy.percentage());
         assertThrows(IllegalArgumentException.class, () -> ConfigRolloutPolicy.percentage(0));
         assertThrows(IllegalArgumentException.class, () -> ConfigRolloutPolicy.percentage(100));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ConfigRolloutPolicy(
+                        cloud.xuantong.config.management.model.ReleaseType.GRAY_PERCENTAGE,
+                        "invalid"));
+    }
+
+    @Test
+    void exactClientInstanceTargetsAreCanonicalAndBounded() {
+        ConfigRolloutPolicy policy = ConfigRolloutPolicy.clientInstances(
+                List.of("instance-b", "instance-a", "instance-a"));
+
+        assertEquals(2, policy.clientInstanceTargets().size());
+        assertEquals("instance-a,instance-b", policy.targetValue());
+        assertThrows(IllegalArgumentException.class,
+                () -> ConfigRolloutPolicy.clientInstances(List.of(" ")));
+        assertThrows(IllegalArgumentException.class,
+                () -> ConfigRolloutPolicy.clientInstances(List.of("instance,a")));
+        assertThrows(IllegalArgumentException.class,
+                () -> ConfigRolloutPolicy.clientInstances(List.of("x".repeat(257))));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ConfigRolloutPolicy(
+                        cloud.xuantong.config.management.model.ReleaseType.GRAY_CLIENT_INSTANCE,
+                        "instance-a,"));
     }
 }

@@ -30,7 +30,9 @@ public class ConfigResource implements ProxyEntityAvailable<ConfigResource, Conf
     @Column
     private Long revision;
     @Column
-    private Boolean isEncrypted;
+    private Long draftRevision;
+    @Column
+    private String lifecycleStatus;
     @Column
     private String description;
     @Column

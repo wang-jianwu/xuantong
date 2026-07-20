@@ -15,6 +15,7 @@ public record ConfigMutation(
         ConfigKey configKey,
         long expectedDecisionRevision,
         ConfigContentDraft newContent,
+        ConfigDecisionState decisionState,
         ConfigContentReference stableContent,
         List<RolloutRuleDraft> rules) {
 
@@ -29,16 +30,37 @@ public record ConfigMutation(
             throw new IllegalArgumentException(
                     "expectedDecisionRevision must not be negative");
         }
-        if (stableContent == null) {
-            throw new IllegalArgumentException("stableContent must not be null");
+        if (decisionState == null) {
+            throw new IllegalArgumentException("decisionState must not be null");
         }
         rules = List.copyOf(rules == null ? List.of() : rules);
-        boolean referencesNewContent = stableContent instanceof ConfigContentReference.NewContent
-                || rules.stream().anyMatch(rule ->
-                        rule.targetContent() instanceof ConfigContentReference.NewContent);
-        if (referencesNewContent != (newContent != null)) {
-            throw new IllegalArgumentException(
-                    "new content must be present exactly when the decision references it");
+        if (decisionState == ConfigDecisionState.TOMBSTONE) {
+            if (newContent != null || stableContent != null || !rules.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "tombstone decision must not carry content or rollout rules");
+            }
+        } else {
+            if (stableContent == null) {
+                throw new IllegalArgumentException("active decision requires stableContent");
+            }
+            boolean referencesNewContent = stableContent instanceof ConfigContentReference.NewContent
+                    || rules.stream().anyMatch(rule ->
+                            rule.targetContent() instanceof ConfigContentReference.NewContent);
+            if (referencesNewContent != (newContent != null)) {
+                throw new IllegalArgumentException(
+                        "new content must be present exactly when the decision references it");
+            }
         }
+    }
+
+    public ConfigMutation(
+            ConfigActor actor,
+            ConfigKey configKey,
+            long expectedDecisionRevision,
+            ConfigContentDraft newContent,
+            ConfigContentReference stableContent,
+            List<RolloutRuleDraft> rules) {
+        this(actor, configKey, expectedDecisionRevision, newContent,
+                ConfigDecisionState.ACTIVE, stableContent, rules);
     }
 }

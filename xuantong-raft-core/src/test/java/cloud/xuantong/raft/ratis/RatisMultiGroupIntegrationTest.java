@@ -80,15 +80,17 @@ class RatisMultiGroupIntegrationTest {
                     node.server().getDivision(registryGroup.toRaftGroupId()).getStateMachine());
         }
 
+        ApplyResult config;
+        ApplyResult registry;
         try (RatisStateRouter router = new RatisStateRouter(
                 catalog.groups(), Duration.ofSeconds(2), 5)) {
-            ApplyResult config = submitEventually(router, new StateCommand(
+            config = submitEventually(router, new StateCommand(
                     configGroup.groupId(),
                     "config-op-1",
                     "counter.increment",
                     1,
                     new byte[0]));
-            ApplyResult registry = submitEventually(router, new StateCommand(
+            registry = submitEventually(router, new StateCommand(
                     registryGroup.groupId(),
                     "registry-op-1",
                     "counter.increment",
@@ -101,9 +103,13 @@ class RatisMultiGroupIntegrationTest {
                     router.groups());
         }
 
+        waitForAppliedOnAllNodes(
+                nodes, configGroup, config.appliedIndex(), Duration.ofSeconds(30));
+        waitForAppliedOnAllNodes(
+                nodes, registryGroup, registry.appliedIndex(), Duration.ofSeconds(30));
         forceSnapshot(configGroup);
         forceSnapshot(registryGroup);
-        waitForSnapshots(catalog, storageDirectories, Duration.ofSeconds(10));
+        waitForSnapshots(catalog, storageDirectories, Duration.ofSeconds(30));
 
         closeAllNodes();
         List<RatisStateNode> restarted = startCluster(catalog, peers, storageDirectories);
@@ -220,6 +226,43 @@ class RatisMultiGroupIntegrationTest {
         }
     }
 
+    private void waitForAppliedOnAllNodes(
+            List<RatisStateNode> nodes,
+            RatisGroupDefinition group,
+            long requiredIndex,
+            Duration timeout) throws Exception {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            boolean complete = true;
+            for (RatisStateNode node : nodes) {
+                long applied = node.server()
+                        .getDivision(group.toRaftGroupId())
+                        .getInfo()
+                        .getLastAppliedIndex();
+                if (applied < requiredIndex) {
+                    complete = false;
+                }
+            }
+            if (complete) {
+                return;
+            }
+            Thread.sleep(100L);
+        }
+        List<String> lagging = new ArrayList<>();
+        for (RatisStateNode node : nodes) {
+            long applied = node.server()
+                    .getDivision(group.toRaftGroupId())
+                    .getInfo()
+                    .getLastAppliedIndex();
+            if (applied < requiredIndex) {
+                lagging.add(node.nodeId() + "=" + applied);
+            }
+        }
+        throw new AssertionError("State Group " + group.groupId()
+                + " did not apply index " + requiredIndex
+                + " on nodes " + lagging);
+    }
+
     private void waitForSnapshots(
             RatisGroupCatalog catalog,
             List<Path> storageDirectories,
@@ -241,7 +284,19 @@ class RatisMultiGroupIntegrationTest {
             }
             Thread.sleep(100);
         }
-        throw new AssertionError("Config and Registry snapshots were not created on all nodes");
+        List<String> missing = new ArrayList<>();
+        for (Path storageDirectory : storageDirectories) {
+            for (RatisGroupDefinition group : catalog.groups()) {
+                Path groupDirectory = storageDirectory.resolve(
+                        group.toRaftGroupId().getUuid().toString());
+                if (!containsSnapshot(groupDirectory)) {
+                    missing.add(storageDirectory.getFileName()
+                            + "/" + group.groupId().canonicalName());
+                }
+            }
+        }
+        throw new AssertionError(
+                "Config and Registry snapshots were not created: " + missing);
     }
 
     private boolean containsSnapshot(Path directory) throws IOException {

@@ -63,6 +63,7 @@ class DiscoveryControlPlaneProductionIntegrationTest {
                 configProperties, registryProperties, dispatcher);
         ControlPlaneGatewayServer gatewayServer = null;
         SocketDDiscoveryTransport provider = null;
+        SocketDDiscoveryTransport replacementProvider = null;
         SocketDDiscoveryTransport consumer = null;
         WatchSubscription watchSubscription = null;
         try {
@@ -171,9 +172,46 @@ class DiscoveryControlPlaneProductionIntegrationTest {
             assertTrue(afterHeartbeat.events().isEmpty(),
                     "Lease renewals must not churn the service-view revision");
 
-            assertTrue(provider.deregister(renewed));
-            ServiceWatchBatch deregisteredEvent = consumer.watchBatch(1L, 10);
-            assertEquals(2L, deregisteredEvent.coveredThroughRevision());
+            replacementProvider = new SocketDDiscoveryTransport(
+                    new ClientIdentity("orders", "orders@node-2"), options);
+            replacementProvider.connect(
+                    addresses, "public", "DEFAULT_GROUP", "orders", "");
+            ServiceInstance replacement = replacementProvider.takeover(renewed);
+            assertFalse(renewed.getLeaseId().equals(replacement.getLeaseId()));
+            assertEquals(2L, replacement.getLeaseEpoch());
+            assertEquals(2L, replacement.getRecoveryEpoch());
+            assertEquals(0L, replacement.getRenewSequence());
+            assertEquals("orders@node-2", replacement.getOwnerNodeId());
+
+            ServiceWatchBatch takeoverEvent = consumer.watchBatch(1L, 10);
+            assertEquals(2L, takeoverEvent.coveredThroughRevision());
+            assertEquals("INSTANCE_TAKEN_OVER",
+                    takeoverEvent.events().getFirst().eventType());
+            ServiceSnapshot afterTakeover = consumer.fetchInstances();
+            assertEquals(2L, afterTakeover.getRevision());
+            assertEquals(replacement.getLeaseId(),
+                    afterTakeover.getInstances().getFirst().getLeaseId());
+
+            SocketDDiscoveryTransport oldProvider = provider;
+            DiscoveryLeaseException oldHeartbeat = assertThrows(
+                    DiscoveryLeaseException.class,
+                    () -> oldProvider.heartbeat(renewed));
+            assertEquals(DiscoveryLeaseException.Reason.FENCED,
+                    oldHeartbeat.reason());
+            DiscoveryLeaseException oldDeregister = assertThrows(
+                    DiscoveryLeaseException.class,
+                    () -> oldProvider.deregister(renewed));
+            assertEquals(DiscoveryLeaseException.Reason.FENCED,
+                    oldDeregister.reason());
+            assertEquals(replacement.getLeaseId(),
+                    consumer.fetchInstances().getInstances().getFirst().getLeaseId(),
+                    "The old owner must not renew or delete the replacement lease");
+
+            ServiceInstance replacementRenewed = replacementProvider.heartbeat(replacement);
+            assertEquals(1L, replacementRenewed.getRenewSequence());
+            assertTrue(replacementProvider.deregister(replacementRenewed));
+            ServiceWatchBatch deregisteredEvent = consumer.watchBatch(2L, 10);
+            assertEquals(3L, deregisteredEvent.coveredThroughRevision());
             assertEquals("INSTANCE_DEREGISTERED",
                     deregisteredEvent.events().getFirst().eventType());
             assertFalse(consumer.fetchInstances().getInstances().stream()
@@ -230,6 +268,9 @@ class DiscoveryControlPlaneProductionIntegrationTest {
             }
             if (consumer != null) {
                 consumer.close();
+            }
+            if (replacementProvider != null) {
+                replacementProvider.close();
             }
             if (provider != null) {
                 provider.close();

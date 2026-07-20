@@ -1,13 +1,17 @@
 package cloud.xuantong.gateway.socketd;
 
+import cloud.xuantong.common.metrics.FixedLatencyHistogram;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,7 +44,8 @@ public class ControlPlaneGatewayRuntime {
 
     enum SessionAdmission {
         ACCEPTED,
-        GATEWAY_LIMIT
+        GATEWAY_LIMIT,
+        CLUSTER_COORDINATION_UNAVAILABLE
     }
 
     enum AuthenticationAdmission {
@@ -48,14 +53,16 @@ public class ControlPlaneGatewayRuntime {
         SESSION_CLOSED,
         IDENTITY_CHANGED,
         TENANT_LIMIT,
-        CREDENTIAL_LIMIT
+        CREDENTIAL_LIMIT,
+        CLUSTER_COORDINATION_UNAVAILABLE
     }
 
     enum SubscriptionAdmission {
         ACCEPTED,
         DRAINING,
         GATEWAY_LIMIT,
-        TENANT_LIMIT
+        TENANT_LIMIT,
+        CLUSTER_COORDINATION_UNAVAILABLE
     }
 
     private final Object drainMonitor = new Object();
@@ -83,9 +90,30 @@ public class ControlPlaneGatewayRuntime {
     private final AtomicLong watchReplyTotal = new AtomicLong();
     private final AtomicLong watchAckLatencyMsTotal = new AtomicLong();
     private final AtomicLong watchAckLatencyMsMax = new AtomicLong();
+    private final FixedLatencyHistogram watchAckLatency =
+            new FixedLatencyHistogram(10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 15_000);
     private final AtomicLong watchAckTimeoutClosedTotal = new AtomicLong();
     private final AtomicLong watchStreamRotatedTotal = new AtomicLong();
     private final AtomicLong stateCallbackRejectedTotal = new AtomicLong();
+    private final AtomicLong clusterCoordinationRejectedTotal = new AtomicLong();
+    private final AtomicLong requestAcceptedTotal = new AtomicLong();
+    private final AtomicLong requestCompletedTotal = new AtomicLong();
+    private final AtomicLong requestOverloadedRejectedTotal = new AtomicLong();
+    private final AtomicLong requestDrainingRejectedTotal = new AtomicLong();
+    private final FixedLatencyHistogram requestLatency =
+            new FixedLatencyHistogram(5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000);
+    private final AtomicLong lateReplyDroppedTotal = new AtomicLong();
+    private final AtomicInteger peakInFlightRequests = new AtomicInteger();
+    private final AtomicLong sessionOpenedTotal = new AtomicLong();
+    private final AtomicLong sessionClosedTotal = new AtomicLong();
+    private final AtomicInteger peakActiveSessions = new AtomicInteger();
+    private final AtomicLong subscriptionOpenedTotal = new AtomicLong();
+    private final AtomicLong subscriptionClosedTotal = new AtomicLong();
+    private final AtomicInteger peakActiveSubscriptions = new AtomicInteger();
+    private final AtomicInteger peakPendingWatchAcknowledgements = new AtomicInteger();
+    private final AtomicInteger peakWorkQueueDepth = new AtomicInteger();
+    private final AtomicInteger peakStateCallbackQueueDepth = new AtomicInteger();
+    private final AtomicInteger peakCallbackScheduledTaskCount = new AtomicInteger();
 
     @Inject
     private ControlPlaneGatewayProperties properties;
@@ -100,6 +128,8 @@ public class ControlPlaneGatewayRuntime {
     private volatile ThreadPoolExecutor workExecutorTelemetry;
     private volatile ThreadPoolExecutor stateCallbackExecutorTelemetry;
     private volatile ScheduledThreadPoolExecutor callbackSchedulerTelemetry;
+    private volatile ClusterQuotaAllocation clusterQuotaAllocation =
+            ClusterQuotaAllocation.disabled();
 
     public ControlPlaneGatewayRuntime() {
     }
@@ -110,23 +140,44 @@ public class ControlPlaneGatewayRuntime {
 
     Admission tryAcquireRequest() {
         if (draining || closed) {
+            requestDrainingRejectedTotal.incrementAndGet();
             return Admission.DRAINING;
         }
 
         int current = inFlightRequests.incrementAndGet();
         if (current > properties.getMaxInFlightRequests()) {
-            releaseRequest();
+            decrementInFlightRequest();
+            requestOverloadedRejectedTotal.incrementAndGet();
             return Admission.OVERLOADED;
         }
 
         if (draining || closed) {
-            releaseRequest();
+            decrementInFlightRequest();
+            requestDrainingRejectedTotal.incrementAndGet();
             return Admission.DRAINING;
         }
+        requestAcceptedTotal.incrementAndGet();
+        updatePeak(peakInFlightRequests, current);
         return Admission.ACCEPTED;
     }
 
     void releaseRequest() {
+        releaseRequest(0L);
+    }
+
+    void releaseRequest(long startedNanos) {
+        decrementInFlightRequest();
+        requestCompletedTotal.incrementAndGet();
+        if (startedNanos > 0L) {
+            requestLatency.recordNanos(System.nanoTime() - startedNanos);
+        }
+    }
+
+    void lateReplyDropped() {
+        lateReplyDroppedTotal.incrementAndGet();
+    }
+
+    private void decrementInFlightRequest() {
         int previous = inFlightRequests.getAndUpdate(current -> current > 0 ? current - 1 : 0);
         if (previous <= 0) {
             throw new IllegalStateException("Gateway in-flight request count became negative");
@@ -145,7 +196,11 @@ public class ControlPlaneGatewayRuntime {
             String remoteAddress) {
         long now = System.currentTimeMillis();
         synchronized (quotaMonitor) {
-            if (connections.size() >= properties.getMaxSessions()) {
+            if (!clusterAdmissionsOpen(now)) {
+                clusterCoordinationRejectedTotal.incrementAndGet();
+                return SessionAdmission.CLUSTER_COORDINATION_UNAVAILABLE;
+            }
+            if (connections.size() >= effectiveMaxSessions()) {
                 gatewaySessionLimitRejectedTotal.incrementAndGet();
                 return SessionAdmission.GATEWAY_LIMIT;
             }
@@ -156,9 +211,12 @@ public class ControlPlaneGatewayRuntime {
                             connectionGeneration,
                             normalized(remoteAddress),
                             now));
-            return previous == null
-                    ? SessionAdmission.ACCEPTED
-                    : SessionAdmission.GATEWAY_LIMIT;
+            if (previous == null) {
+                sessionOpenedTotal.incrementAndGet();
+                updatePeak(peakActiveSessions, connections.size());
+                return SessionAdmission.ACCEPTED;
+            }
+            return SessionAdmission.GATEWAY_LIMIT;
         }
     }
 
@@ -182,6 +240,10 @@ public class ControlPlaneGatewayRuntime {
             return AuthenticationAdmission.SESSION_CLOSED;
         }
         synchronized (quotaMonitor) {
+            if (!clusterAdmissionsOpen(System.currentTimeMillis())) {
+                clusterCoordinationRejectedTotal.incrementAndGet();
+                return AuthenticationAdmission.CLUSTER_COORDINATION_UNAVAILABLE;
+            }
             TrackedConnection connection = connections.get(sessionId);
             if (connection == null) {
                 return AuthenticationAdmission.SESSION_CLOSED;
@@ -197,12 +259,12 @@ public class ControlPlaneGatewayRuntime {
                 return AuthenticationAdmission.ACCEPTED;
             }
             if (count(tenantSessionCounts, tenant)
-                    >= properties.getMaxSessionsPerTenant()) {
+                    >= effectiveMaxSessionsPerTenant()) {
                 tenantSessionLimitRejectedTotal.incrementAndGet();
                 return AuthenticationAdmission.TENANT_LIMIT;
             }
             if (count(credentialSessionCounts, credentialKey)
-                    >= properties.getMaxSessionsPerCredential()) {
+                    >= effectiveMaxSessionsPerCredential()) {
                 credentialSessionLimitRejectedTotal.incrementAndGet();
                 return AuthenticationAdmission.CREDENTIAL_LIMIT;
             }
@@ -220,6 +282,36 @@ public class ControlPlaneGatewayRuntime {
         }
     }
 
+    public void recordConfigSelection(
+            String sessionId,
+            String namespaceId,
+            String groupName,
+            String dataId,
+            String valueState,
+            long decisionRevision,
+            long contentRevision,
+            String matchedRuleId) {
+        TrackedConnection connection = connections.get(sessionId);
+        String normalizedState = valueState == null ? "" : valueState.trim();
+        boolean validContentRevision = "ACTIVE".equals(normalizedState)
+                ? contentRevision > 0
+                : "TOMBSTONE".equals(normalizedState) && contentRevision == 0;
+        if (connection == null || decisionRevision < 1 || !validContentRevision
+                || dataId == null || dataId.isBlank()) {
+            return;
+        }
+        connection.lastConfigSelection = new ConfigSelectionView(
+                namespaceId,
+                groupName,
+                dataId.trim(),
+                normalizedState,
+                decisionRevision,
+                contentRevision,
+                matchedRuleId == null ? "" : matchedRuleId.trim(),
+                System.currentTimeMillis());
+        connection.lastActiveAt = System.currentTimeMillis();
+    }
+
     void sessionClosed(String sessionId) {
         if (sessionId != null) {
             synchronized (quotaMonitor) {
@@ -227,6 +319,9 @@ public class ControlPlaneGatewayRuntime {
                 if (connection != null && connection.principalId != null) {
                     decrement(tenantSessionCounts, connection.tenant);
                     decrement(credentialSessionCounts, connection.credentialQuotaKey);
+                }
+                if (connection != null) {
+                    sessionClosedTotal.incrementAndGet();
                 }
             }
         }
@@ -241,15 +336,21 @@ public class ControlPlaneGatewayRuntime {
             if (draining || closed) {
                 return SubscriptionAdmission.DRAINING;
             }
-            if (activeSubscriptions.get() >= properties.getMaxSubscriptions()) {
+            if (!clusterAdmissionsOpen(System.currentTimeMillis())) {
+                clusterCoordinationRejectedTotal.incrementAndGet();
+                return SubscriptionAdmission.CLUSTER_COORDINATION_UNAVAILABLE;
+            }
+            if (activeSubscriptions.get() >= effectiveMaxSubscriptions()) {
                 return SubscriptionAdmission.GATEWAY_LIMIT;
             }
             if (count(tenantSubscriptionCounts, normalizedTenant)
-                    >= properties.getMaxSubscriptionsPerTenant()) {
+                    >= effectiveMaxSubscriptionsPerTenant()) {
                 tenantSubscriptionLimitRejectedTotal.incrementAndGet();
                 return SubscriptionAdmission.TENANT_LIMIT;
             }
             activeSubscriptions.incrementAndGet();
+            subscriptionOpenedTotal.incrementAndGet();
+            updatePeak(peakActiveSubscriptions, activeSubscriptions.get());
             increment(tenantSubscriptionCounts, normalizedTenant);
             return SubscriptionAdmission.ACCEPTED;
         }
@@ -257,7 +358,11 @@ public class ControlPlaneGatewayRuntime {
 
     void releaseSubscription(String tenant) {
         synchronized (quotaMonitor) {
-            activeSubscriptions.updateAndGet(current -> Math.max(0, current - 1));
+            int previous = activeSubscriptions.getAndUpdate(
+                    current -> Math.max(0, current - 1));
+            if (previous > 0) {
+                subscriptionClosedTotal.incrementAndGet();
+            }
             decrement(tenantSubscriptionCounts, requiredKey(tenant));
         }
     }
@@ -266,14 +371,20 @@ public class ControlPlaneGatewayRuntime {
         String normalizedTenant = requiredKey(tenant);
         long now = System.nanoTime();
         synchronized (quotaMonitor) {
+            if (!clusterAdmissionsOpen(System.currentTimeMillis())) {
+                clusterCoordinationRejectedTotal.incrementAndGet();
+                return RateLimitDecision.reject(1_000L);
+            }
+            int rate = effectiveTenantRequestRatePerSecond();
+            int burst = effectiveTenantRequestBurst();
             TenantTokenBucket bucket = tenantRequestBuckets.computeIfAbsent(
                     normalizedTenant,
                     ignored -> new TenantTokenBucket(
-                            properties.getTenantRequestBurst(), now));
+                            burst, now));
             RateLimitDecision decision = bucket.tryAcquire(
                     now,
-                    properties.getTenantRequestRatePerSecond(),
-                    properties.getTenantRequestBurst());
+                    rate,
+                    burst);
             if (!decision.allowed()) {
                 tenantRequestRateLimitedTotal.incrementAndGet();
             }
@@ -354,6 +465,8 @@ public class ControlPlaneGatewayRuntime {
         closed = true;
         draining = true;
         synchronized (quotaMonitor) {
+            sessionClosedTotal.addAndGet(connections.size());
+            subscriptionClosedTotal.addAndGet(activeSubscriptions.get());
             connections.clear();
             tenantSessionCounts.clear();
             credentialSessionCounts.clear();
@@ -440,6 +553,10 @@ public class ControlPlaneGatewayRuntime {
         return watchAckLatencyMsMax.get();
     }
 
+    public FixedLatencyHistogram.Snapshot watchAckLatencySnapshot() {
+        return watchAckLatency.snapshot();
+    }
+
     public long watchAckTimeoutClosedTotal() {
         return watchAckTimeoutClosedTotal.get();
     }
@@ -452,6 +569,66 @@ public class ControlPlaneGatewayRuntime {
         return stateCallbackRejectedTotal.get();
     }
 
+    public long clusterCoordinationRejectedTotal() {
+        return clusterCoordinationRejectedTotal.get();
+    }
+
+    public long requestAcceptedTotal() {
+        return requestAcceptedTotal.get();
+    }
+
+    public long requestCompletedTotal() {
+        return requestCompletedTotal.get();
+    }
+
+    public long requestOverloadedRejectedTotal() {
+        return requestOverloadedRejectedTotal.get();
+    }
+
+    public long requestDrainingRejectedTotal() {
+        return requestDrainingRejectedTotal.get();
+    }
+
+    public FixedLatencyHistogram.Snapshot requestLatencySnapshot() {
+        return requestLatency.snapshot();
+    }
+
+    public long lateReplyDroppedTotal() {
+        return lateReplyDroppedTotal.get();
+    }
+
+    public int peakInFlightRequests() {
+        return peakInFlightRequests.get();
+    }
+
+    public long sessionOpenedTotal() {
+        return sessionOpenedTotal.get();
+    }
+
+    public long sessionClosedTotal() {
+        return sessionClosedTotal.get();
+    }
+
+    public int peakActiveSessions() {
+        return peakActiveSessions.get();
+    }
+
+    public long subscriptionOpenedTotal() {
+        return subscriptionOpenedTotal.get();
+    }
+
+    public long subscriptionClosedTotal() {
+        return subscriptionClosedTotal.get();
+    }
+
+    public int peakActiveSubscriptions() {
+        return peakActiveSubscriptions.get();
+    }
+
+    public int peakPendingWatchAcknowledgements() {
+        return peakPendingWatchAcknowledgements.get();
+    }
+
     public int workActiveThreads() {
         ThreadPoolExecutor executor = workExecutorTelemetry;
         return executor == null ? 0 : executor.getActiveCount();
@@ -459,7 +636,14 @@ public class ControlPlaneGatewayRuntime {
 
     public int workQueueDepth() {
         ThreadPoolExecutor executor = workExecutorTelemetry;
-        return executor == null ? 0 : executor.getQueue().size();
+        int depth = executor == null ? 0 : executor.getQueue().size();
+        updatePeak(peakWorkQueueDepth, depth);
+        return depth;
+    }
+
+    public int peakWorkQueueDepth() {
+        workQueueDepth();
+        return peakWorkQueueDepth.get();
     }
 
     public int stateCallbackActiveThreads() {
@@ -469,12 +653,26 @@ public class ControlPlaneGatewayRuntime {
 
     public int stateCallbackQueueDepth() {
         ThreadPoolExecutor executor = stateCallbackExecutorTelemetry;
-        return executor == null ? 0 : executor.getQueue().size();
+        int depth = executor == null ? 0 : executor.getQueue().size();
+        updatePeak(peakStateCallbackQueueDepth, depth);
+        return depth;
+    }
+
+    public int peakStateCallbackQueueDepth() {
+        stateCallbackQueueDepth();
+        return peakStateCallbackQueueDepth.get();
     }
 
     public int callbackScheduledTaskCount() {
         ScheduledThreadPoolExecutor scheduler = callbackSchedulerTelemetry;
-        return scheduler == null ? 0 : scheduler.getQueue().size();
+        int count = scheduler == null ? 0 : scheduler.getQueue().size();
+        updatePeak(peakCallbackScheduledTaskCount, count);
+        return count;
+    }
+
+    public int peakCallbackScheduledTaskCount() {
+        callbackScheduledTaskCount();
+        return peakCallbackScheduledTaskCount.get();
     }
 
     void sessionHelloTimedOut() {
@@ -482,7 +680,8 @@ public class ControlPlaneGatewayRuntime {
     }
 
     void watchReplyAwaitingAcknowledgement() {
-        pendingWatchAcknowledgements.incrementAndGet();
+        int pending = pendingWatchAcknowledgements.incrementAndGet();
+        updatePeak(peakPendingWatchAcknowledgements, pending);
     }
 
     void watchPollStarted() {
@@ -503,6 +702,7 @@ public class ControlPlaneGatewayRuntime {
         long boundedLatency = Math.max(0L, latencyMs);
         watchAckLatencyMsTotal.addAndGet(boundedLatency);
         watchAckLatencyMsMax.accumulateAndGet(boundedLatency, Math::max);
+        watchAckLatency.recordMillis(boundedLatency);
     }
 
     void watchAcknowledgementAbandoned() {
@@ -555,6 +755,59 @@ public class ControlPlaneGatewayRuntime {
         views.sort(Comparator.comparingLong(
                 ControlPlaneConnectionView::connectedAt).reversed());
         return List.copyOf(views);
+    }
+
+    public String gatewayId() {
+        return properties == null ? "local" : properties.getGatewayId();
+    }
+
+    public String clusterId() {
+        return properties == null ? "local" : properties.getClusterId();
+    }
+
+    public long transportGeneration() {
+        return properties == null ? 1L : properties.getTransportGeneration();
+    }
+
+    public void updateClusterQuotaAllocation(ClusterQuotaAllocation allocation) {
+        clusterQuotaAllocation = allocation == null
+                ? ClusterQuotaAllocation.disabled() : allocation;
+    }
+
+    public ClusterQuotaAllocation clusterQuotaAllocation() {
+        return clusterQuotaAllocation;
+    }
+
+    public GatewayRuntimeSnapshot localSnapshot(int maxConnectionDetails) {
+        if (maxConnectionDetails < 0) {
+            throw new IllegalArgumentException("maxConnectionDetails must not be negative");
+        }
+        long capturedAt = System.currentTimeMillis();
+        List<ControlPlaneConnectionView> allConnections = connections();
+        int returned = Math.min(allConnections.size(), maxConnectionDetails);
+        List<ControlPlaneConnectionView> details = List.copyOf(
+                allConnections.subList(0, returned));
+        Map<String, Integer> tenantSessions;
+        Map<String, Integer> credentialSessions;
+        Map<String, Integer> tenantSubscriptions;
+        synchronized (quotaMonitor) {
+            tenantSessions = Map.copyOf(tenantSessionCounts);
+            credentialSessions = opaqueCredentialCounts(credentialSessionCounts);
+            tenantSubscriptions = Map.copyOf(tenantSubscriptionCounts);
+        }
+        return new GatewayRuntimeSnapshot(
+                clusterId(), gatewayId(), transportGeneration(), capturedAt,
+                allConnections.size(), allConnections.size() > returned, details,
+                tenantSessions, credentialSessions, tenantSubscriptions,
+                inFlightRequests(), activeSubscriptions(),
+                pendingWatchAcknowledgements(), logicalClients(),
+                gatewaySessionLimitRejectedTotal()
+                        + tenantSessionLimitRejectedTotal()
+                        + credentialSessionLimitRejectedTotal(),
+                tenantSubscriptionLimitRejectedTotal()
+                        + tenantRequestRateLimitedTotal()
+                        + authenticationRateLimitedTotal(),
+                clusterCoordinationRejectedTotal(), clusterQuotaAllocation());
     }
 
     String transportSchema() {
@@ -671,6 +924,75 @@ public class ControlPlaneGatewayRuntime {
         return normalized.isEmpty() ? null : normalized;
     }
 
+    private boolean clusterAdmissionsOpen(long nowEpochMs) {
+        ClusterQuotaAllocation allocation = clusterQuotaAllocation;
+        return !allocation.enabled()
+                || allocation.admissionsEnabled()
+                && allocation.leaseValidUntilEpochMs() > nowEpochMs;
+    }
+
+    private int effectiveMaxSessions() {
+        return effectiveLimit(properties.getMaxSessions(),
+                clusterQuotaAllocation.maxSessions());
+    }
+
+    private int effectiveMaxSessionsPerTenant() {
+        return effectiveLimit(properties.getMaxSessionsPerTenant(),
+                clusterQuotaAllocation.maxSessionsPerTenant());
+    }
+
+    private int effectiveMaxSessionsPerCredential() {
+        return effectiveLimit(properties.getMaxSessionsPerCredential(),
+                clusterQuotaAllocation.maxSessionsPerCredential());
+    }
+
+    private int effectiveMaxSubscriptions() {
+        return effectiveLimit(properties.getMaxSubscriptions(),
+                clusterQuotaAllocation.maxSubscriptions());
+    }
+
+    private int effectiveMaxSubscriptionsPerTenant() {
+        return effectiveLimit(properties.getMaxSubscriptionsPerTenant(),
+                clusterQuotaAllocation.maxSubscriptionsPerTenant());
+    }
+
+    private int effectiveTenantRequestRatePerSecond() {
+        return effectiveLimit(properties.getTenantRequestRatePerSecond(),
+                clusterQuotaAllocation.tenantRequestRatePerSecond());
+    }
+
+    private int effectiveTenantRequestBurst() {
+        return effectiveLimit(properties.getTenantRequestBurst(),
+                clusterQuotaAllocation.tenantRequestBurst());
+    }
+
+    private static int effectiveLimit(int configured, int allocated) {
+        return allocated < 1 ? configured : Math.min(configured, allocated);
+    }
+
+    private static Map<String, Integer> opaqueCredentialCounts(
+            Map<String, Integer> source) {
+        Map<String, Integer> result = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : source.entrySet()) {
+            result.merge(opaqueCredentialId(entry.getKey()), entry.getValue(), Integer::sum);
+        }
+        return Map.copyOf(result);
+    }
+
+    private static String opaqueCredentialId(String credentialKey) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(requiredKey(credentialKey).getBytes(StandardCharsets.UTF_8));
+            return "credential-" + HexFormat.of().formatHex(digest, 0, 8);
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to create opaque credential quota id", e);
+        }
+    }
+
+    private static void updatePeak(AtomicInteger peak, int value) {
+        peak.accumulateAndGet(Math.max(0, value), Math::max);
+    }
+
     public record ControlPlaneConnectionView(
             String sessionId,
             String clientInstanceId,
@@ -686,8 +1008,67 @@ public class ControlPlaneGatewayRuntime {
             String remoteAddress,
             String gatewayId,
             long connectionGeneration,
+            ConfigSelectionView lastConfigSelection,
             long connectedAt,
             long lastActiveAt) {
+    }
+
+    public record ConfigSelectionView(
+            String namespaceId,
+            String groupName,
+            String dataId,
+            String valueState,
+            long decisionRevision,
+            long contentRevision,
+            String matchedRuleId,
+            long observedAt) {
+    }
+
+    public record GatewayRuntimeSnapshot(
+            String clusterId,
+            String gatewayId,
+            long transportGeneration,
+            long capturedAt,
+            int totalConnectionCount,
+            boolean connectionDetailsTruncated,
+            List<ControlPlaneConnectionView> connections,
+            Map<String, Integer> tenantSessionCounts,
+            Map<String, Integer> credentialSessionCounts,
+            Map<String, Integer> tenantSubscriptionCounts,
+            int inFlightRequests,
+            int activeSubscriptions,
+            int pendingWatchAcknowledgements,
+            long logicalClients,
+            long sessionQuotaRejectedTotal,
+            long rateLimitedTotal,
+            long clusterCoordinationRejectedTotal,
+            ClusterQuotaAllocation quotaAllocation) {
+    }
+
+    public record ClusterQuotaAllocation(
+            boolean enabled,
+            boolean admissionsEnabled,
+            String clusterId,
+            int activeGatewayCount,
+            int safetyReservePercent,
+            long calculatedAtEpochMs,
+            long leaseValidUntilEpochMs,
+            int maxSessions,
+            int maxSessionsPerTenant,
+            int maxSessionsPerCredential,
+            int maxSubscriptions,
+            int maxSubscriptionsPerTenant,
+            int tenantRequestRatePerSecond,
+            int tenantRequestBurst) {
+        public static ClusterQuotaAllocation disabled() {
+            return new ClusterQuotaAllocation(
+                    false, true, "", 1, 0, 0L, Long.MAX_VALUE,
+                    0, 0, 0, 0, 0, 0, 0);
+        }
+
+        public boolean leaseValid(long nowEpochMs) {
+            return !enabled || leaseValidUntilEpochMs > nowEpochMs;
+        }
     }
 
     record RateLimitDecision(boolean allowed, long retryAfterMs) {
@@ -710,6 +1091,7 @@ public class ControlPlaneGatewayRuntime {
         }
 
         private RateLimitDecision tryAcquire(long now, int ratePerSecond, int burst) {
+            tokens = Math.min(tokens, burst);
             long elapsed = Math.max(0L, now - lastRefillNanos);
             if (elapsed > 0L) {
                 tokens = Math.min(
@@ -754,6 +1136,7 @@ public class ControlPlaneGatewayRuntime {
         private volatile String sdkName;
         private volatile String transportPool;
         private volatile List<String> capabilities = List.of();
+        private volatile ConfigSelectionView lastConfigSelection;
         private volatile long lastActiveAt;
 
         private TrackedConnection(
@@ -784,6 +1167,7 @@ public class ControlPlaneGatewayRuntime {
                     remoteAddress,
                     gatewayId,
                     connectionGeneration,
+                    lastConfigSelection,
                     connectedAt,
                     lastActiveAt);
         }

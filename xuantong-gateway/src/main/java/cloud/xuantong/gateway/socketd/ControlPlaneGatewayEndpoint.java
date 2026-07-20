@@ -18,6 +18,7 @@ import cloud.xuantong.protocol.v2.WatchAckResponse;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import lombok.extern.slf4j.Slf4j;
+import org.noear.socketd.exception.SocketDChannelException;
 import org.noear.socketd.transport.core.Entity;
 import org.noear.socketd.transport.core.Message;
 import org.noear.socketd.transport.core.Session;
@@ -174,6 +175,7 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
             return;
         }
 
+        long requestStartedNanos = System.nanoTime();
         ControlPlaneGatewayRuntime.Admission admission = runtime.tryAcquireRequest();
         if (admission == ControlPlaneGatewayRuntime.Admission.DRAINING) {
             replyError(session, message, parseBestEffort(message), ResponseCode.DRAINING,
@@ -198,7 +200,7 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
                 case ControlPlaneProtocol.SYSTEM_WATCH_ACK ->
                         handleWatchAck(session, message, request);
                 default -> releaseRequest = !handleBusiness(
-                        session, message, request);
+                        session, message, request, requestStartedNanos);
             }
         } catch (ControlPlaneAuthenticationException e) {
             replyError(session, message, request, ResponseCode.UNAUTHORIZED,
@@ -212,7 +214,7 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
                     "Internal control-plane error", true);
         } finally {
             if (releaseRequest) {
-                runtime.releaseRequest();
+                runtime.releaseRequest(requestStartedNanos);
             }
         }
     }
@@ -268,6 +270,10 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
                                 : subscriptionAdmission
                                 == ControlPlaneGatewayRuntime.SubscriptionAdmission.TENANT_LIMIT
                                 ? "Tenant subscription quota is exhausted"
+                                : subscriptionAdmission
+                                == ControlPlaneGatewayRuntime.SubscriptionAdmission
+                                .CLUSTER_COORDINATION_UNAVAILABLE
+                                ? "Gateway cluster coordination lease is unavailable"
                                 : "Gateway subscription capacity is exhausted",
                         true,
                         properties.getOverloadRetryAfterMs());
@@ -317,7 +323,10 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
     }
 
     private boolean handleBusiness(
-            Session session, Message message, Envelope request) throws IOException {
+            Session session,
+            Message message,
+            Envelope request,
+            long requestStartedNanos) throws IOException {
         if (!Boolean.TRUE.equals(session.attr(ATTR_HELLO_COMPLETE))) {
             replyError(session, message, request, ResponseCode.FAILED_PRECONDITION,
                     "system/hello must complete before business requests", false);
@@ -355,9 +364,10 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
         Envelope currentRequest = request;
         response.whenComplete((reply, failure) -> {
             Runnable completion = () -> completeBusinessReply(
-                    session, message, currentRequest, reply, failure);
+                    session, message, currentRequest, reply, failure,
+                    requestStartedNanos);
             if (!runtime.executeStateCallback(completion)) {
-                runtime.releaseRequest();
+                runtime.releaseRequest(requestStartedNanos);
                 closeSessionQuietly(session,
                         "State callback capacity was exhausted while completing a request");
             }
@@ -371,8 +381,13 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
             Message message,
             Envelope request,
             ControlPlaneReply reply,
-            Throwable failure) {
+            Throwable failure,
+            long requestStartedNanos) {
         try {
+            if (!session.isValid()) {
+                recordLateReplyDrop(session, message, null);
+                return;
+            }
             if (failure == null && reply != null) {
                 reply(session, message, request, reply);
             } else {
@@ -383,14 +398,33 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
                         stateGroup(request));
                 reply(session, message, request, ControlPlaneReply.failure(status));
             }
+        } catch (SocketDChannelException e) {
+            recordLateReplyDrop(session, message, e);
         } catch (IOException e) {
-            log.warn("Failed to complete control-plane reply: event={}, sessionId={}",
-                    message.event(), session.sessionId(), e);
+            if (!session.isValid()) {
+                recordLateReplyDrop(session, message, e);
+            } else {
+                log.warn("Failed to complete control-plane reply: event={}, sessionId={}",
+                        message.event(), session.sessionId(), e);
+            }
         } catch (RuntimeException e) {
             log.error("Failed to map control-plane handler result: event={}, sessionId={}",
                     message.event(), session.sessionId(), e);
         } finally {
-            runtime.releaseRequest();
+            runtime.releaseRequest(requestStartedNanos);
+        }
+    }
+
+    private void recordLateReplyDrop(
+            Session session, Message message, Throwable failure) {
+        runtime.lateReplyDropped();
+        if (failure == null) {
+            log.debug("Discarding late control-plane reply for closed Session: event={}, "
+                            + "sessionId={}",
+                    message.event(), session.sessionId());
+        } else {
+            log.debug("Discarding undeliverable control-plane reply: event={}, sessionId={}",
+                    message.event(), session.sessionId(), failure);
         }
     }
 
@@ -472,12 +506,17 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
                     == ControlPlaneGatewayRuntime.AuthenticationAdmission.TENANT_LIMIT
                     || authenticationAdmission
                     == ControlPlaneGatewayRuntime.AuthenticationAdmission.CREDENTIAL_LIMIT
+                    || authenticationAdmission
+                    == ControlPlaneGatewayRuntime.AuthenticationAdmission
+                    .CLUSTER_COORDINATION_UNAVAILABLE
                     ? ResponseCode.RATE_LIMITED
                     : ResponseCode.FAILED_PRECONDITION;
             String error = switch (authenticationAdmission) {
                 case TENANT_LIMIT -> "Tenant Session quota is exhausted on this Gateway";
                 case CREDENTIAL_LIMIT ->
                         "Credential Session quota is exhausted on this Gateway";
+                case CLUSTER_COORDINATION_UNAVAILABLE ->
+                        "Gateway cluster coordination lease is unavailable";
                 case IDENTITY_CHANGED ->
                         "Authenticated Session identity cannot change";
                 case SESSION_CLOSED -> "Control-plane Session is already closed";
@@ -1039,6 +1078,7 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
                 return;
             }
 
+            long requestStartedNanos = System.nanoTime();
             ControlPlaneGatewayRuntime.Admission admission = runtime.tryAcquireRequest();
             if (admission == ControlPlaneGatewayRuntime.Admission.DRAINING) {
                 finishFailure(ResponseStatus.newBuilder()
@@ -1071,9 +1111,9 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
             }
             stage.whenComplete((reply, failure) -> {
                 Runnable completion = () -> completePump(
-                        current, reply, failure, rotationDue);
+                        current, reply, failure, rotationDue, requestStartedNanos);
                 if (!runtime.executeStateCallback(completion)) {
-                    runtime.releaseRequest();
+                    runtime.releaseRequest(requestStartedNanos);
                     closeForCallbackOverload();
                 }
             });
@@ -1083,7 +1123,8 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
                 Envelope current,
                 ControlPlaneReply reply,
                 Throwable failure,
-                boolean rotationDue) {
+                boolean rotationDue,
+                long requestStartedNanos) {
             try {
                 if (closed.get()) {
                     return;
@@ -1136,7 +1177,7 @@ public class ControlPlaneGatewayEndpoint extends SimpleListener {
                         message.event(), session.sessionId(), message.sid(), e);
                 close();
             } finally {
-                runtime.releaseRequest();
+                runtime.releaseRequest(requestStartedNanos);
             }
         }
 

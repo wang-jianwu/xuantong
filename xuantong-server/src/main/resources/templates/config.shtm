@@ -8,7 +8,7 @@
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link href="/lib/bootstrap/5.3.8/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/lib/fontawesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/css/admin.css?v=2.0.0-20260713-connection">
+<link rel="stylesheet" href="/css/admin.css?v=2.0.2-20260719-cluster">
 </head>
 <body>
 <div class="app-container">
@@ -19,39 +19,40 @@
             <div class="card">
                 <div class="row g-3 align-items-end">
                     <div class="col-lg-4"><label class="form-label">命名空间</label><select id="namespace"
-                                                                                             class="form-select"></select>
+                                                                                            class="form-select"></select>
                     </div>
                     <div class="col-lg-4"><label class="form-label">资源组</label><select id="group"
-                                                                                         class="form-select"></select>
+                                                                                          class="form-select"></select>
                     </div>
                     <div class="col-lg-4">
                         <div class="toolbar-actions justify-content-lg-end">
-                        <button class="btn btn-success" onclick="publishSelected()"><i
-                                class="fas fa-paper-plane"></i> 批量发布
-                        </button>
-                        <button class="btn btn-primary" onclick="newConfig()"><i class="fas fa-plus"></i> 新建配置
-                        </button>
+                            <button class="btn btn-success" onclick="publishSelected()"><i
+                                    class="fas fa-paper-plane"></i> 批量发布
+                            </button>
+                            <button class="btn btn-primary" onclick="newConfig()"><i class="fas fa-plus"></i> 新建配置
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="card">
                 <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                    <tr>
-                        <th><input id="select-all" class="form-check-input" type="checkbox"
-                                   onchange="toggleAllConfigs(this.checked)"></th>
-                        <th>Data ID</th>
-                        <th>类型</th>
-                        <th>Revision</th>
-                        <th>Checksum</th>
-                        <th>操作</th>
-                    </tr>
-                    </thead>
-                    <tbody id="config-body"></tbody>
-                </table>
+                    <table class="table table-hover">
+                        <thead>
+                        <tr>
+                            <th><input id="select-all" class="form-check-input" type="checkbox"
+                                       onchange="toggleAllConfigs(this.checked)"></th>
+                            <th>Data ID</th>
+                            <th>类型</th>
+                            <th>发布 / 草稿 Revision</th>
+                            <th>Checksum</th>
+                            <th>操作</th>
+                        </tr>
+                        </thead>
+                        <tbody id="config-body"></tbody>
+                    </table>
                 </div>
+                <div id="config-pagination"></div>
             </div>
         </div>
     </div>
@@ -67,20 +68,96 @@
             </div>
             <div class="modal-body">
                 <ul class="nav nav-tabs mb-3" role="tablist">
-                    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#releasePane" type="button">发布记录</button></li>
-                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rolloutPane" type="button">灰度发布</button></li>
-                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#auditPane" type="button">审计记录</button></li>
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#releasePane"
+                                type="button">发布记录
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#rolloutPane" type="button">
+                            灰度发布
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#auditPane" type="button">
+                            审计记录
+                        </button>
+                    </li>
                 </ul>
                 <div class="tab-content">
-                    <div class="tab-pane fade show active" id="releasePane"><div class="table-responsive"><table class="table align-middle">
-                        <thead><tr><th>Revision</th><th>类型</th><th>操作人</th><th>发布时间</th><th class="text-end">操作</th></tr></thead>
-                        <tbody id="release-body"></tbody></table></div></div>
-                    <div class="tab-pane fade" id="rolloutPane"><div class="table-responsive"><table class="table align-middle">
-                        <thead><tr><th>策略</th><th>目标</th><th>状态</th><th>创建人 / 时间</th><th class="text-end">操作</th></tr></thead>
-                        <tbody id="rollout-body"></tbody></table></div></div>
-                    <div class="tab-pane fade" id="auditPane"><div class="table-responsive"><table class="table align-middle">
-                        <thead><tr><th>操作</th><th>操作人</th><th>时间</th><th>详情</th></tr></thead>
-                        <tbody id="config-audit-body"></tbody></table></div></div>
+                    <div class="tab-pane fade show active" id="releasePane">
+                        <div class="table-responsive">
+                            <table class="table align-middle">
+                                <thead>
+                                <tr>
+                                    <th>Revision</th>
+                                    <th>类型</th>
+                                    <th>操作人</th>
+                                    <th>发布时间</th>
+                                    <th class="text-end">操作</th>
+                                </tr>
+                                </thead>
+                                <tbody id="release-body"></tbody>
+                            </table>
+                        </div>
+                        <div id="release-pagination"></div>
+                    </div>
+                    <div class="tab-pane fade" id="rolloutPane">
+                        <div class="table-responsive">
+                            <table class="table align-middle">
+                                <thead>
+                                <tr>
+                                    <th>策略</th>
+                                    <th>目标</th>
+                                    <th>状态</th>
+                                    <th>创建人 / 时间</th>
+                                    <th class="text-end">操作</th>
+                                </tr>
+                                </thead>
+                                <tbody id="rollout-body"></tbody>
+                            </table>
+                        </div>
+                        <div id="rollout-pagination"></div>
+                        <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
+                            <div><strong>当前权威选择计算</strong>
+                                <div class="small text-muted" id="currentSelectionScope">当前 Gateway
+                                    视图；这是服务端计算结果，不等于客户端应用确认
+                                </div>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th>应用 / 实例</th>
+                                    <th>远端 IP</th>
+                                    <th>权威状态</th>
+                                    <th>Matched Rule</th>
+                                    <th>Content Revision</th>
+                                    <th>Decision Revision</th>
+                                    <th>Gateway</th>
+                                </tr>
+                                </thead>
+                                <tbody id="current-selection-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="auditPane">
+                        <div class="table-responsive">
+                            <table class="table align-middle">
+                                <thead>
+                                <tr>
+                                    <th>操作</th>
+                                    <th>操作人</th>
+                                    <th>时间</th>
+                                    <th>详情</th>
+                                </tr>
+                                </thead>
+                                <tbody id="config-audit-body"></tbody>
+                            </table>
+                        </div>
+                        <div id="config-audit-pagination"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -88,7 +165,7 @@
 </div>
 
 <div class="modal fade" id="rolloutModal" tabindex="-1" aria-labelledby="rolloutModalTitle" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <div><h5 class="modal-title" id="rolloutModalTitle">创建灰度发布</h5>
@@ -99,32 +176,68 @@
                 <div class="alert alert-info py-2">灰度期间草稿将锁定。验证完成后请选择“转全量”或“终止灰度”。</div>
                 <label class="form-label">灰度策略</label>
                 <select id="rolloutType" class="form-select mb-3" onchange="toggleRolloutTarget()">
+                    <option value="GRAY_CLIENT_INSTANCE">按客户端实例 ID 精确选择</option>
                     <option value="GRAY_IP">按客户端 IP</option>
                     <option value="GRAY_PERCENTAGE">按实例稳定百分比</option>
                 </select>
-                <div id="rolloutIpFields">
+                <div id="rolloutClientFields">
+                    <label class="form-label">当前 Gateway 可见的配置客户端</label>
+                    <div id="rolloutClientInstances" class="border rounded p-2 mb-2"></div>
+                    <div class="form-text">实例 ID 来自客户端 Hello；同一服务的不同 JAR/Pod 应使用不同
+                        clientInstanceId。
+                    </div>
+                </div>
+                <div id="rolloutIpFields" class="d-none">
                     <label class="form-label">目标 IP</label>
                     <textarea id="rolloutIps" class="form-control font-monospace" rows="6"
+                              oninput="resetRolloutPreview()"
                               placeholder="每行一个 IP，例如：&#10;10.0.0.12&#10;10.0.0.13"></textarea>
                     <div class="form-text">服务端以 Socket.D 连接的实际远端 IP 为准。</div>
                 </div>
                 <div id="rolloutPercentageFields" class="d-none">
                     <label class="form-label">灰度比例（1-99）</label>
                     <div class="input-group"><input id="rolloutPercentage" type="number" min="1" max="99"
-                                                    value="10" class="form-control"><span class="input-group-text">%</span></div>
-                    <div class="form-text">基于 rolloutId + clientInstanceId 稳定哈希；重连和多 Broker 结果保持一致。</div>
+                                                    value="10" class="form-control"
+                                                    oninput="resetRolloutPreview()"><span
+                            class="input-group-text">%</span></div>
+                    <div class="form-text">基于 rolloutKey + clientInstanceId 稳定哈希；预览与正式发布复用同一
+                        rolloutKey。
+                    </div>
+                </div>
+                <div id="rolloutPreview" class="d-none mt-3">
+                    <div id="rolloutPreviewSummary" class="alert alert-light border py-2"></div>
+                    <div id="rolloutPreviewWarning" class="alert alert-warning py-2 d-none"></div>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                            <tr>
+                                <th>应用 / 实例</th>
+                                <th>远端 IP</th>
+                                <th>命中</th>
+                                <th>选择说明</th>
+                                <th>Gateway</th>
+                            </tr>
+                            </thead>
+                            <tbody id="rolloutPreviewBody"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button class="btn btn-warning" onclick="startRollout()"><i class="fas fa-flask"></i> 开始灰度</button>
+                <button class="btn btn-outline-primary" id="rolloutPreviewButton" onclick="previewRollout()"><i
+                        class="fas fa-eye"></i> 预览命中
+                </button>
+                <button class="btn btn-warning" id="rolloutStartButton" onclick="startRollout()" disabled><i
+                        class="fas fa-flask"></i> 开始灰度
+                </button>
             </div>
         </div>
     </div>
 </div>
 
 <div class="modal fade" id="configModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header"><h5 class="modal-title">配置草稿</h5>
                 <button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
@@ -132,15 +245,51 @@
             <div class="modal-body">
                 <label class="form-label">Data ID</label><input id="dataId" class="form-control mb-3"
                                                                 placeholder="application.yml">
-                <label class="form-label">内容类型</label><select id="contentType" class="form-select mb-3">
-                <option>yaml</option>
-                <option>properties</option>
-                <option>json</option>
-                <option>xml</option>
-                <option>text</option>
-            </select>
-                <label class="form-label">内容</label><textarea id="contentValue" class="form-control font-monospace"
-                                                                rows="16"></textarea>
+                <label class="form-label">内容类型</label>
+                <select id="contentType" class="form-select mb-3">
+                    <option value="yaml">YAML</option>
+                    <option value="properties">Properties</option>
+                    <option value="json">JSON</option>
+                    <option value="xml">XML</option>
+                    <option value="text">Text</option>
+                    <option value="string">String</option>
+                    <option value="number">Number</option>
+                    <option value="boolean">Boolean</option>
+                </select>
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <label class="form-label mb-0 me-auto">内容</label>
+                    <button class="btn btn-sm btn-outline-secondary" type="button"
+                            onclick="validateEditorContent(true)">校验
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" type="button"
+                            onclick="transformEditorContent('format')">美化
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" type="button"
+                            onclick="transformEditorContent('minify')">压缩
+                    </button>
+                    <span id="contentBytes" class="small text-muted">0 B</span>
+                </div>
+                <div id="structuredEditor">
+                    <textarea id="contentValue" class="form-control font-monospace" rows="18"
+                              spellcheck="false" aria-describedby="contentValidation"></textarea>
+                </div>
+                <div id="stringEditor" class="d-none">
+                    <textarea id="stringValue" class="form-control" rows="4"
+                              aria-describedby="contentValidation"></textarea>
+                </div>
+                <div id="numberEditor" class="d-none">
+                    <input id="numberValue" class="form-control font-monospace" inputmode="decimal"
+                           placeholder="例如：10.5" aria-describedby="contentValidation">
+                </div>
+                <div id="booleanEditor" class="d-none">
+                    <select id="booleanValue" class="form-select" aria-describedby="contentValidation">
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                    </select>
+                </div>
+                <div id="contentValidation" class="alert alert-light border py-2 mt-2 mb-0" role="status">
+                    尚未校验
+                </div>
                 <label class="form-label mt-3">描述</label><input id="description" class="form-control">
             </div>
             <div class="modal-footer">
@@ -151,21 +300,75 @@
     </div>
 </div>
 
+<div class="modal fade" id="draftConflictModal" tabindex="-1" aria-labelledby="draftConflictTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="draftConflictTitle">草稿已被其他人修改</h5>
+                    <small class="text-muted" id="draftConflictRevision"></small>
+                </div>
+                <button class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">为避免静默覆盖，请对比后选择服务器版本，或保留本地内容继续手工合并。</div>
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <label class="form-label">我的内容</label>
+                        <textarea id="draftConflictLocal" class="form-control font-monospace" rows="20"
+                                  readonly></textarea>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label">服务器当前内容</label>
+                        <textarea id="draftConflictServer" class="form-control font-monospace" rows="20"
+                                  readonly></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" type="button" onclick="keepLocalDraftForMerge()">
+                    保留我的内容继续合并
+                </button>
+                <button class="btn btn-primary" type="button" onclick="loadServerDraft()">载入服务器版本</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
-<script src="/js/common.js?v=2.0.0-20260718-config-state"></script>
+<script src="/js/common.js?v=2.0.2-20260719-cluster"></script>
 <script>
     const modal = new bootstrap.Modal(document.getElementById('configModal'));
     const historyModal = new bootstrap.Modal(document.getElementById('historyModal'));
     const rolloutModal = new bootstrap.Modal(document.getElementById('rolloutModal'));
+    const draftConflictModal = new bootstrap.Modal(document.getElementById('draftConflictModal'));
     const nsSelect = document.getElementById('namespace');
     const groupSelect = document.getElementById('group');
+    const contentTypeSelect = document.getElementById('contentType');
+    const MAX_CONFIG_CONTENT_BYTES = 1024 * 1024;
     let currentRolloutDataId = null;
+    let editingDraftRevision = 0;
+    let activeEditorType = 'yaml';
+    let validationTimer = null;
+    let currentDraftConflict = null;
+    let rolloutPreviewResult = null;
+    let rolloutCandidates = [];
+    let configPage = 1;
+    let configPageSize = 20;
+    let historyDataId = null;
+    let releasePage = 1;
+    let releasePageSize = 20;
+    let rolloutHistoryPage = 1;
+    let rolloutHistoryPageSize = 20;
+    let configAuditPage = 1;
+    let configAuditPageSize = 20;
 
     async function init() {
+        initConfigEditor();
         const namespaces = requireApiSuccess(await apiGet('/api/v2/namespaces')) || [];
         nsSelect.innerHTML = namespaces.map(n => `<option value="${escapeHtml(n.namespaceId)}">${escapeHtml(n.name)} (${escapeHtml(n.namespaceId)})</option>`).join('');
         nsSelect.onchange = loadGroups;
-        groupSelect.onchange = loadConfigs;
+        groupSelect.onchange = () => loadConfigs(1, configPageSize);
         await loadGroups();
     }
 
@@ -173,27 +376,50 @@
         if (!nsSelect.value) return;
         const groups = requireApiSuccess(await apiGet(`/api/v2/namespaces/${encodeURIComponent(nsSelect.value)}/groups`)) || [];
         groupSelect.innerHTML = groups.map(g => `<option value="${escapeHtml(g.groupName)}">${escapeHtml(g.groupName)}</option>`).join('');
-        await loadConfigs();
+        await loadConfigs(1, configPageSize);
     }
 
-    async function loadConfigs() {
+    async function loadConfigs(page, pageSize) {
         if (!nsSelect.value || !groupSelect.value) return;
-        const rows = requireApiSuccess(await apiGet(baseUrl())) || [];
-        document.getElementById('config-body').innerHTML = rows.length ? rows.map(c => `<tr>
+        configPage = page || configPage;
+        configPageSize = pageSize || configPageSize;
+        const pageResult = requirePageResult(await apiGet(withQuery(baseUrl(), {
+            page: configPage,
+            pageSize: configPageSize
+        })));
+        if (!pageResult.items.length && pageResult.totalItems > 0
+                && configPage > pageResult.totalPages) {
+            return loadConfigs(Number(pageResult.totalPages), configPageSize);
+        }
+        const rows = pageResult.items;
+        document.getElementById('config-body').innerHTML = rows.length ? rows.map(c => {
+                const lifecycle = c.lifecycleStatus || (Number(c.revision) > 0 ? 'ACTIVE' : 'DRAFT');
+                const lifecycleClass = lifecycle === 'ACTIVE' ? 'text-bg-success' : lifecycle === 'TOMBSTONE' ? 'text-bg-secondary' : 'text-bg-light';
+                const lifecycleLabel = lifecycle === 'ACTIVE' ? '已发布' : lifecycle === 'TOMBSTONE' ? '已下线' : '草稿';
+                const publishLabel = lifecycle === 'TOMBSTONE' ? '重新发布' : '发布';
+                const lifecycleAction = lifecycle === 'DRAFT'
+                    ? `<button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${escapeHtml(c.dataId)}">删除草稿</button>`
+                    : lifecycle === 'ACTIVE'
+                        ? `<button class="btn btn-sm btn-outline-danger" data-action="tombstone" data-id="${escapeHtml(c.dataId)}">下线</button>`
+                        : '<button class="btn btn-sm btn-outline-secondary" disabled>已下线</button>';
+                return `<tr>
         <td><input class="form-check-input config-select" type="checkbox" data-id="${escapeHtml(c.dataId)}"></td>
-        <td><code>${escapeHtml(c.dataId)}</code></td><td>${escapeHtml(c.contentType)}</td><td>${c.revision}</td>
+        <td><code>${escapeHtml(c.dataId)}</code><br><span class="badge ${lifecycleClass}">${lifecycleLabel}</span></td><td>${escapeHtml(c.contentType)}</td><td>${c.revision} / ${c.draftRevision || 0}</td>
         <td><code>${escapeHtml((c.checksum || '').substring(0, 12))}</code></td><td>
         <button class="btn btn-sm btn-outline-primary" onclick="editConfig('${escapeHtml(c.dataId)}')">编辑</button>
-        <button class="btn btn-sm btn-success" onclick="publishConfig('${escapeHtml(c.dataId)}')">发布</button>
-        <button class="btn btn-sm btn-outline-warning" onclick="openRollout('${escapeHtml(c.dataId)}')">灰度</button>
+        <button class="btn btn-sm btn-success" onclick="publishConfig('${escapeHtml(c.dataId)}')">${publishLabel}</button>
+        <button class="btn btn-sm btn-outline-warning" onclick="openRollout('${escapeHtml(c.dataId)}')" ${lifecycle === 'ACTIVE' ? '' : 'disabled'}>灰度</button>
         <button class="btn btn-sm btn-outline-secondary" data-action="history" data-id="${escapeHtml(c.dataId)}">历史</button>
-        <button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${escapeHtml(c.dataId)}">删除</button></td></tr>`).join('')
+        ${lifecycleAction}</td></tr>`;
+            }).join('')
             : '<tr><td colspan="6" class="text-center text-muted">暂无配置</td></tr>';
         document.querySelectorAll('#config-body [data-action]').forEach(button => button.addEventListener('click', () => {
             if (button.dataset.action === 'history') showReleases(button.dataset.id);
             if (button.dataset.action === 'delete') deleteDraft(button.dataset.id);
+            if (button.dataset.action === 'tombstone') tombstoneConfig(button.dataset.id);
         }));
         document.getElementById('select-all').checked = false;
+        renderPagination('config-pagination', pageResult, loadConfigs);
     }
 
     function baseUrl() {
@@ -212,8 +438,13 @@
     function newConfig() {
         document.getElementById('dataId').disabled = false;
         document.getElementById('dataId').value = '';
-        document.getElementById('contentValue').value = '';
+        contentTypeSelect.value = 'yaml';
+        activeEditorType = 'yaml';
+        setEditorContent('');
+        switchEditorType();
+        editingDraftRevision = 0;
         document.getElementById('description').value = '';
+        renderContentValidation(null);
         modal.show();
     }
 
@@ -222,23 +453,197 @@
             `${baseUrl()}/${encodeURIComponent(dataId)}`));
         document.getElementById('dataId').value = c.dataId;
         document.getElementById('dataId').disabled = true;
-        document.getElementById('contentType').value = c.contentType;
-        document.getElementById('contentValue').value = c.content || '';
+        contentTypeSelect.value = c.contentType;
+        activeEditorType = c.contentType;
+        switchEditorType();
+        setEditorContent(c.content || '');
+        editingDraftRevision = Number(c.draftRevision || 0);
         document.getElementById('description').value = c.description || '';
+        renderContentValidation(null);
         modal.show();
     }
 
     async function saveDraft() {
         const id = document.getElementById('dataId').value.trim();
         if (!id) return showToast('Data ID 不能为空', 'error');
-        requireConfigWriteSuccess(await apiPut(`${baseUrl()}/${encodeURIComponent(id)}`, {
-            content: document.getElementById('contentValue').value,
-            contentType: document.getElementById('contentType').value,
-            description: document.getElementById('description').value
-        }));
+        const validation = await validateEditorContent(true);
+        if (!validation || Number(validation.code) !== 200) return;
+        const result = await apiPut(`${baseUrl()}/${encodeURIComponent(id)}`, {
+            content: getEditorContent(),
+            contentType: contentTypeSelect.value,
+            description: document.getElementById('description').value,
+            expectedDraftRevision: editingDraftRevision
+        });
+        if (Number(result.code) === 409 && result.data) {
+            showDraftConflict(result.data);
+            return;
+        }
+        const saved = requireConfigWriteSuccess(result);
+        editingDraftRevision = Number(saved.draftRevision || editingDraftRevision + 1);
         modal.hide();
         showToast('草稿已保存', 'success');
         await loadConfigs();
+    }
+
+    function initConfigEditor() {
+        contentTypeSelect.addEventListener('change', () => {
+            const previousContent = getEditorContent(activeEditorType);
+            activeEditorType = contentTypeSelect.value;
+            switchEditorType();
+            setEditorContent(previousContent);
+            scheduleContentValidation();
+        });
+        ['contentValue', 'stringValue', 'numberValue', 'booleanValue'].forEach(id => {
+            document.getElementById(id).addEventListener('input', scheduleContentValidation);
+            document.getElementById(id).addEventListener('change', scheduleContentValidation);
+        });
+        switchEditorType();
+        updateContentBytes();
+    }
+
+    function switchEditorType() {
+        const type = contentTypeSelect.value;
+        document.getElementById('structuredEditor').classList.toggle('d-none', ['string', 'number', 'boolean'].includes(type));
+        document.getElementById('stringEditor').classList.toggle('d-none', type !== 'string');
+        document.getElementById('numberEditor').classList.toggle('d-none', type !== 'number');
+        document.getElementById('booleanEditor').classList.toggle('d-none', type !== 'boolean');
+        activeEditorType = type;
+        updateContentBytes();
+    }
+
+    function editorElement(type = activeEditorType) {
+        if (type === 'string') return document.getElementById('stringValue');
+        if (type === 'number') return document.getElementById('numberValue');
+        if (type === 'boolean') return document.getElementById('booleanValue');
+        return document.getElementById('contentValue');
+    }
+
+    function getEditorContent(type = activeEditorType) {
+        return editorElement(type).value || '';
+    }
+
+    function setEditorContent(value) {
+        const normalized = value == null ? '' : String(value);
+        editorElement().value = activeEditorType === 'boolean'
+            ? (normalized.toLowerCase() === 'true' ? 'true' : 'false')
+            : normalized;
+        updateContentBytes();
+    }
+
+    function updateContentBytes() {
+        const bytes = new TextEncoder().encode(getEditorContent()).length;
+        const element = document.getElementById('contentBytes');
+        element.textContent = formatBytes(bytes);
+        element.className = bytes > MAX_CONFIG_CONTENT_BYTES ? 'small text-danger' : 'small text-muted';
+        return bytes;
+    }
+
+    function scheduleContentValidation() {
+        updateContentBytes();
+        renderContentValidation(null, '等待校验…');
+        window.clearTimeout(validationTimer);
+        validationTimer = window.setTimeout(() => validateEditorContent(false), 450);
+    }
+
+    async function callContentTool(action) {
+        if (updateContentBytes() > MAX_CONFIG_CONTENT_BYTES) {
+            const result = {code: 422, data: {issues: [{line: 1, column: 1, message: '内容超过 1 MiB 限制'}]}};
+            renderContentValidation(result);
+            return result;
+        }
+        const result = await apiPost(`${baseUrl()}/content-tools`, {
+            action,
+            contentType: contentTypeSelect.value,
+            content: getEditorContent()
+        });
+        renderContentValidation(result);
+        return result;
+    }
+
+    async function validateEditorContent(focusError) {
+        window.clearTimeout(validationTimer);
+        try {
+            const result = await callContentTool('validate');
+            if (focusError && Number(result.code) !== 200) focusFirstContentIssue(result);
+            return result;
+        } catch (error) {
+            renderContentValidation(null, error.message || '校验请求失败', true);
+            return null;
+        }
+    }
+
+    async function transformEditorContent(action) {
+        const result = await callContentTool(action);
+        if (Number(result.code) !== 200 || !result.data) {
+            focusFirstContentIssue(result);
+            return;
+        }
+        setEditorContent(result.data.content || '');
+        renderContentValidation(result);
+    }
+
+    function renderContentValidation(result, pendingMessage, failed) {
+        const element = document.getElementById('contentValidation');
+        if (pendingMessage) {
+            element.className = `alert ${failed ? 'alert-danger' : 'alert-light'} border py-2 mt-2 mb-0`;
+            element.textContent = pendingMessage;
+            return;
+        }
+        if (!result) {
+            element.className = 'alert alert-light border py-2 mt-2 mb-0';
+            element.textContent = '尚未校验';
+            return;
+        }
+        if (Number(result.code) === 200) {
+            element.className = 'alert alert-success py-2 mt-2 mb-0';
+            element.textContent = `校验通过 · ${formatBytes((result.data && result.data.contentBytes) || updateContentBytes())}`;
+            return;
+        }
+        const issue = result.data && result.data.issues && result.data.issues[0];
+        element.className = 'alert alert-danger py-2 mt-2 mb-0';
+        element.textContent = issue
+            ? `第 ${issue.line} 行，第 ${issue.column} 列：${issue.message}`
+            : (result.description || '内容校验失败');
+    }
+
+    function focusFirstContentIssue(result) {
+        const issue = result && result.data && result.data.issues && result.data.issues[0];
+        const editor = editorElement();
+        editor.focus();
+        if (!issue || typeof editor.setSelectionRange !== 'function') return;
+        const lines = getEditorContent().split(/\n/);
+        let offset = 0;
+        for (let i = 1; i < issue.line && i <= lines.length; i++) offset += lines[i - 1].length + 1;
+        offset += Math.max(0, Number(issue.column || 1) - 1);
+        editor.setSelectionRange(Math.min(offset, editor.value.length), Math.min(offset + 1, editor.value.length));
+    }
+
+    function showDraftConflict(conflict) {
+        currentDraftConflict = conflict;
+        document.getElementById('draftConflictRevision').textContent =
+            `我的基线 ${conflict.expectedDraftRevision}，服务器当前 ${conflict.actualDraftRevision}`;
+        document.getElementById('draftConflictLocal').value = conflict.submittedContent || '';
+        document.getElementById('draftConflictServer').value = conflict.currentContent || '';
+        draftConflictModal.show();
+    }
+
+    function loadServerDraft() {
+        if (!currentDraftConflict) return;
+        contentTypeSelect.value = currentDraftConflict.currentContentType || 'text';
+        activeEditorType = contentTypeSelect.value;
+        switchEditorType();
+        setEditorContent(currentDraftConflict.currentContent || '');
+        document.getElementById('description').value = currentDraftConflict.currentDescription || '';
+        editingDraftRevision = Number(currentDraftConflict.actualDraftRevision || 0);
+        draftConflictModal.hide();
+        renderContentValidation(null);
+    }
+
+    function keepLocalDraftForMerge() {
+        if (!currentDraftConflict) return;
+        editingDraftRevision = Number(currentDraftConflict.actualDraftRevision || 0);
+        draftConflictModal.hide();
+        showToast('已更新草稿基线，请完成合并后重新保存', 'warning');
     }
 
     async function publishConfig(id) {
@@ -265,69 +670,214 @@
     }
 
     async function showReleases(id) {
-        const [releaseResult, rolloutResult, auditResult] = await Promise.all([
-            apiGet(`${baseUrl()}/${encodeURIComponent(id)}/releases`),
-            apiGet(`${baseUrl()}/${encodeURIComponent(id)}/rollouts`),
-            apiGet(`${baseUrl()}/${encodeURIComponent(id)}/audits`)
+        if (historyDataId !== id) {
+            historyDataId = id;
+            releasePage = 1;
+            rolloutHistoryPage = 1;
+            configAuditPage = 1;
+        }
+        const [releaseResult, rolloutResult, auditResult, selectionResult] = await Promise.all([
+            apiGet(withQuery(`${baseUrl()}/${encodeURIComponent(id)}/releases`, {
+                page: releasePage, pageSize: releasePageSize
+            })),
+            apiGet(withQuery(`${baseUrl()}/${encodeURIComponent(id)}/rollouts`, {
+                page: rolloutHistoryPage, pageSize: rolloutHistoryPageSize
+            })),
+            apiGet(withQuery(`${baseUrl()}/${encodeURIComponent(id)}/audits`, {
+                page: configAuditPage, pageSize: configAuditPageSize
+            })),
+            apiGet(`${baseUrl()}/${encodeURIComponent(id)}/rollouts/current-selections`)
         ]);
         document.getElementById('historyResource').textContent = id;
-        const releases = requireApiSuccess(releaseResult) || [];
+        const releasePageResult = requirePageResult(releaseResult);
+        const releases = releasePageResult.items;
         document.getElementById('release-body').innerHTML = releases.length ? releases.map(x => `<tr>
             <td><strong>${escapeHtml(x.revision)}</strong></td><td>${escapeHtml(x.releaseType)}</td>
             <td>${escapeHtml(x.operator || '-')}</td><td>${escapeHtml(formatDateTime(x.releasedAt))}</td>
-            <td class="text-end"><button class="btn btn-sm btn-outline-warning" data-release="${escapeHtml(x.releaseId)}">回滚到此版本</button></td></tr>`).join('')
+            <td class="text-end">${x.releaseType === 'TOMBSTONE' ? '<span class="text-muted">下线决策</span>' : `<button class="btn btn-sm btn-outline-warning" data-release="${escapeHtml(x.releaseId)}">回滚到此版本</button>`}</td></tr>`).join('')
             : '<tr><td colspan="5" class="text-center text-muted">暂无发布记录</td></tr>';
         document.querySelectorAll('#release-body [data-release]').forEach(button => button.addEventListener('click', () => rollbackConfig(id, button.dataset.release)));
-        const rollouts = requireApiSuccess(rolloutResult) || [];
+        renderPagination('release-pagination', releasePageResult, (page, pageSize) => {
+            releasePage = page;
+            releasePageSize = pageSize;
+            showReleases(id);
+        });
+        const rolloutPageResult = requirePageResult(rolloutResult);
+        const rollouts = rolloutPageResult.items;
         document.getElementById('rollout-body').innerHTML = rollouts.length ? rollouts.map(x => {
             const active = x.status === 'ACTIVE';
-            const target = x.rolloutType === 'GRAY_PERCENTAGE' ? `${escapeHtml(x.targetValue)}%` : escapeHtml(x.targetValue);
+            const target = x.rolloutType === 'GRAY_PERCENTAGE' ? `${escapeHtml(x.targetValue)}%`
+                : x.rolloutType === 'GRAY_CLIENT_INSTANCE' ? `${escapeHtml(x.targetValue.split(',').length)} 个实例`
+                    : escapeHtml(x.targetValue);
             const actions = active ? `<button class="btn btn-sm btn-success me-1" data-promote="${escapeHtml(x.rolloutId)}">转全量</button><button class="btn btn-sm btn-outline-danger" data-abort="${escapeHtml(x.rolloutId)}">终止</button>` : '-';
-            return `<tr><td>${escapeHtml(x.rolloutType)}</td><td class="text-break">${target}</td><td><span class="badge ${active ? 'text-bg-warning' : x.status === 'PROMOTED' ? 'text-bg-success' : 'text-bg-secondary'}">${escapeHtml(x.status)}</span></td><td>${escapeHtml(x.createdBy || '-')}<br><small class="text-muted">${escapeHtml(formatDateTime(x.createdAt))}</small></td><td class="text-end text-nowrap">${actions}</td></tr>`;
+            return `<tr><td>${escapeHtml(x.rolloutType)}<br><small class="text-muted">rule ${escapeHtml(x.rolloutId)} · decision ${escapeHtml(x.decisionRevision || '-')}</small></td><td class="text-break">${target}</td><td><span class="badge ${active ? 'text-bg-warning' : x.status === 'PROMOTED' ? 'text-bg-success' : 'text-bg-secondary'}">${escapeHtml(x.status)}</span></td><td>${escapeHtml(x.createdBy || '-')}<br><small class="text-muted">${escapeHtml(formatDateTime(x.createdAt))}</small></td><td class="text-end text-nowrap">${actions}</td></tr>`;
         }).join('') : '<tr><td colspan="5" class="text-center text-muted">暂无灰度记录</td></tr>';
         document.querySelectorAll('#rollout-body [data-promote]').forEach(button => button.addEventListener('click', () => promoteRollout(id, button.dataset.promote)));
         document.querySelectorAll('#rollout-body [data-abort]').forEach(button => button.addEventListener('click', () => abortRollout(id, button.dataset.abort)));
-        const audits = requireApiSuccess(auditResult) || [];
+        renderPagination('rollout-pagination', rolloutPageResult, (page, pageSize) => {
+            rolloutHistoryPage = page;
+            rolloutHistoryPageSize = pageSize;
+            showReleases(id);
+        });
+        const selections = Number(selectionResult.code) === 200 && selectionResult.data ? selectionResult.data : null;
+        const selectionDecisionState = selections && selections.decisionState || 'ACTIVE';
+        const selectionDecisionSummary = selectionDecisionState === 'TOMBSTONE'
+            ? '权威状态 已下线'
+            : `stable content ${selections && selections.stableContentRevision}`;
+        document.getElementById('currentSelectionScope').textContent = selections
+            ? `${selections.clusterAggregated ? `集群 ${selections.clusterId || '-'} · 活跃 Gateway ${selections.activeGatewayCount || 0}` : '当前 Gateway 降级视图'} · 可见 ${selections.visibleInstanceCount || 0} · ${selectionDecisionSummary} · decision ${selections.decisionRevision}${selections.instancesTruncated ? ` · 仅展示前 ${selections.returnedInstanceCount} 条` : ''}${selections.clusterViewComplete ? '' : ' · 集群连接明细不完整'}；这是服务端权威计算，不等于客户端已应用`
+            : (selectionResult.description || '当前选择结果不可用');
+        const selectionRows = selections && selections.instances || [];
+        document.getElementById('current-selection-body').innerHTML = selectionRows.length ? selectionRows.map(item => `<tr>
+            <td><strong>${escapeHtml(item.applicationName || '-')}</strong><br><code class="text-break">${escapeHtml(item.clientInstanceId)}</code></td>
+            <td>${escapeHtml(item.remoteIp || '-')}</td>
+            <td><span class="badge ${item.valueState === 'TOMBSTONE' ? 'text-bg-secondary' : 'text-bg-success'}">${item.valueState === 'TOMBSTONE' ? '已下线' : 'ACTIVE'}</span></td>
+            <td><code>${escapeHtml(item.matchedRuleId || 'stable')}</code></td>
+            <td>${item.valueState === 'TOMBSTONE' ? '<span class="text-muted">—</span>' : escapeHtml(item.contentRevision)}</td><td>${escapeHtml(item.decisionRevision)}</td><td>${escapeHtml(item.gatewayId || '-')}</td></tr>`).join('')
+            : '<tr><td colspan="7" class="text-center text-muted">集群内没有可见的配置客户端</td></tr>';
+        const auditPageResult = requirePageResult(auditResult);
+        const audits = auditPageResult.items;
         document.getElementById('config-audit-body').innerHTML = audits.length ? audits.map(x => `<tr>
             <td>${escapeHtml(x.operation)}</td><td>${escapeHtml(x.operator || '-')}</td>
             <td>${escapeHtml(formatDateTime(x.createdAt))}</td><td class="text-break">${escapeHtml(x.detail || '-')}</td></tr>`).join('')
             : '<tr><td colspan="4" class="text-center text-muted">暂无审计记录</td></tr>';
+        renderPagination('config-audit-pagination', auditPageResult, (page, pageSize) => {
+            configAuditPage = page;
+            configAuditPageSize = pageSize;
+            showReleases(id);
+        });
         historyModal.show();
     }
 
-    function openRollout(dataId) {
+    async function openRollout(dataId) {
         currentRolloutDataId = dataId;
         document.getElementById('rolloutResource').textContent = dataId;
-        document.getElementById('rolloutType').value = 'GRAY_IP';
+        document.getElementById('rolloutType').value = 'GRAY_CLIENT_INSTANCE';
         document.getElementById('rolloutIps').value = '';
         document.getElementById('rolloutPercentage').value = '10';
+        rolloutCandidates = [];
+        resetRolloutPreview();
         toggleRolloutTarget();
         rolloutModal.show();
+        try {
+            await loadRolloutCandidates();
+        } catch (error) {
+            document.getElementById('rolloutClientInstances').innerHTML =
+                '<div class="text-danger">客户端连接加载失败</div>';
+            showToast(error.message || '客户端连接加载失败', 'error');
+        }
     }
 
     function toggleRolloutTarget() {
-        const percentage = document.getElementById('rolloutType').value === 'GRAY_PERCENTAGE';
-        document.getElementById('rolloutIpFields').classList.toggle('d-none', percentage);
-        document.getElementById('rolloutPercentageFields').classList.toggle('d-none', !percentage);
+        const type = document.getElementById('rolloutType').value;
+        document.getElementById('rolloutClientFields').classList.toggle('d-none', type !== 'GRAY_CLIENT_INSTANCE');
+        document.getElementById('rolloutIpFields').classList.toggle('d-none', type !== 'GRAY_IP');
+        document.getElementById('rolloutPercentageFields').classList.toggle('d-none', type !== 'GRAY_PERCENTAGE');
+        resetRolloutPreview();
+    }
+
+    async function loadRolloutCandidates() {
+        const data = requireApiSuccess(await apiGet('/api/v2/connections')) || {};
+        const seen = new Set();
+        rolloutCandidates = (data.connections || []).filter(item => {
+            const instanceId = String(item.clientInstanceId || '');
+            if (!instanceId || seen.has(instanceId)) return false;
+            if (item.namespaceId !== nsSelect.value || item.groupName !== groupSelect.value) return false;
+            if (!(item.capabilities || []).includes('config-fetch-v1')) return false;
+            seen.add(instanceId);
+            return true;
+        });
+        const container = document.getElementById('rolloutClientInstances');
+        container.innerHTML = rolloutCandidates.length ? rolloutCandidates.map(item => `<label class="d-flex gap-2 align-items-start py-1 border-bottom">
+            <input class="form-check-input rollout-client-target mt-1" type="checkbox" value="${escapeHtml(item.clientInstanceId)}">
+            <span><strong>${escapeHtml(item.applicationName || '-')}</strong><br><code class="text-break">${escapeHtml(item.clientInstanceId)}</code><br><small class="text-muted">${escapeHtml(item.remoteAddress || '-')} · ${escapeHtml(item.gatewayId || '-')}</small></span>
+        </label>`).join('') : '<div class="text-muted">集群内没有可见的配置客户端。可以改用 IP/百分比，但预览会明确显示 0 个实例。</div>';
+        container.querySelectorAll('.rollout-client-target').forEach(input =>
+            input.addEventListener('change', resetRolloutPreview));
+    }
+
+    function resetRolloutPreview() {
+        rolloutPreviewResult = null;
+        document.getElementById('rolloutPreview').classList.add('d-none');
+        document.getElementById('rolloutStartButton').disabled = true;
+    }
+
+    function rolloutRequestBody(includeRolloutKey) {
+        const type = document.getElementById('rolloutType').value;
+        const body = {type};
+        if (type === 'GRAY_CLIENT_INSTANCE') {
+            body.clientInstanceIds = Array.from(document.querySelectorAll('.rollout-client-target:checked'))
+                .map(input => input.value);
+            if (!body.clientInstanceIds.length) {
+                showToast('请至少选择一个客户端实例', 'warning');
+                return null;
+            }
+        } else if (type === 'GRAY_IP') {
+            body.ips = document.getElementById('rolloutIps').value.split(/[\s,]+/).map(x => x.trim()).filter(Boolean);
+            if (!body.ips.length) {
+                showToast('请填写至少一个目标 IP', 'warning');
+                return null;
+            }
+        } else {
+            body.percentage = Number(document.getElementById('rolloutPercentage').value);
+            if (!Number.isInteger(body.percentage) || body.percentage < 1 || body.percentage > 99) {
+                showToast('灰度比例必须是 1-99 的整数', 'warning');
+                return null;
+            }
+        }
+        if (includeRolloutKey && rolloutPreviewResult) {
+            body.rolloutKey = rolloutPreviewResult.rolloutKey;
+        }
+        return body;
+    }
+
+    async function previewRollout() {
+        if (!currentRolloutDataId) return;
+        const body = rolloutRequestBody(false);
+        if (!body) return;
+        const preview = requireConfigWriteSuccess(await apiPost(
+            `${baseUrl()}/${encodeURIComponent(currentRolloutDataId)}/rollouts/preview`, body));
+        rolloutPreviewResult = preview;
+        renderRolloutPreview(preview);
+        document.getElementById('rolloutStartButton').disabled = false;
+    }
+
+    function renderRolloutPreview(preview) {
+        document.getElementById('rolloutPreview').classList.remove('d-none');
+        document.getElementById('rolloutPreviewSummary').textContent =
+            `范围：${preview.clusterAggregated ? `集群 ${preview.clusterId || '-'} · 活跃 Gateway ${preview.activeGatewayCount || 0}` : '当前 Gateway 降级视图'} · 可见实例 ${preview.visibleInstanceCount} · 命中 ${preview.matchedInstanceCount}`;
+        const warnings = [];
+        if (preview.smallSampleWarning) {
+            warnings.push(`小样本警告：当前实例数 × 灰度比例的期望命中数仅 ${Number(preview.expectedMatchedInstanceCount || 0).toFixed(2)}，可能一台都不命中。`);
+        }
+        if ((preview.targetedButNotVisibleClientInstanceIds || []).length) {
+            warnings.push(`以下目标当前不在集群连接视图：${preview.targetedButNotVisibleClientInstanceIds.join(', ')}`);
+        }
+        if (preview.instancesTruncated) {
+            warnings.push(`集群实例较多，表格仅展示前 ${preview.returnedInstanceCount} 条；可见实例数和命中数仍按当前可见的全部 ${preview.visibleInstanceCount} 个实例计算。`);
+        }
+        if (!preview.clusterViewComplete) warnings.push(`集群连接视图不完整：过期 Gateway ${preview.staleGatewayCount || 0} 个，连接明细截断 Gateway ${preview.truncatedGatewayCount || 0} 个。`);
+        const warning = document.getElementById('rolloutPreviewWarning');
+        warning.classList.toggle('d-none', !warnings.length);
+        warning.textContent = warnings.join(' ');
+        const instances = preview.instances || [];
+        document.getElementById('rolloutPreviewBody').innerHTML = instances.length ? instances.map(item => `<tr>
+            <td><strong>${escapeHtml(item.applicationName || '-')}</strong><br><code class="text-break">${escapeHtml(item.clientInstanceId)}</code></td>
+            <td>${escapeHtml(item.remoteIp || '-')}</td>
+            <td><span class="badge ${item.matched ? 'text-bg-success' : 'text-bg-secondary'}">${item.matched ? '命中' : '未命中'}</span></td>
+            <td>${escapeHtml(item.reason || '-')}</td><td>${escapeHtml(item.gatewayId || '-')}</td></tr>`).join('')
+            : '<tr><td colspan="5" class="text-center text-muted">集群内没有可见实例</td></tr>';
     }
 
     async function startRollout() {
         if (!currentRolloutDataId) return;
-        const type = document.getElementById('rolloutType').value;
-        const body = {type};
-        if (type === 'GRAY_IP') {
-            body.ips = document.getElementById('rolloutIps').value.split(/[\s,]+/).map(x => x.trim()).filter(Boolean);
-            if (!body.ips.length) return showToast('请填写至少一个目标 IP', 'warning');
-        } else {
-            body.percentage = Number(document.getElementById('rolloutPercentage').value);
-            if (!Number.isInteger(body.percentage) || body.percentage < 1 || body.percentage > 99) {
-                return showToast('灰度比例必须是 1-99 的整数', 'warning');
-            }
-        }
-        requireConfigWriteSuccess(await apiPost(
+        if (!rolloutPreviewResult) return showToast('请先预览命中结果', 'warning');
+        const body = rolloutRequestBody(true);
+        if (!body) return;
+        const rollout = requireConfigWriteSuccess(await apiPost(
             `${baseUrl()}/${encodeURIComponent(currentRolloutDataId)}/rollouts`, body));
         rolloutModal.hide();
-        showToast('灰度发布已开始', 'success');
+        showToast(`灰度发布已开始，matchedRuleId=${rollout.rolloutId}，Decision Revision ${rollout.decisionRevision}`, 'success');
         await loadConfigs();
     }
 
@@ -362,6 +912,20 @@
         if (!await showConfirm('删除草稿', `确认删除未发布草稿 ${dataId}？`, '删除')) return;
         requireConfigWriteSuccess(await apiDelete(`${baseUrl()}/${encodeURIComponent(dataId)}`));
         showToast('草稿已删除', 'success');
+        await loadConfigs();
+    }
+
+    async function tombstoneConfig(dataId) {
+        if (!await showConfirm(
+            '下线配置',
+            `确认下线 ${dataId}？客户端收到权威 Tombstone 后会删除本地值并回退默认配置。`,
+            '确认下线',
+            '取消',
+            'btn-danger')) return;
+        const release = requireConfigWriteSuccess(await apiPost(
+            `${baseUrl()}/${encodeURIComponent(dataId)}/tombstone`, {}));
+        const revision = release.decisionRevision || release.revision;
+        showToast(revision ? `配置已下线，Decision Revision ${revision}` : '配置已下线', 'success');
         await loadConfigs();
     }
 

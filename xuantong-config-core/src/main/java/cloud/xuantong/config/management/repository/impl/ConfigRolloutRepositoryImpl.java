@@ -1,5 +1,7 @@
 package cloud.xuantong.config.management.repository.impl;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.config.management.model.ConfigRollout;
 import cloud.xuantong.config.management.model.RolloutStatus;
 import cloud.xuantong.config.management.repository.ConfigRolloutRepository;
@@ -44,6 +46,19 @@ public class ConfigRolloutRepositoryImpl implements ConfigRolloutRepository {
                 .where(o -> o.configId().eq(configId))
                 .orderBy(o -> o.createdAt().desc())
                 .toList();
+    }
+
+    @Override
+    public PageResult<ConfigRollout> findPageByConfigId(
+            Long configId, PageQuery pageQuery) {
+        var result = easyQuery.queryable(ConfigRollout.class)
+                .where(o -> o.configId().eq(configId))
+                .orderBy(o -> {
+                    o.createdAt().desc();
+                    o.id().desc();
+                })
+                .toPageResult(pageQuery.page(), pageQuery.pageSize());
+        return PageResult.of(pageQuery, result.getTotal(), result.getData());
     }
 
     @Override

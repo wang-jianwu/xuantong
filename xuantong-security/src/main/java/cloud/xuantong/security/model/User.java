@@ -38,6 +38,13 @@ public class User implements ProxyEntityAvailable<User , UserProxy> {
     @Column
     private Boolean isActive;     /** 是否激活 */
 
+    /**
+     * 管理会话安全版本。密码、角色、启停状态或授权范围发生变化时递增，
+     * 用于让所有 Server 上已经签发的旧会话立即失效。
+     */
+    @Column
+    private Long securityVersion;
+
     @Column
     private Date createdAt;      /** 创建时间 */
 

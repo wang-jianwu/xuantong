@@ -12,6 +12,7 @@ import cloud.xuantong.client.model.ConfigWatchBatch;
 import cloud.xuantong.client.transport.ConfigTransport;
 import cloud.xuantong.client.transport.WatchBatchHandler;
 import cloud.xuantong.client.transport.WatchSubscription;
+import cloud.xuantong.client.util.WarningRateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +27,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.time.Duration;
 
 /**
  * Config Agent built around the authoritative Config State Snapshot/Watch contract.
@@ -40,6 +42,8 @@ public class ConfigCore implements AutoCloseable {
     private static final long WATCH_MAX_BACKOFF_MS = 30_000L;
     private static final long PERIODIC_SNAPSHOT_REPAIR_MS = 5 * 60_000L;
     private static final int WATCH_BATCH_SIZE = 256;
+    private static final WarningRateLimiter WATCH_WARNINGS =
+            new WarningRateLimiter(Duration.ofSeconds(30));
 
     private final String namespace;
     private final String group;
@@ -47,6 +51,7 @@ public class ConfigCore implements AutoCloseable {
     private final ConfigCacheManager cacheManager;
     private final ConfigListenerManager listenerManager = new ConfigListenerManager();
     private final Map<String, Long> decisionRevisions = new ConcurrentHashMap<>();
+    private final Set<String> tombstonedDataIds = ConcurrentHashMap.newKeySet();
     private final Set<String> listenerDataIds = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService reconcileExecutor;
     private final AtomicBoolean recoveryRequested = new AtomicBoolean(true);
@@ -115,6 +120,9 @@ public class ConfigCore implements AutoCloseable {
     public String get(String dataId, String defaultValue) {
         ensureInitialized();
         String normalizedDataId = requireName("dataId", dataId);
+        if (tombstonedDataIds.contains(normalizedDataId)) {
+            return defaultValue;
+        }
         String cached = cacheManager.get(normalizedDataId);
         if (cached != null) {
             return cached;
@@ -127,7 +135,11 @@ public class ConfigCore implements AutoCloseable {
             return defaultValue;
         }
         applySnapshot(snapshot, false);
-        return cacheManager.get(normalizedDataId);
+        if (tombstonedDataIds.contains(normalizedDataId)) {
+            return defaultValue;
+        }
+        String resolved = cacheManager.get(normalizedDataId);
+        return resolved == null ? defaultValue : resolved;
     }
 
     private void watchTickSafely() {
@@ -164,7 +176,12 @@ public class ConfigCore implements AutoCloseable {
             applyWatchBatch(batch);
             recordWatchSuccess(!batch.events().isEmpty());
         } catch (Exception e) {
-            logger.warn("Config Watch recovery failed; last-known-good values remain active", e);
+            WarningRateLimiter.Decision decision = WATCH_WARNINGS.acquire();
+            if (decision.allowed()) {
+                logger.warn("Config Watch recovery failed; last-known-good values remain active; "
+                                + "suppressedSinceLast={}",
+                        decision.suppressedSinceLast(), e);
+            }
             recordWatchFailure();
         }
     }
@@ -283,25 +300,36 @@ public class ConfigCore implements AutoCloseable {
     }
 
     private boolean applySnapshot(ConfigSnapshot snapshot, boolean notify) {
-        if (snapshot == null || snapshot.getDataId() == null
-                || snapshot.getContent() == null) {
+        if (snapshot == null || snapshot.getDataId() == null) {
             return false;
         }
         synchronized (applyLock) {
             long localRevision = decisionRevisions.getOrDefault(
                     snapshot.getDataId(), 0L);
             String oldValue = cacheManager.get(snapshot.getDataId());
+            boolean alreadyApplied = snapshot.isTombstone()
+                    ? tombstonedDataIds.contains(snapshot.getDataId())
+                    : oldValue != null && !tombstonedDataIds.contains(snapshot.getDataId());
+            boolean valueChanged = snapshot.isTombstone()
+                    ? !alreadyApplied
+                    : !Objects.equals(oldValue, snapshot.getContent());
             if (snapshot.getRevision() < localRevision
-                    || (snapshot.getRevision() == localRevision && oldValue != null)) {
+                    || (snapshot.getRevision() == localRevision && alreadyApplied)) {
                 logger.debug("Ignoring stale/duplicate config snapshot: dataId={}, "
                                 + "revision={}, localRevision={}",
                         snapshot.getDataId(), snapshot.getRevision(), localRevision);
                 return false;
             }
-            cacheManager.batchUpdate(Map.of(
-                    snapshot.getDataId(), snapshot.getContent()));
+            if (snapshot.isTombstone()) {
+                cacheManager.remove(snapshot.getDataId());
+                tombstonedDataIds.add(snapshot.getDataId());
+            } else {
+                cacheManager.batchUpdate(Map.of(
+                        snapshot.getDataId(), snapshot.getContent()));
+                tombstonedDataIds.remove(snapshot.getDataId());
+            }
             decisionRevisions.put(snapshot.getDataId(), snapshot.getRevision());
-            if (notify && !Objects.equals(oldValue, snapshot.getContent())) {
+            if (notify && valueChanged) {
                 listenerManager.fireEvent(new ConfigChangeEvent(
                         namespace,
                         group,

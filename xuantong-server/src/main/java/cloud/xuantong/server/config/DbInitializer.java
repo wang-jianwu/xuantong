@@ -9,24 +9,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
 /**
- * 数据库自动初始化 — 启动时按数据库方言执行对应 Schema
- * <p>
- * H2 内嵌模式下无需手动建表；MySQL/PG 也可自动初始化。
- * 使用 CREATE TABLE IF NOT EXISTS + INSERT ... WHERE NOT EXISTS 保证幂等。
+ * Database bootstrap for the pure 2.0 line.
+ * Versioned migrations are executed by Flyway before repositories start.
  */
 @Component
 public class DbInitializer {
@@ -43,29 +35,18 @@ public class DbInitializer {
     public void init() {
         try {
             String dialect = normalizeDialect(databaseDialect);
-            String schemaResource = "db/schema-" + dialect + ".sql";
-            List<String> statements = loadStatements(schemaResource);
-            if (statements.isEmpty()) {
-                throw new IllegalStateException(schemaResource + " not found or empty");
+            SchemaMigrationManager.MigrationSummary summary =
+                    SchemaMigrationManager.migrate(dataSource, dialect);
+            try (Connection connection = dataSource.getConnection()) {
+                verifySchemaCompatibility(connection, dialect);
             }
-
-            log.info("Initializing {} database ({} statements)...", dialect, statements.size());
-            int ok = 0;
-
-            try (Connection conn = dataSource.getConnection();
-                Statement stmt = conn.createStatement()) {
-
-                verifySchemaCompatibility(conn, dialect);
-
-                for (String sql : statements) {
-                    stmt.execute(sql);
-                    ok++;
-                }
-
-            }
-
             verifyProductionAdminPassword(dialect);
-            log.info("Database initialized: {} / {} statements executed", ok, statements.size());
+            log.info("Database schema ready: dialect={}, version={}, migrationsExecuted={}, "
+                            + "appliedMigrations={}",
+                    summary.dialect(),
+                    summary.currentVersion(),
+                    summary.migrationsExecuted(),
+                    summary.appliedMigrations());
         } catch (Exception e) {
             log.error("Database initialization failed", e);
             throw new IllegalStateException(
@@ -92,46 +73,6 @@ public class DbInitializer {
         }
     }
 
-    /**
-     * 逐行读取 SQL 文件，按分号拆分为独立语句
-     */
-    private List<String> loadStatements(String resourceName) throws Exception {
-        InputStream is = getClass().getClassLoader().getResourceAsStream(resourceName);
-        if (is == null) return new ArrayList<>();
-
-        List<String> statements = new ArrayList<>();
-        StringBuilder buf = new StringBuilder();
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String trimmed = line.trim();
-                // 跳过空行和注释
-                if (trimmed.isEmpty() || trimmed.startsWith("--")) continue;
-
-                buf.append(line).append("\n");
-                // 遇到分号 → 一条语句结束
-                if (trimmed.endsWith(";")) {
-                    String stmt = buf.toString().trim();
-                    // 去掉末尾分号（JDBC 不需要）
-                    if (stmt.endsWith(";")) {
-                        stmt = stmt.substring(0, stmt.length() - 1);
-                    }
-                    if (!stmt.isEmpty()) {
-                        statements.add(stmt);
-                    }
-                    buf.setLength(0);
-                }
-            }
-            // 末尾可能有没有分号的语句
-            String remaining = buf.toString().trim();
-            if (!remaining.isEmpty()) {
-                statements.add(remaining);
-            }
-        }
-        return statements;
-    }
-
     static String normalizeDialect(String dialect) {
         String normalized = dialect == null ? "h2" : dialect.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
@@ -146,14 +87,19 @@ public class DbInitializer {
     static void verifySchemaCompatibility(Connection connection, String dialect) throws Exception {
         DatabaseMetaData metadata = connection.getMetaData();
         boolean userTableExists = false;
+        boolean adminLoginGuardExists = false;
         boolean legacyResourceTableExists = false;
-        try (ResultSet tables = metadata.getTables(null, null, "%", new String[]{"TABLE"})) {
+        try (ResultSet tables = metadata.getTables(
+                connection.getCatalog(), connection.getSchema(), "%", new String[]{"TABLE"})) {
             while (tables.next()) {
                 String tableName = tables.getString("TABLE_NAME");
                 if (tableName == null) continue;
                 String normalized = tableName.toLowerCase(Locale.ROOT);
                 if ("user".equals(normalized)) {
                     userTableExists = true;
+                }
+                if ("admin_login_guard".equals(normalized)) {
+                    adminLoginGuardExists = true;
                 }
                 if (Set.of("project", "environment", "config_item", "config_log")
                         .contains(normalized)) {
@@ -169,15 +115,21 @@ public class DbInitializer {
         }
 
         boolean configReleaseExists = false;
+        boolean configResourceExists = false;
+        boolean configResourceDraftRevision = false;
+        boolean configResourceLifecycleStatus = false;
         boolean configReleaseContentRevision = false;
         boolean configReleaseOperationId = false;
         boolean configRolloutExists = false;
         boolean configRolloutStartOperationId = false;
+        boolean configRolloutKey = false;
         boolean auditLogExists = false;
         boolean auditLogOperationId = false;
         boolean clientAccessTokenExists = false;
         boolean clientAccessTokenTenant = false;
-        try (ResultSet columns = metadata.getColumns(null, null, "%", "%")) {
+        boolean userSecurityVersion = false;
+        try (ResultSet columns = metadata.getColumns(
+                connection.getCatalog(), connection.getSchema(), "%", "%")) {
             while (columns.next()) {
                 String tableName = columns.getString("TABLE_NAME");
                 String columnName = columns.getString("COLUMN_NAME");
@@ -185,6 +137,10 @@ public class DbInitializer {
                         && "role".equalsIgnoreCase(columnName)
                         && columns.getInt("COLUMN_SIZE") < 32) {
                     throw incompatibleSchema();
+                }
+                if ("user".equalsIgnoreCase(tableName)
+                        && "security_version".equalsIgnoreCase(columnName)) {
+                    userSecurityVersion = true;
                 }
                 if ("config_release".equalsIgnoreCase(tableName)) {
                     configReleaseExists = true;
@@ -195,10 +151,22 @@ public class DbInitializer {
                         configReleaseOperationId = true;
                     }
                 }
+                if ("config_resource".equalsIgnoreCase(tableName)) {
+                    configResourceExists = true;
+                    if ("draft_revision".equalsIgnoreCase(columnName)) {
+                        configResourceDraftRevision = true;
+                    }
+                    if ("lifecycle_status".equalsIgnoreCase(columnName)) {
+                        configResourceLifecycleStatus = true;
+                    }
+                }
                 if ("config_rollout".equalsIgnoreCase(tableName)) {
                     configRolloutExists = true;
                     if ("start_operation_id".equalsIgnoreCase(columnName)) {
                         configRolloutStartOperationId = true;
+                    }
+                    if ("rollout_key".equalsIgnoreCase(columnName)) {
+                        configRolloutKey = true;
                     }
                 }
                 if ("audit_log".equalsIgnoreCase(tableName)) {
@@ -215,9 +183,14 @@ public class DbInitializer {
                 }
             }
         }
-        if ((configReleaseExists
-                && (!configReleaseContentRevision || !configReleaseOperationId))
-                || (configRolloutExists && !configRolloutStartOperationId)
+        if (!adminLoginGuardExists
+                || !userSecurityVersion
+                || (configResourceExists
+                    && (!configResourceDraftRevision || !configResourceLifecycleStatus))
+                || (configReleaseExists
+                    && (!configReleaseContentRevision || !configReleaseOperationId))
+                || (configRolloutExists
+                    && (!configRolloutStartOperationId || !configRolloutKey))
                 || (auditLogExists && !auditLogOperationId)
                 || (clientAccessTokenExists && !clientAccessTokenTenant)) {
             throw incompatibleSchema();

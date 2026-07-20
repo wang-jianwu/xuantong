@@ -1,0 +1,251 @@
+groups:
+  - name: xuantong-recording
+    interval: 30s
+    rules:
+      - record: xuantong:control_plane_request_p99_seconds:5m
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (job, le) (
+              rate(xuantong_control_plane_request_duration_seconds_bucket[5m])
+            )
+          )
+      - record: xuantong:watch_ack_p99_seconds:5m
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (job, le) (
+              rate(xuantong_control_plane_watch_ack_duration_seconds_bucket[5m])
+            )
+          )
+      - record: xuantong:state_apply_p99_seconds:5m
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (job, le) (
+              rate(xuantong_state_apply_duration_seconds_bucket[5m])
+            )
+          )
+      - record: xuantong:control_plane_overload_ratio:5m
+        expr: |
+          sum by (job) (
+            rate(xuantong_control_plane_requests_overloaded_rejected_total[5m])
+          )
+          /
+          clamp_min(
+            sum by (job) (
+              rate(xuantong_control_plane_requests_accepted_total[5m])
+              + rate(xuantong_control_plane_requests_overloaded_rejected_total[5m])
+            ),
+            0.001
+          )
+      - record: xuantong:probe_available
+        expr: |
+          min by (job, instance) (xuantong_probe_success)
+          * on (job, instance) up
+          or on (job, instance) (up{job=~"xuantong-probe.*"} * 0)
+      - record: xuantong:probe_availability_ratio:30d
+        expr: avg_over_time(xuantong:probe_available[30d])
+      - record: xuantong:lease_renewal_margin_p01_seconds:5m
+        expr: |
+          histogram_quantile(
+            0.01,
+            sum by (job, namespace, group, service, le) (
+              rate(xuantong_discovery_lease_renewal_margin_seconds_bucket[5m])
+            )
+          )
+
+  - name: xuantong-alerts
+    interval: 30s
+    rules:
+      - alert: XuantongTargetDown
+        expr: up{job="xuantong"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Xuantong target is down
+          description: Prometheus has failed to scrape {{ $labels.instance }} for two minutes.
+
+      - alert: XuantongControlPlaneProbeDown
+        expr: xuantong_probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Xuantong external control-plane Probe is failing
+          description: A fresh native Socket.D connection cannot complete Hello and system/probe Request/Reply.
+
+      - alert: XuantongProbeTargetDown
+        expr: up{job=~"xuantong-probe.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Xuantong external Probe target is down
+          description: Prometheus cannot scrape the external Probe process; availability records this interval as unavailable.
+
+      - alert: XuantongControlPlaneProbeStale
+        expr: time() - xuantong_probe_last_completed_timestamp_seconds > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Xuantong external control-plane Probe is stale
+          description: The probe process has not completed an observation for more than 60 seconds.
+
+      - alert: XuantongControlPlaneProbeRpcSlow
+        expr: xuantong_probe_rpc_duration_seconds > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Xuantong external Probe RPC exceeds the initial 200 ms objective
+          description: Inspect Gateway request latency and network/TLS health; calibrate only with saved production reports.
+
+      - alert: XuantongDiscoveryLeaseRenewalFailing
+        expr: increase(xuantong_discovery_lease_renewal_failure_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A Xuantong SDK lease renewal failed
+          description: Inspect the application-to-Gateway path before the authoritative lease expires.
+
+      - alert: XuantongDiscoveryLeaseRenewalMarginLow
+        expr: xuantong:lease_renewal_margin_p01_seconds:5m < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Discovery lease renewal P01 margin is below the initial ten-second objective
+          description: Renewals are committing too close to the previous expiry; inspect pauses, scheduling, network and State latency.
+
+      - alert: XuantongConfigStateUnavailable
+        expr: xuantong_config_state_enabled == 1 and xuantong_config_state_running == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Config State Plane is unavailable
+          description: The local Config State Plane is enabled but has no healthy running Division.
+
+      - alert: XuantongRegistryStateUnavailable
+        expr: xuantong_registry_state_enabled == 1 and xuantong_registry_state_running == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Registry State Plane is unavailable
+          description: The Registry State Plane is enabled but cannot serve linearizable state.
+
+      - alert: XuantongGatewayClusterViewIncomplete
+        expr: xuantong_gateway_cluster_view_complete == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Gateway cluster coordination is incomplete
+          description: The Gateway cannot prove a complete leased cluster view and may reject new work.
+
+      - alert: XuantongControlPlaneRequestP99High
+        expr: xuantong:control_plane_request_p99_seconds:5m > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Control-plane request P99 exceeds the initial 200 ms objective
+          description: Recalibrate this threshold only with saved target-spec staircase and soak reports.
+
+      - alert: XuantongStateApplyP99High
+        expr: xuantong:state_apply_p99_seconds:5m > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Raft State apply P99 exceeds the initial 250 ms objective
+          description: Inspect quorum health, disk latency, GC, callback queues and request timeouts.
+
+      - alert: XuantongWatchAckP99High
+        expr: xuantong:watch_ack_p99_seconds:5m > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Watch acknowledgement P99 exceeds five seconds
+          description: Clients may be slow to apply updates or the downstream callback path may be blocked.
+
+      - alert: XuantongControlPlaneOverloaded
+        expr: xuantong:control_plane_overload_ratio:5m > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than one percent of control-plane requests are rejected for overload
+          description: Inspect in-flight requests, work queues, State callback queues and per-tenant load.
+
+      - alert: XuantongWatchConsumersTimingOut
+        expr: increase(xuantong_control_plane_watch_ack_timeout_closed_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Slow Watch consumers were closed
+          description: One or more clients failed to ACK a Watch reply before the configured deadline.
+
+      - alert: XuantongLateRepliesDropped
+        expr: increase(xuantong_control_plane_late_replies_dropped_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Late or undeliverable control-plane replies were dropped
+          description: Inspect client deadlines, half-open connections and State handler latency.
+
+      - alert: XuantongStateStorageBelowAdmissionWatermark
+        expr: xuantong_state_storage_free_above_minimum == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: State storage is below the write-admission watermark
+          description: New State writes are rejected before Raft with STORAGE_EXHAUSTED.
+
+      - alert: XuantongStateStorageReserveLow
+        expr: |
+          xuantong_state_storage_free_bytes
+          - xuantong_state_storage_free_minimum_bytes
+          < 2147483648
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Less than 2 GiB remains above the State write-admission watermark
+          description: Review WAL/Snapshot growth, retention, backup status and disk expansion.
+
+      - alert: XuantongStateStorageWillCrossWatermarkWithin24Hours
+        expr: |
+          predict_linear(xuantong_state_storage_free_bytes[6h], 24 * 3600)
+          < xuantong_state_storage_free_minimum_bytes
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: State storage is predicted to cross the watermark within 24 hours
+          description: The prediction is advisory; confirm the trend against publish rate and Snapshot rotation.
+
+      - alert: XuantongSnapshotChecksumInvalid
+        expr: |
+          xuantong_state_snapshot_checksum_mismatches > 0
+          or xuantong_state_snapshot_checksum_unverified > 0
+          or increase(xuantong_state_snapshot_checksum_failure_total[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: A Raft Snapshot checksum is invalid or unverifiable
+          description: Keep the affected node out of service and restore from a verified same-node archive.
+
+      - alert: XuantongStateStorageScanFailing
+        expr: increase(xuantong_state_storage_scan_failure_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: State storage telemetry scan failed
+          description: Metrics may be incomplete; inspect filesystem permissions and I/O errors.

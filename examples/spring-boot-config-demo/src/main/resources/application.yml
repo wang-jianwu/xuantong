@@ -10,6 +10,17 @@ xuantong:
     group: DEFAULT_GROUP
     access-token: ${XUANTONG_ACCESS_TOKEN:}
     application-name: ${spring.application.name}
+    tls:
+      enabled: ${XUANTONG_CLIENT_TLS_ENABLED:false}
+      trust-store: ${XUANTONG_CLIENT_TLS_TRUST_STORE:}
+      trust-store-type: ${XUANTONG_CLIENT_TLS_TRUST_STORE_TYPE:PKCS12}
+      trust-store-password: ${XUANTONG_CLIENT_TLS_TRUST_STORE_PASSWORD:}
+      key-store: ${XUANTONG_CLIENT_TLS_KEY_STORE:}
+      key-store-type: ${XUANTONG_CLIENT_TLS_KEY_STORE_TYPE:PKCS12}
+      key-store-password: ${XUANTONG_CLIENT_TLS_KEY_STORE_PASSWORD:}
+      key-password: ${XUANTONG_CLIENT_TLS_KEY_PASSWORD:}
+      hostname-verification: true
+      reload-interval-ms: ${XUANTONG_CLIENT_TLS_RELOAD_INTERVAL_MS:30000}
 
 server:
   port: 8082

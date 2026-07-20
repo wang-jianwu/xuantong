@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ControlPlaneProtocolTest {
@@ -76,6 +77,23 @@ class ControlPlaneProtocolTest {
     }
 
     @Test
+    void storageAdmissionFailureCarriesSafeWriteRetrySemantics() throws Exception {
+        ResponseStatus status = ResponseStatus.newBuilder()
+                .setCode(ResponseCode.STORAGE_EXHAUSTED)
+                .setMessage("storage watermark reached")
+                .setRetryable(true)
+                .setGroupId("config-default")
+                .setCommitStatus(CommitStatus.NOT_COMMITTED)
+                .build();
+
+        ResponseStatus decoded = ResponseStatus.parseFrom(status.toByteArray());
+
+        assertEquals(ResponseCode.STORAGE_EXHAUSTED, decoded.getCode());
+        assertEquals(CommitStatus.NOT_COMMITTED, decoded.getCommitStatus());
+        assertTrue(decoded.getRetryable());
+    }
+
+    @Test
     void configFetchAndWatchContractsPreserveIndependentRevisions() throws Exception {
         ConfigCoordinate key = ConfigCoordinate.newBuilder()
                 .setNamespaceId("public")
@@ -83,7 +101,7 @@ class ControlPlaneProtocolTest {
                 .setDataId("demo.json")
                 .build();
         ConfigFetchResponse fetch = ConfigFetchResponse.newBuilder()
-                .setFound(true)
+                .setState(ConfigValueState.CONFIG_VALUE_STATE_ACTIVE)
                 .setConfig(key)
                 .setDecisionRevision(7)
                 .setContent(ConfigContentValue.newBuilder()
@@ -109,9 +127,21 @@ class ControlPlaneProtocolTest {
                 ConfigWatchBatchResponse.parseFrom(watch.toByteArray());
 
         assertEquals(3, decodedFetch.getContent().getContentRevision());
+        assertEquals(ConfigValueState.CONFIG_VALUE_STATE_ACTIVE, decodedFetch.getState());
         assertEquals(7, decodedFetch.getDecisionRevision());
         assertEquals(23, decodedWatch.getEvents(0).getEventRevision());
         assertEquals(24, decodedWatch.getCoveredThroughRevision());
+
+        ConfigFetchResponse tombstone = ConfigFetchResponse.newBuilder()
+                .setState(ConfigValueState.CONFIG_VALUE_STATE_TOMBSTONE)
+                .setConfig(key)
+                .setDecisionRevision(8)
+                .build();
+        ConfigFetchResponse decodedTombstone = ConfigFetchResponse.parseFrom(
+                tombstone.toByteArray());
+        assertEquals(ConfigValueState.CONFIG_VALUE_STATE_TOMBSTONE,
+                decodedTombstone.getState());
+        assertFalse(decodedTombstone.hasContent());
     }
 
     @Test

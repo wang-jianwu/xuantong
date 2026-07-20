@@ -76,7 +76,7 @@ public class ConfigReleaseManager {
         detail.put("checksum", release.getChecksum());
         detail.put("batch", batch);
         if (extraAuditDetail != null) detail.putAll(extraAuditDetail);
-        auditLog.setDetail(ONode.serialize(detail));
+        auditLog.setDetail(AuditDetailSanitizer.sanitize(ONode.serialize(detail)));
         auditLog.setCreatedAt(new Date());
         if (auditLogRepository.save(auditLog) != 1) {
             throw new IllegalStateException("Failed to save release audit: " + key.canonicalName());

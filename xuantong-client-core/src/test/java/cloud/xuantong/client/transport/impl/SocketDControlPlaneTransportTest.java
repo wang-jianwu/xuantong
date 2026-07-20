@@ -2,7 +2,10 @@ package cloud.xuantong.client.transport.impl;
 
 import cloud.xuantong.client.ClientIdentity;
 import cloud.xuantong.client.ControlPlaneOptions;
+import cloud.xuantong.client.ControlPlaneProbeResult;
+import cloud.xuantong.client.metrics.ControlPlaneTransportMetricsSnapshot;
 import cloud.xuantong.client.model.ConfigSnapshot;
+import cloud.xuantong.client.model.LeaseRenewalResult;
 import cloud.xuantong.client.model.ServiceInstance;
 import cloud.xuantong.client.model.ServiceSnapshot;
 import cloud.xuantong.client.transport.WatchSubscription;
@@ -10,13 +13,16 @@ import cloud.xuantong.protocol.v2.ConfigContentValue;
 import cloud.xuantong.protocol.v2.ConfigCoordinate;
 import cloud.xuantong.protocol.v2.ConfigFetchRequest;
 import cloud.xuantong.protocol.v2.ConfigFetchResponse;
+import cloud.xuantong.protocol.v2.ConfigValueState;
 import cloud.xuantong.protocol.v2.ConfigWatchBatchResponse;
 import cloud.xuantong.protocol.v2.ConfigWatchBatchRequest;
+import cloud.xuantong.protocol.v2.CommitStatus;
 import cloud.xuantong.protocol.v2.ControlPlaneProtocol;
 import cloud.xuantong.protocol.v2.Envelope;
 import cloud.xuantong.protocol.v2.DiscoveryServiceInstance;
 import cloud.xuantong.protocol.v2.DiscoveryMutationResponse;
 import cloud.xuantong.protocol.v2.DiscoveryRegisterRequest;
+import cloud.xuantong.protocol.v2.DiscoveryRenewBatchRequest;
 import cloud.xuantong.protocol.v2.DiscoverySnapshotRequest;
 import cloud.xuantong.protocol.v2.DiscoverySnapshotResponse;
 import cloud.xuantong.protocol.v2.ServiceCoordinate;
@@ -64,6 +70,36 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SocketDControlPlaneTransportTest {
+    @Test
+    void metricsSnapshotTracksSessionRequestWaitsAndSubscribeStreams() {
+        FakeConfigTransport transport = new FakeConfigTransport();
+        WatchSubscription subscription = null;
+        try {
+            assertEquals(new ControlPlaneTransportMetricsSnapshot(0, 0, 0, 0, false),
+                    transport.metricsSnapshot());
+            transport.connect(
+                    List.of("gateway-a:8090"),
+                    "public", "DEFAULT_GROUP", "");
+            subscription = transport.subscribe(0L,
+                    batch -> batch.coveredThroughRevision());
+
+            assertEquals(new ControlPlaneTransportMetricsSnapshot(1, 0, 1, 1, false),
+                    transport.metricsSnapshot());
+            subscription.close();
+            subscription = null;
+            assertEquals(new ControlPlaneTransportMetricsSnapshot(0, 0, 0, 0, false),
+                    transport.metricsSnapshot());
+        } finally {
+            if (subscription != null) {
+                subscription.close();
+            }
+            transport.close();
+        }
+
+        assertEquals(new ControlPlaneTransportMetricsSnapshot(0, 0, 0, 0, true),
+                transport.metricsSnapshot());
+    }
+
     @Test
     void configWatchUsesSocketdSubscribeAndCommitsDeliveredCursor() throws Exception {
         FakeConfigTransport transport = new FakeConfigTransport();
@@ -227,6 +263,91 @@ class SocketDControlPlaneTransportTest {
             assertEquals("test-app", transport.helloApplicationName);
             assertEquals("DEFAULT_GROUP", transport.helloGroupName);
             assertEquals("secret-token", transport.helloCredential);
+        } finally {
+            transport.close();
+        }
+    }
+
+    @Test
+    void publicProbeReturnsValidatedRequestReplyTelemetry() throws Exception {
+        FakeConfigTransport transport = new FakeConfigTransport();
+        try {
+            transport.connect(
+                    List.of("gateway-a:8090", "gateway-b:8090"),
+                    "public", "DEFAULT_GROUP", "secret-token");
+
+            ControlPlaneProbeResult result = transport.probe();
+
+            assertEquals("gateway-0", result.gatewayId());
+            assertEquals("cluster-test", result.clusterId());
+            assertEquals(1L, result.transportGeneration());
+            assertEquals(1L, result.connectionGeneration());
+            assertEquals("sd:tcp://gateway-a:8090/control-v2", result.address());
+            assertEquals(0, result.addressIndex());
+            assertTrue(result.rpcDurationNanos() >= 0L);
+            assertTrue(result.rpcDurationSeconds() >= 0D);
+            assertTrue(result.serverReceiveEpochMs() > 0L);
+            assertTrue(result.serverSendEpochMs() >= result.serverReceiveEpochMs());
+            assertEquals(1, transport.activeSessionCount());
+            assertEquals(1, transport.openedUrls.size(),
+                    "a healthy Probe must not fan out to standby addresses");
+        } finally {
+            transport.close();
+        }
+    }
+
+    @Test
+    void oneShotProbeRejectsAReusedTransport() {
+        FakeConfigTransport transport = new FakeConfigTransport();
+        try {
+            transport.connect(
+                    List.of("gateway-a:8090"),
+                    "public", "DEFAULT_GROUP", "");
+
+            assertThrows(IllegalStateException.class, () -> transport.probeOnce(
+                    List.of("gateway-b:8090"),
+                    "public", "DEFAULT_GROUP", ""));
+        } finally {
+            transport.close();
+        }
+    }
+
+    @Test
+    void oneShotProbeUsesOnlyOneSequentialStandbyWithinItsDeadline() throws Exception {
+        FakeConfigTransport transport = new FakeConfigTransport();
+        transport.failOpenGatewayZero = true;
+        try {
+            ControlPlaneProbeResult result = transport.probeOnce(
+                    List.of("gateway-a:8090", "gateway-b:8090", "gateway-c:8090"),
+                    "public", "DEFAULT_GROUP", "");
+
+            assertEquals(1, result.addressIndex());
+            assertEquals("gateway-1", result.gatewayId());
+            assertEquals(2, transport.openedUrls.size(),
+                    "Probe failover must be sequential and capped at two addresses");
+            assertEquals(1, transport.activeSessionCount());
+        } finally {
+            transport.close();
+        }
+    }
+
+    @Test
+    void configFetchMapsAuthoritativeTombstoneWithoutTreatingItAsFailure() {
+        FakeConfigTransport transport = new FakeConfigTransport();
+        transport.tombstoneConfig = true;
+        try {
+            transport.connect(
+                    List.of("gateway-a:8090"),
+                    "public", "DEFAULT_GROUP", "");
+
+            ConfigSnapshot snapshot = transport.fetch("app.yml", 7L);
+
+            assertNotNull(snapshot);
+            assertTrue(snapshot.isTombstone());
+            assertEquals("app.yml", snapshot.getDataId());
+            assertEquals(8L, snapshot.getRevision());
+            assertNull(snapshot.getContent());
+            assertEquals(1, transport.fetchAttempts.get());
         } finally {
             transport.close();
         }
@@ -417,6 +538,37 @@ class SocketDControlPlaneTransportTest {
     }
 
     @Test
+    void storageRejectedDiscoveryWriteRetriesOnceWithTheSameOperationId() {
+        FakeConfigTransport control = new FakeConfigTransport();
+        control.storageExhaustedDiscoveryOnGatewayZero = true;
+        SocketDDiscoveryTransport discovery = new SocketDDiscoveryTransport(control, 30_000L);
+        try {
+            discovery.connect(
+                    List.of("gateway-a:8090", "gateway-b:8090"),
+                    "public", "DEFAULT_GROUP", "orders", "");
+            ServiceInstance registration = new ServiceInstance();
+            registration.setInstanceId("orders-storage-retry");
+            registration.setServiceGeneration(7L);
+            registration.setIp("10.0.0.9");
+            registration.setPort(8080);
+            registration.setWeight(1D);
+            registration.setEnabled(true);
+
+            ServiceInstance registered = discovery.register(registration);
+
+            assertEquals("orders-storage-retry", registered.getInstanceId());
+            assertEquals(2, control.discoveryMutationAttempts.get());
+            assertEquals(2, control.discoveryOperationIds.size());
+            assertFalse(control.discoveryOperationIds.getFirst().isBlank());
+            assertEquals(control.discoveryOperationIds.getFirst(),
+                    control.discoveryOperationIds.getLast());
+            assertEquals(1, control.activeGatewayIndex());
+        } finally {
+            discovery.close();
+        }
+    }
+
+    @Test
     void discoveryLeaseRecoveryCarriesTheCommittedServiceGeneration() {
         FakeConfigTransport control = new FakeConfigTransport();
         SocketDDiscoveryTransport discovery = new SocketDDiscoveryTransport(control, 30_000L);
@@ -441,23 +593,53 @@ class SocketDControlPlaneTransportTest {
         }
     }
 
+    @Test
+    void discoveryRenewalReturnsAuthoritativeServerCommitTime() {
+        FakeConfigTransport control = new FakeConfigTransport();
+        SocketDDiscoveryTransport discovery = new SocketDDiscoveryTransport(control, 30_000L);
+        try {
+            discovery.connect(
+                    List.of("gateway-a:8090"),
+                    "public", "DEFAULT_GROUP", "orders", "");
+            ServiceInstance registration = new ServiceInstance();
+            registration.setInstanceId("orders-1");
+            registration.setIp("10.0.0.8");
+            registration.setPort(8080);
+            registration.setWeight(1D);
+            registration.setEnabled(true);
+            ServiceInstance registered = discovery.register(registration);
+
+            LeaseRenewalResult renewed = discovery.heartbeatResult(registered);
+
+            assertEquals(110_000L, renewed.serverTimeEpochMs());
+            assertEquals(140_000L, renewed.instance().getExpiresAt());
+            assertEquals(1L, renewed.instance().getRenewSequence());
+        } finally {
+            discovery.close();
+        }
+    }
+
     private static final class FakeConfigTransport extends SocketDTransport {
         private final Map<ClientSession, Integer> gatewayIndexes =
                 Collections.synchronizedMap(new IdentityHashMap<>());
         private final AtomicInteger fetchAttempts = new AtomicInteger();
+        private final AtomicInteger discoveryMutationAttempts = new AtomicInteger();
         private final AtomicInteger watchAcknowledgements = new AtomicInteger();
         private final List<String> openedUrls = new CopyOnWriteArrayList<>();
+        private final List<String> discoveryOperationIds = new CopyOnWriteArrayList<>();
         private final Map<Integer, SessionControl> sessionControls =
                 new java.util.concurrent.ConcurrentHashMap<>();
         private final Map<Integer, EventListener> sessionListeners =
                 new java.util.concurrent.ConcurrentHashMap<>();
         private volatile boolean failFetchOnGatewayZero;
         private volatile boolean failDiscoveryOnGatewayZero;
+        private volatile boolean storageExhaustedDiscoveryOnGatewayZero;
         private volatile boolean failOpenGatewayZero;
         private volatile boolean rejectHelloUnauthorized;
         private volatile boolean rejectHelloRateLimited;
         private volatile boolean rateLimitFetchOnGatewayZero;
         private volatile boolean rejectFetchInvalidArgument;
+        private volatile boolean tombstoneConfig;
         private volatile boolean omitConfigSnapshotCapability;
         private volatile long gatewayOneGeneration = 1L;
         private volatile String helloClientInstanceId;
@@ -580,10 +762,13 @@ class SocketDControlPlaneTransportTest {
             }
             if (ControlPlaneProtocol.SYSTEM_PROBE.equals(event)) {
                 ProbeRequest probe = ProbeRequest.parseFrom(request.getPayload());
+                long receivedAt = System.currentTimeMillis();
                 ProbeResponse response = ProbeResponse.newBuilder()
                         .setNonce(probe.getNonce())
                         .setGatewayId("gateway-" + gatewayIndex)
                         .setConnectionGeneration(gatewayIndex + 1L)
+                        .setServerReceiveEpochMs(receivedAt)
+                        .setServerSendEpochMs(System.currentTimeMillis())
                         .build();
                 return ok(request, generation,
                         ControlPlaneProtocol.PROBE_RESPONSE_TYPE,
@@ -629,8 +814,21 @@ class SocketDControlPlaneTransportTest {
                             .build();
                 }
                 ConfigFetchRequest fetch = ConfigFetchRequest.parseFrom(request.getPayload());
+                if (tombstoneConfig) {
+                    ConfigFetchResponse response = ConfigFetchResponse.newBuilder()
+                            .setState(ConfigValueState.CONFIG_VALUE_STATE_TOMBSTONE)
+                            .setConfig(ConfigCoordinate.newBuilder()
+                                    .setNamespaceId(request.getNamespaceId())
+                                    .setGroupName(fetch.getGroupName())
+                                    .setDataId(fetch.getDataId()))
+                            .setDecisionRevision(8L)
+                            .build();
+                    return ok(request, generation,
+                            ControlPlaneProtocol.CONFIG_FETCH_RESPONSE_TYPE,
+                            response.toByteString());
+                }
                 ConfigFetchResponse response = ConfigFetchResponse.newBuilder()
-                        .setFound(true)
+                        .setState(ConfigValueState.CONFIG_VALUE_STATE_ACTIVE)
                         .setConfig(ConfigCoordinate.newBuilder()
                                 .setNamespaceId(request.getNamespaceId())
                                 .setGroupName(fetch.getGroupName())
@@ -672,12 +870,26 @@ class SocketDControlPlaneTransportTest {
                         response.toByteString());
             }
             if (ControlPlaneProtocol.DISCOVERY_REGISTER.equals(event)) {
+                discoveryMutationAttempts.incrementAndGet();
+                discoveryOperationIds.add(request.getOperationId());
+                if (gatewayIndex == 0 && storageExhaustedDiscoveryOnGatewayZero) {
+                    return request.toBuilder()
+                            .setClusterId("cluster-test")
+                            .setTransportGeneration(generation)
+                            .setResponseStatus(ResponseStatus.newBuilder()
+                                    .setCode(ResponseCode.STORAGE_EXHAUSTED)
+                                    .setMessage("storage watermark reached")
+                                    .setRetryable(true)
+                                    .setCommitStatus(CommitStatus.NOT_COMMITTED))
+                            .build();
+                }
                 DiscoveryRegisterRequest register = DiscoveryRegisterRequest.parseFrom(
                         request.getPayload());
                 lastExpectedServiceGeneration = register.getExpectedServiceGeneration();
                 DiscoveryMutationResponse response = DiscoveryMutationResponse.newBuilder()
                         .setAction("REGISTER")
                         .setRegistryRevision(4L)
+                        .setServerTimeEpochMs(100_000L)
                         .addInstances(DiscoveryServiceInstance.newBuilder()
                                 .setInstance(ServiceInstanceCoordinate.newBuilder()
                                         .setService(ServiceCoordinate.newBuilder()
@@ -692,7 +904,39 @@ class SocketDControlPlaneTransportTest {
                                 .setEnabled(register.getEnabled())
                                 .setLeaseId("lease-orders-1")
                                 .setLeaseEpoch(1L)
-                                .setRecoveryEpoch(1L))
+                                .setRecoveryEpoch(1L)
+                                .setRenewSequence(0L)
+                                .setRegisteredAtEpochMs(100_000L)
+                                .setLastRenewedAtEpochMs(100_000L)
+                                .setExpiresAtEpochMs(130_000L))
+                        .build();
+                return ok(request, generation,
+                        ControlPlaneProtocol.DISCOVERY_MUTATION_RESPONSE_TYPE,
+                        response.toByteString());
+            }
+            if (ControlPlaneProtocol.DISCOVERY_RENEW_BATCH.equals(event)) {
+                DiscoveryRenewBatchRequest renew = DiscoveryRenewBatchRequest.parseFrom(
+                        request.getPayload());
+                var renewal = renew.getRenewals(0);
+                var coordinate = renewal.getLease().getInstance();
+                DiscoveryMutationResponse response = DiscoveryMutationResponse.newBuilder()
+                        .setAction("RENEW")
+                        .setRegistryRevision(5L)
+                        .setServerTimeEpochMs(110_000L)
+                        .addInstances(DiscoveryServiceInstance.newBuilder()
+                                .setInstance(coordinate)
+                                .setServiceGeneration(7L)
+                                .setIp("10.0.0.8")
+                                .setPort(8080)
+                                .setWeight(1D)
+                                .setEnabled(true)
+                                .setLeaseId(renewal.getLease().getLeaseId())
+                                .setLeaseEpoch(renewal.getLease().getLeaseEpoch())
+                                .setRecoveryEpoch(renewal.getLease().getRecoveryEpoch())
+                                .setRenewSequence(renewal.getRenewSequence())
+                                .setRegisteredAtEpochMs(100_000L)
+                                .setLastRenewedAtEpochMs(110_000L)
+                                .setExpiresAtEpochMs(140_000L))
                         .build();
                 return ok(request, generation,
                         ControlPlaneProtocol.DISCOVERY_MUTATION_RESPONSE_TYPE,

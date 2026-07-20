@@ -12,6 +12,7 @@ import cloud.xuantong.config.management.repository.ConfigReleaseRepository;
 import cloud.xuantong.config.management.repository.ConfigResourceRepository;
 import cloud.xuantong.config.management.repository.ConfigRolloutRepository;
 import cloud.xuantong.config.management.repository.ConfigStateOperationRepository;
+import cloud.xuantong.config.management.service.AuditDetailSanitizer;
 import org.noear.snack4.ONode;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
@@ -70,12 +71,14 @@ public class ConfigStateProjectionService {
             projectRollout(plan, expectedRollout, commit, projectionOperationId);
         }
 
-        resourceRepository.advanceRevision(resource.getId(), commit.decisionRevision());
+        resourceRepository.advanceLifecycle(
+                resource.getId(), commit.decisionRevision(), plan.getLifecycleStatus());
         ConfigResource projectedResource = resourceRepository.find(ConfigResourceKey.of(
                 plan.getNamespaceId(), plan.getGroupName(), plan.getDataId()));
         if (projectedResource == null
                 || projectedResource.getRevision() == null
-                || projectedResource.getRevision() < commit.decisionRevision()) {
+                || projectedResource.getRevision() < commit.decisionRevision()
+                || !plan.getLifecycleStatus().equals(projectedResource.getLifecycleStatus())) {
             throw new IllegalStateException(
                     "Failed to advance Config projection revision to "
                             + commit.decisionRevision());
@@ -140,7 +143,7 @@ public class ConfigStateProjectionService {
                 || !expected.getConfigId().equals(actual.getConfigId())
                 || !expected.getDecisionRevision().equals(actual.getDecisionRevision())
                 || !expected.getEventRevision().equals(actual.getEventRevision())
-                || !expected.getChecksum().equals(actual.getChecksum())) {
+                || !java.util.Objects.equals(expected.getChecksum(), actual.getChecksum())) {
             throw new IllegalStateException(
                     "Config release projection conflicts with the committed operation: "
                             + expected.getReleaseId());
@@ -151,6 +154,7 @@ public class ConfigStateProjectionService {
         if (!expected.getConfigId().equals(actual.getConfigId())
                 || !expected.getCandidateReleaseId().equals(actual.getCandidateReleaseId())
                 || !expected.getBaselineReleaseId().equals(actual.getBaselineReleaseId())
+                || !expected.getRolloutKey().equals(actual.getRolloutKey())
                 || !expected.getStartOperationId().equals(actual.getStartOperationId())) {
             throw new IllegalStateException(
                     "Config rollout projection conflicts with the committed operation: "
@@ -176,6 +180,7 @@ public class ConfigStateProjectionService {
         detail.put("checksum", plan.getChecksum());
         detail.put("batch", Boolean.TRUE.equals(plan.getBatch()));
         if (plan.getRolloutId() != null) detail.put("rolloutId", plan.getRolloutId());
+        if (plan.getRolloutKey() != null) detail.put("rolloutKey", plan.getRolloutKey());
         if (plan.getTargetReleaseId() != null) {
             detail.put("targetReleaseId", plan.getTargetReleaseId());
         }
@@ -187,7 +192,7 @@ public class ConfigStateProjectionService {
         audit.setResourceName(plan.getDataId());
         audit.setOperation(plan.getAuditOperation());
         audit.setOperator(plan.getOperator());
-        audit.setDetail(ONode.serialize(detail));
+        audit.setDetail(AuditDetailSanitizer.sanitize(ONode.serialize(detail)));
         audit.setOperationId(projectionOperationId);
         audit.setCreatedAt(new Date(plan.getCreatedAtEpochMs()));
         return audit;

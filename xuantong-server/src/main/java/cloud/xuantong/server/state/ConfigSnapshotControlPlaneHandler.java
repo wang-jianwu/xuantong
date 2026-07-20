@@ -104,7 +104,12 @@ final class ConfigSnapshotControlPlaneHandler implements ControlPlaneRequestHand
             ConfigDecisionSummary.Builder summary = ConfigDecisionSummary.newBuilder()
                     .setConfig(ConfigControlPlaneSupport.coordinate(decision.configKey()))
                     .setDecisionRevision(decision.decisionRevision())
-                    .setStableContentRevision(decision.stableContentRevision());
+                    .setStableContentRevision(decision.stableContentRevision())
+                    .setState(decision.tombstone()
+                            ? cloud.xuantong.protocol.v2.ConfigValueState
+                                    .CONFIG_VALUE_STATE_TOMBSTONE
+                            : cloud.xuantong.protocol.v2.ConfigValueState
+                                    .CONFIG_VALUE_STATE_ACTIVE);
             for (RolloutRule rule : decision.rules()) {
                 summary.addRules(ConfigRuleSummary.newBuilder()
                         .setRuleId(rule.ruleId())

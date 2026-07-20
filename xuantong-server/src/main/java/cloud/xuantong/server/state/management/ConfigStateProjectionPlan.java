@@ -16,6 +16,7 @@ public class ConfigStateProjectionPlan {
     private String operator;
     private String releaseId;
     private String releaseType;
+    private String lifecycleStatus;
     private String content;
     private String contentType;
     private String checksum;
@@ -28,6 +29,7 @@ public class ConfigStateProjectionPlan {
     private String candidateReleaseId;
     private String rolloutType;
     private String targetValue;
+    private String rolloutKey;
     private String rolloutStatus;
     private String rolloutCreatedBy;
     private Long rolloutCreatedAtEpochMs;
@@ -42,9 +44,12 @@ public class ConfigStateProjectionPlan {
         release.setGroupName(groupName);
         release.setDataId(dataId);
         release.setRevision(commit.decisionRevision());
-        release.setContentRevision(commit.contentRevision() > 0
+        long effectiveContentRevision = commit.contentRevision() > 0
                 ? commit.contentRevision()
-                : referencedContentRevision);
+                : referencedContentRevision == null ? 0L : referencedContentRevision;
+        release.setContentRevision(effectiveContentRevision > 0
+                ? effectiveContentRevision
+                : null);
         release.setDecisionRevision(commit.decisionRevision());
         release.setEventRevision(commit.eventRevision());
         release.setContent(content);
@@ -71,6 +76,7 @@ public class ConfigStateProjectionPlan {
         rollout.setCandidateReleaseId(candidateReleaseId);
         rollout.setRolloutType(rolloutType);
         rollout.setTargetValue(targetValue);
+        rollout.setRolloutKey(rolloutKey);
         rollout.setStatus(rolloutStatus);
         rollout.setCreatedBy(rolloutCreatedBy);
         rollout.setCreatedAt(new Date(rolloutCreatedAtEpochMs));

@@ -1,5 +1,6 @@
 package cloud.xuantong.server.admin.controller;
 
+import cloud.xuantong.server.admin.security.AdminSecurityContext;
 import org.noear.solon.annotation.Controller;
 import org.noear.solon.annotation.Mapping;
 import org.noear.solon.core.handle.Context;
@@ -14,7 +15,7 @@ public class HomeController {
      * @return null 表示重定向
      */
     private ModelAndView redirectIfNotLoggedIn(Context context) {
-        if (context.session("user") == null) {
+        if (AdminSecurityContext.currentUser(context) == null) {
             context.redirect("/login");
             return null;
         }
@@ -32,14 +33,14 @@ public class HomeController {
     @Mapping("/login")
     public ModelAndView login(Context context) {
         // 如果已登录，直接跳转到配置管理页
-        if (context.session("user") != null) {
+        if (AdminSecurityContext.currentUser(context) != null) {
             context.redirect("/dashboard");
             return null;
         }
 
         ModelAndView mv = new ModelAndView("login.shtm");
         mv.put("pageTitle", "登录 - 玄同");
-        mv.put("user", context.session("user"));
+        mv.put("user", AdminSecurityContext.currentUser(context));
         return mv;
     }
 
@@ -47,7 +48,7 @@ public class HomeController {
         ModelAndView result = redirectIfNotLoggedIn(context);
         if (result == null) return null;
         ModelAndView mv = new ModelAndView(template);
-        mv.put("user", context.session("user"));
+        mv.put("user", AdminSecurityContext.currentUser(context));
         mv.put("pageTitle", title + " - 玄同");
         return mv;
     }

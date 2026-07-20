@@ -1,5 +1,7 @@
 package cloud.xuantong.config.management.repository;
 
+import cloud.xuantong.common.page.PageQuery;
+import cloud.xuantong.common.page.PageResult;
 import cloud.xuantong.config.management.model.ConfigRollout;
 import cloud.xuantong.config.management.model.RolloutStatus;
 
@@ -10,6 +12,7 @@ public interface ConfigRolloutRepository {
     ConfigRollout findActive(Long configId);
     ConfigRollout findByRolloutId(String rolloutId);
     List<ConfigRollout> findByConfigId(Long configId);
+    PageResult<ConfigRollout> findPageByConfigId(Long configId, PageQuery pageQuery);
     long complete(String rolloutId, RolloutStatus expectedStatus, RolloutStatus newStatus,
                   String operator);
     default long completeProjection(

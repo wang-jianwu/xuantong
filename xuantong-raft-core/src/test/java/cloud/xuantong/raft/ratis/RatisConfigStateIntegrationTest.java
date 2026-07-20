@@ -9,6 +9,7 @@ import cloud.xuantong.config.state.ConfigContentReference;
 import cloud.xuantong.config.state.ConfigKey;
 import cloud.xuantong.config.state.ConfigMutation;
 import cloud.xuantong.config.state.ConfigMutationResult;
+import cloud.xuantong.config.state.ConfigProjectionSnapshot;
 import cloud.xuantong.config.state.ConfigStateCodec;
 import cloud.xuantong.config.state.ConfigStateMachine;
 import cloud.xuantong.config.state.ConfigWatchSelector;
@@ -78,6 +79,17 @@ class RatisConfigStateIntegrationTest {
                 ApplicableRelease release = fetch(client, groupId, key);
                 assertTrue(release.found());
                 assertEquals("raft-value", text(release.content().payload()));
+
+                QueryResult projectionQuery = client.query(
+                                ConfigStateCodec.projectionSnapshotQuery(
+                                        groupId, ReadOptions.linearizable()))
+                        .get(5, TimeUnit.SECONDS);
+                ConfigProjectionSnapshot projection =
+                        ConfigStateCodec.decodeProjectionSnapshot(
+                                projectionQuery.payload());
+                assertEquals(1, projection.entries().size());
+                assertEquals(release.content().contentHash(), projection.entries()
+                        .getFirst().referencedContents().getFirst().contentHash());
 
                 ApplyResult replay = submitEventually(client, command);
                 assertEquals(ApplyStatus.UNCHANGED, replay.status());

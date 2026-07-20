@@ -1,6 +1,7 @@
 package cloud.xuantong.client.transport;
 
 import cloud.xuantong.client.model.ServiceInstance;
+import cloud.xuantong.client.model.LeaseRenewalResult;
 import cloud.xuantong.client.model.ServiceSnapshot;
 import cloud.xuantong.client.model.ServiceWatchBatch;
 
@@ -24,6 +25,13 @@ public interface DiscoveryTransport extends AutoCloseable {
     }
     ServiceInstance register(ServiceInstance instance);
     ServiceInstance heartbeat(ServiceInstance instance);
+    default LeaseRenewalResult heartbeatResult(ServiceInstance instance) {
+        ServiceInstance renewed = heartbeat(instance);
+        long serverTimeEpochMs = renewed != null && renewed.getLastHeartbeatAt() != null
+                ? renewed.getLastHeartbeatAt() : System.currentTimeMillis();
+        return new LeaseRenewalResult(renewed, serverTimeEpochMs);
+    }
+    ServiceInstance takeover(ServiceInstance expectedLease);
     boolean deregister(ServiceInstance instance);
     void setOnReconnect(Runnable listener);
     @Override

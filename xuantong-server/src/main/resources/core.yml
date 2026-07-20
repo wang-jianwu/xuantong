@@ -1,10 +1,17 @@
-config:
-  # 配置值加密密钥（不配置则不加密）
-  encryptKey: ${CONFIG_ENCRYPT_KEY:}
-
 security:
   clientAuthRequired: ${XUANTONG_CLIENT_AUTH_REQUIRED:false}
   production: ${XUANTONG_PRODUCTION:false}
+  admin:
+    # 多 Server 必须配置相同的 32+ 字节随机密钥；生产环境禁止留空。
+    sessionSecret: ${XUANTONG_ADMIN_SESSION_SECRET:}
+    sessionTtlSeconds: ${XUANTONG_ADMIN_SESSION_TTL_SECONDS:7200}
+    cookieSecure: ${XUANTONG_ADMIN_COOKIE_SECURE:false}
+    cookieSameSite: ${XUANTONG_ADMIN_COOKIE_SAME_SITE:Lax}
+    login:
+      maxFailures: ${XUANTONG_ADMIN_LOGIN_MAX_FAILURES:5}
+      windowSeconds: ${XUANTONG_ADMIN_LOGIN_WINDOW_SECONDS:900}
+      baseBackoffSeconds: ${XUANTONG_ADMIN_LOGIN_BASE_BACKOFF_SECONDS:1}
+      maxBackoffSeconds: ${XUANTONG_ADMIN_LOGIN_MAX_BACKOFF_SECONDS:300}
 
 discovery:
   # 实例超过该时间没有心跳即自动摘除
@@ -17,7 +24,8 @@ discovery:
 xuantong:
   class: "com.zaxxer.hikari.HikariDataSource"
   # 2.0 使用独立数据文件，不读取或迁移 1.x 的 ./data/xuantong
-  jdbcUrl: ${XUANTONG_DB_URL:jdbc:h2:file:./data/xuantong-2;MODE=MySQL;DATABASE_TO_UPPER=FALSE}
+  # DB_CLOSE_ON_EXIT=FALSE 避免 H2 的 JVM Shutdown Hook 抢先关闭数据库，应用由 Hikari 按生命周期关库。
+  jdbcUrl: ${XUANTONG_DB_URL:jdbc:h2:file:./data/xuantong-2;MODE=MySQL;DATABASE_TO_UPPER=FALSE;DB_CLOSE_ON_EXIT=FALSE}
   driverClassName: ${XUANTONG_DB_DRIVER:org.h2.Driver}
   username: ${XUANTONG_DB_USER:sa}
   password: ${XUANTONG_DB_PASSWORD:}

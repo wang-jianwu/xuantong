@@ -125,6 +125,26 @@ class RegistryStateMachineTest {
     }
 
     @Test
+    void takeoverCannotCrossApplicationOwnershipBoundary() throws Exception {
+        RegistryInstance original = registerAndRead(CLIENT_A, "lease-old", 1_000);
+        RegistryActor otherApplication = new RegistryActor(
+                "tenant-a", "client-c", "billing");
+
+        ApplyResult takeover = apply("cross-app-takeover", new TakeoverLease(
+                otherApplication,
+                reference(original),
+                "lease-new",
+                10_000,
+                2_000));
+
+        assertEquals(ApplyStatus.REJECTED, takeover.status());
+        assertEquals("LEASE_FENCED",
+                RegistryStateCodec.decodeMutationError(takeover.payload()).code());
+        assertEquals("lease-old", leaseState().instance().leaseId());
+        assertEquals("client-a", leaseState().instance().ownerClientInstanceId());
+    }
+
+    @Test
     void expiryUsesReplicatedLogicalTimeAndPreservesEpochHistory() throws Exception {
         RegistryInstance original = registerAndRead(CLIENT_A, "lease-1", 1_000);
         ApplyResult expired = apply("expire-1", new ExpireLeaseBatch(
@@ -266,6 +286,60 @@ class RegistryStateMachineTest {
         assertEquals(ApplyStatus.UNCHANGED,
                 apply("delete-empty-service", new DeleteServiceDefinition(
                         RegistryActor.system("management"), SERVICE, 1L, 3_000L)).status());
+    }
+
+    @Test
+    void lifecycleSnapshotIncludesActiveAndDeletedServiceFences() throws Exception {
+        ServiceKey deletedService = new ServiceKey(
+                "public", "DEFAULT_GROUP", "billing");
+        apply("activate-billing", new ActivateServiceDefinition(
+                RegistryActor.system("management"), deletedService, 0L, 600L));
+        apply("delete-billing", new DeleteServiceDefinition(
+                RegistryActor.system("management"), deletedService, 1L, 700L));
+
+        QueryResult result = stateMachine.query(
+                RegistryStateCodec.serviceLifecycleSnapshotQuery(
+                        groupId, ReadOptions.linearizable()));
+        ServiceLifecycleSnapshot snapshot =
+                RegistryStateCodec.decodeServiceLifecycleSnapshot(result.payload());
+
+        assertEquals(RegistryStateCodec.RESULT_SERVICE_LIFECYCLE_SNAPSHOT,
+                result.resultType());
+        assertEquals(2, snapshot.services().size());
+        assertEquals(ServiceLifecycleStatus.DELETED,
+                snapshot.services().getFirst().status());
+        assertEquals(ServiceLifecycleStatus.ACTIVE,
+                snapshot.services().get(1).status());
+        assertTrue(snapshot.serverTimeEpochMs() >= 700L);
+    }
+
+    @Test
+    void lifecycleSnapshotPagesByServiceKey() throws Exception {
+        ServiceKey billing = new ServiceKey("public", "DEFAULT_GROUP", "billing");
+        ServiceKey payments = new ServiceKey("public", "DEFAULT_GROUP", "payments");
+        apply("activate-billing-page", new ActivateServiceDefinition(
+                RegistryActor.system("management"), billing, 0L, 600L));
+        apply("activate-payments-page", new ActivateServiceDefinition(
+                RegistryActor.system("management"), payments, 0L, 700L));
+
+        ServiceLifecycleSnapshot first = RegistryStateCodec.decodeServiceLifecycleSnapshot(
+                stateMachine.query(RegistryStateCodec.serviceLifecycleSnapshotQuery(
+                        groupId,
+                        new ServiceLifecycleSnapshotRequest(null, 2),
+                        ReadOptions.linearizable())).payload());
+        ServiceLifecycleSnapshot second = RegistryStateCodec.decodeServiceLifecycleSnapshot(
+                stateMachine.query(RegistryStateCodec.serviceLifecycleSnapshotQuery(
+                        groupId,
+                        new ServiceLifecycleSnapshotRequest(
+                                first.services().getLast().serviceKey(), 2),
+                        ReadOptions.linearizable())).payload());
+
+        assertTrue(first.hasMore());
+        assertFalse(second.hasMore());
+        assertEquals(List.of(billing, SERVICE), first.services().stream()
+                .map(ServiceLifecycle::serviceKey).toList());
+        assertEquals(List.of(payments), second.services().stream()
+                .map(ServiceLifecycle::serviceKey).toList());
     }
 
     private RegistryInstance registerAndRead(

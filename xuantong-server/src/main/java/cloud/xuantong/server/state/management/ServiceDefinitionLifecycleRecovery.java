@@ -19,6 +19,7 @@ public final class ServiceDefinitionLifecycleRecovery {
     private long intervalMs;
 
     private ScheduledExecutorService executor;
+    private volatile boolean running;
 
     @Init(index = 1_800)
     public synchronized void start() {
@@ -35,6 +36,7 @@ public final class ServiceDefinitionLifecycleRecovery {
             thread.setDaemon(true);
             return thread;
         });
+        running = true;
         executor.scheduleWithFixedDelay(
                 this::recoverSafely,
                 intervalMs,
@@ -44,6 +46,7 @@ public final class ServiceDefinitionLifecycleRecovery {
 
     @Destroy
     public synchronized void stop() {
+        running = false;
         ScheduledExecutorService current = executor;
         executor = null;
         if (current != null) {
@@ -55,6 +58,9 @@ public final class ServiceDefinitionLifecycleRecovery {
         try {
             coordinator.recoverPending();
         } catch (RuntimeException e) {
+            if (!running) {
+                return;
+            }
             log.debug("Service lifecycle recovery scan failed; it will retry", e);
         }
     }
