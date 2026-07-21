@@ -19,6 +19,15 @@ TENANT_REQUEST_BURST="${XUANTONG_LOAD_TENANT_REQUEST_BURST:-}"
 RUN_LABEL="${XUANTONG_LOAD_RUN_LABEL:-}"
 BUILD_REVISION="${XUANTONG_LOAD_BUILD_REVISION:-}"
 BUILD_STATE="${XUANTONG_LOAD_BUILD_STATE:-}"
+TOPOLOGY_FAILOVER="${XUANTONG_LOAD_TOPOLOGY_FAILOVER:-true}"
+SPLIT_CHILD_MAX_HEAP_MB="${XUANTONG_LOAD_SPLIT_CHILD_MAX_HEAP_MB:-512}"
+SPLIT_STARTUP_TIMEOUT_SECONDS="${XUANTONG_LOAD_SPLIT_STARTUP_TIMEOUT_SECONDS:-60}"
+SPLIT_CRASH_TARGET="${XUANTONG_LOAD_SPLIT_CRASH_TARGET:-follower}"
+
+if [[ "$SPLIT_CRASH_TARGET" != "leader" && "$SPLIT_CRASH_TARGET" != "follower" ]]; then
+  echo "XUANTONG_LOAD_SPLIT_CRASH_TARGET must be leader or follower" >&2
+  exit 2
+fi
 
 if [[ "$REPORT_DIR" != /* ]]; then
   REPORT_DIR="$REPO_ROOT/$REPORT_DIR"
@@ -40,6 +49,19 @@ if [[ -z "$BUILD_STATE" ]]; then
 fi
 
 mkdir -p "$REPORT_DIR"
+
+preserve_failed_split_report() {
+  local name="$1"
+  local temporary_report="$2"
+  if [[ ! -s "$temporary_report" ]]; then
+    rm -f -- "$temporary_report"
+    return
+  fi
+  local failed_report
+  failed_report="$REPORT_DIR/${name}.failed-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}.jsonl"
+  mv -f -- "$temporary_report" "$failed_report"
+  echo "Preserved failed split-topology report: $failed_report" >&2
+}
 
 run_profile() {
   local name="$1"
@@ -107,6 +129,87 @@ run_profile() {
   (cd "$REPO_ROOT" && "$MVN_BIN" "${mvn_args[@]}")
 }
 
+run_topology_profile() {
+  local name="$1"
+  local duration="$2"
+  local clients="$3"
+  local watchers="$4"
+  local concurrency="$5"
+  local report="$REPORT_DIR/${name}.jsonl"
+  local mvn_args=(
+    -pl xuantong-server
+    -am
+    -Dtest=ControlPlaneProductionTopologyLoadTest
+    -Dsurefire.failIfNoSpecifiedTests=false
+    -Dxuantong.topology.enabled=true
+    "-Dxuantong.topology.durationSeconds=$duration"
+    "-Dxuantong.topology.clients=$clients"
+    "-Dxuantong.topology.watchers=$watchers"
+    "-Dxuantong.topology.fetchConcurrency=$concurrency"
+    "-Dxuantong.topology.fetchRatePerSecond=$FETCH_RATE"
+    "-Dxuantong.topology.publishRatePerMinute=$PUBLISH_RATE"
+    "-Dxuantong.topology.payloadBytes=$PAYLOAD_BYTES"
+    "-Dxuantong.topology.failoverEnabled=$TOPOLOGY_FAILOVER"
+    "-Dxuantong.topology.runLabel=$RUN_LABEL"
+    "-Dxuantong.topology.buildRevision=$BUILD_REVISION"
+    "-Dxuantong.topology.buildState=$BUILD_STATE"
+    "-Dxuantong.topology.reportPath=$report"
+    test
+  )
+
+  (cd "$REPO_ROOT" && "$MVN_BIN" "${mvn_args[@]}")
+}
+
+run_split_topology_profile() {
+  local name="$1"
+  local duration="$2"
+  local clients="$3"
+  local watchers="$4"
+  local concurrency="$5"
+  local crash_target="${6:-$SPLIT_CRASH_TARGET}"
+  local report="$REPORT_DIR/${name}.jsonl"
+  local temporary_report=
+  temporary_report="$REPORT_DIR/.${name}.tmp-$$-${RANDOM}.jsonl"
+  local mvn_args=(
+    -pl xuantong-server
+    -am
+    -Dtest=ControlPlaneSplitProcessTopologyLoadTest
+    -Dsurefire.failIfNoSpecifiedTests=false
+    -Dxuantong.splitTopology.enabled=true
+    "-Dxuantong.splitTopology.durationSeconds=$duration"
+    "-Dxuantong.splitTopology.clients=$clients"
+    "-Dxuantong.splitTopology.watchers=$watchers"
+    "-Dxuantong.splitTopology.fetchConcurrency=$concurrency"
+    "-Dxuantong.splitTopology.fetchRatePerSecond=$FETCH_RATE"
+    "-Dxuantong.splitTopology.publishRatePerMinute=$PUBLISH_RATE"
+    "-Dxuantong.splitTopology.payloadBytes=$PAYLOAD_BYTES"
+    "-Dxuantong.splitTopology.childMaxHeapMb=$SPLIT_CHILD_MAX_HEAP_MB"
+    "-Dxuantong.splitTopology.startupTimeoutSeconds=$SPLIT_STARTUP_TIMEOUT_SECONDS"
+    "-Dxuantong.splitTopology.sampleIntervalSeconds=$SAMPLE_INTERVAL"
+    "-Dxuantong.splitTopology.crashTarget=$crash_target"
+    "-Dxuantong.splitTopology.runLabel=$RUN_LABEL"
+    "-Dxuantong.splitTopology.buildRevision=$BUILD_REVISION"
+    "-Dxuantong.splitTopology.buildState=$BUILD_STATE"
+    "-Dxuantong.splitTopology.reportPath=$temporary_report"
+  )
+
+  if [[ -n "$GROWTH_WARMUP" ]]; then
+    mvn_args+=("-Dxuantong.splitTopology.growthWarmupSeconds=$GROWTH_WARMUP")
+  fi
+  mvn_args+=(test)
+
+  if ! (cd "$REPO_ROOT" && "$MVN_BIN" "${mvn_args[@]}"); then
+    preserve_failed_split_report "$name" "$temporary_report"
+    return 1
+  fi
+  if ! "$REPO_ROOT/scripts/verify-control-plane-load-report.sh" \
+      split-topology "$temporary_report" "$crash_target"; then
+    preserve_failed_split_report "$name" "$temporary_report"
+    return 1
+  fi
+  mv -f -- "$temporary_report" "$report"
+}
+
 case "$MODE" in
   staircase)
     IFS=',' read -r -a stages <<< "${XUANTONG_LOAD_STAGES:-16,32,64,128}"
@@ -126,8 +229,107 @@ case "$MODE" in
   soak72)
     run_profile "soak-72h" 259200 "$CLIENTS" "$WATCHERS" "$FETCH_CONCURRENCY"
     ;;
+  topology)
+    run_topology_profile \
+      "production-topology" \
+      "${XUANTONG_LOAD_TOPOLOGY_DURATION_SECONDS:-300}" \
+      "$CLIENTS" \
+      "$WATCHERS" \
+      "$FETCH_CONCURRENCY"
+    ;;
+  topology-staircase)
+    IFS=',' read -r -a stages <<< "${XUANTONG_LOAD_TOPOLOGY_STAGES:-12,24,48}"
+    duration="${XUANTONG_LOAD_TOPOLOGY_STAGE_DURATION_SECONDS:-300}"
+    for clients in "${stages[@]}"; do
+      watchers="$clients"
+      concurrency="$clients"
+      if (( concurrency > 64 )); then
+        concurrency=64
+      fi
+      run_topology_profile \
+        "production-topology-${clients}" \
+        "$duration" \
+        "$clients" \
+        "$watchers" \
+        "$concurrency"
+    done
+    ;;
+  split-topology)
+    run_split_topology_profile \
+      "split-process-topology" \
+      "${XUANTONG_LOAD_SPLIT_DURATION_SECONDS:-300}" \
+      "$CLIENTS" \
+      "$WATCHERS" \
+      "$FETCH_CONCURRENCY"
+    ;;
+  split-topology-staircase)
+    IFS=',' read -r -a stages <<< "${XUANTONG_LOAD_SPLIT_STAGES:-6,12,24}"
+    duration="${XUANTONG_LOAD_SPLIT_STAGE_DURATION_SECONDS:-300}"
+    for clients in "${stages[@]}"; do
+      watchers="$clients"
+      concurrency="$clients"
+      if (( concurrency > 64 )); then
+        concurrency=64
+      fi
+      run_split_topology_profile \
+        "split-process-topology-${clients}" \
+        "$duration" \
+        "$clients" \
+        "$watchers" \
+        "$concurrency"
+    done
+    ;;
+  split-topology-matrix)
+    for crash_target in follower leader; do
+      run_split_topology_profile \
+        "split-process-topology-${crash_target}" \
+        "${XUANTONG_LOAD_SPLIT_DURATION_SECONDS:-300}" \
+        "$CLIENTS" \
+        "$WATCHERS" \
+        "$FETCH_CONCURRENCY" \
+        "$crash_target"
+    done
+    ;;
+  split-topology-matrix-staircase)
+    IFS=',' read -r -a stages <<< "${XUANTONG_LOAD_SPLIT_STAGES:-6,12,24}"
+    duration="${XUANTONG_LOAD_SPLIT_STAGE_DURATION_SECONDS:-300}"
+    for clients in "${stages[@]}"; do
+      watchers="$clients"
+      concurrency="$clients"
+      if (( concurrency > 64 )); then
+        concurrency=64
+      fi
+      for crash_target in follower leader; do
+        run_split_topology_profile \
+          "split-process-topology-${crash_target}-${clients}" \
+          "$duration" \
+          "$clients" \
+          "$watchers" \
+          "$concurrency" \
+          "$crash_target"
+      done
+    done
+    ;;
+  split-topology-soak24)
+    run_split_topology_profile \
+      "split-process-topology-${SPLIT_CRASH_TARGET}-soak-24h" \
+      86400 \
+      "$CLIENTS" \
+      "$WATCHERS" \
+      "$FETCH_CONCURRENCY" \
+      "$SPLIT_CRASH_TARGET"
+    ;;
+  split-topology-soak72)
+    run_split_topology_profile \
+      "split-process-topology-${SPLIT_CRASH_TARGET}-soak-72h" \
+      259200 \
+      "$CLIENTS" \
+      "$WATCHERS" \
+      "$FETCH_CONCURRENCY" \
+      "$SPLIT_CRASH_TARGET"
+    ;;
   *)
-    echo "Usage: $0 {staircase|soak24|soak72}" >&2
+    echo "Usage: $0 {staircase|soak24|soak72|topology|topology-staircase|split-topology|split-topology-staircase|split-topology-matrix|split-topology-matrix-staircase|split-topology-soak24|split-topology-soak72}" >&2
     exit 2
     ;;
 esac

@@ -847,7 +847,11 @@ public class SocketDTransport implements ConfigTransport {
         return isRoutable(connection) ? 1 : 0;
     }
 
-    int activeGatewayIndex() {
+    /**
+     * Index of the currently routable Gateway in the configured address list,
+     * or {@code -1} while no Gateway is routable.
+     */
+    public int activeGatewayIndex() {
         GatewayConnection connection = activeConnection.get();
         return isRoutable(connection) ? connection.gatewayIndex : -1;
     }

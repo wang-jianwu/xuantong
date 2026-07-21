@@ -31,6 +31,7 @@ public final class RatisStateClient implements StateClient {
     private final RatisGroupDefinition group;
     private final Duration requestTimeout;
     private final int maxAttempts;
+    private RaftPeerId leaderHint;
     private RaftClient client;
     private boolean closed;
 
@@ -38,6 +39,14 @@ public final class RatisStateClient implements StateClient {
             RatisGroupDefinition group,
             Duration requestTimeout,
             int maxAttempts) {
+        this(group, requestTimeout, maxAttempts, null);
+    }
+
+    public RatisStateClient(
+            RatisGroupDefinition group,
+            Duration requestTimeout,
+            int maxAttempts,
+            String initialLeaderId) {
         if (group == null) {
             throw new IllegalArgumentException("group must not be null");
         }
@@ -50,6 +59,10 @@ public final class RatisStateClient implements StateClient {
         this.group = group;
         this.requestTimeout = requestTimeout;
         this.maxAttempts = maxAttempts;
+        if (initialLeaderId != null && !initialLeaderId.isBlank()) {
+            group.requirePeer(initialLeaderId);
+            this.leaderHint = RaftPeerId.valueOf(initialLeaderId);
+        }
         this.client = createClient();
     }
 
@@ -58,12 +71,15 @@ public final class RatisStateClient implements StateClient {
         RaftConfigKeys.Rpc.setType(properties, SupportedRpcType.GRPC);
         RaftClientConfigKeys.Rpc.setRequestTimeout(properties,
                 duration(requestTimeout));
-        return RaftClient.newBuilder()
+        RaftClient.Builder builder = RaftClient.newBuilder()
                 .setRaftGroup(group.toRaftGroup())
                 .setProperties(properties)
                 .setRetryPolicy(RetryPolicies.retryUpToMaximumCountWithFixedSleep(
-                        maxAttempts, TimeDuration.valueOf(100, TimeUnit.MILLISECONDS)))
-                .build();
+                        maxAttempts, TimeDuration.valueOf(100, TimeUnit.MILLISECONDS)));
+        if (leaderHint != null) {
+            builder.setLeaderId(leaderHint);
+        }
+        return builder.build();
     }
 
     public RatisResult write(byte[] command) throws IOException {
@@ -344,6 +360,10 @@ public final class RatisStateClient implements StateClient {
         synchronized (this) {
             if (client != expected) {
                 return;
+            }
+            RaftPeerId observedLeader = expected.getLeaderId();
+            if (observedLeader != null) {
+                leaderHint = observedLeader;
             }
             retired = client;
             client = null;

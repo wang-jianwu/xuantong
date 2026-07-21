@@ -40,40 +40,52 @@ public final class XuantongProbeApplication {
             ProbeSettings settings,
             ControlPlaneProbeRunner runner,
             ProbeMetrics metrics) throws Exception {
-        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
-                runnable -> {
-                    Thread thread = new Thread(runnable, "xuantong-probe-scheduler");
-                    thread.setDaemon(true);
-                    return thread;
-                });
-        ProbeHttpServer server = new ProbeHttpServer(
-                settings.bindHost(), settings.port(), metrics);
-        AtomicBoolean closed = new AtomicBoolean();
-        Runnable shutdown = () -> {
-            if (closed.compareAndSet(false, true)) {
-                scheduler.shutdownNow();
-                server.close();
+        try (ScheduledExecutorService scheduler =
+                     Executors.newSingleThreadScheduledExecutor(runnable -> {
+                         Thread thread = new Thread(
+                                 runnable, "xuantong-probe-scheduler");
+                         thread.setDaemon(true);
+                         return thread;
+                     });
+             ProbeHttpServer server = new ProbeHttpServer(
+                     settings.bindHost(), settings.port(), metrics)) {
+            AtomicBoolean closed = new AtomicBoolean();
+            Runnable shutdown = () -> {
+                if (closed.compareAndSet(false, true)) {
+                    scheduler.shutdownNow();
+                    server.close();
+                }
+            };
+            Runtime runtime = Runtime.getRuntime();
+            Thread shutdownHook = new Thread(shutdown, "xuantong-probe-shutdown");
+            boolean shutdownHookRegistered = false;
+            try {
+                runtime.addShutdownHook(shutdownHook);
+                shutdownHookRegistered = true;
+                scheduler.scheduleWithFixedDelay(
+                        () -> metrics.record(runner.run()),
+                        0L,
+                        settings.intervalMs(),
+                        TimeUnit.MILLISECONDS);
+                server.start();
+                System.err.println("Xuantong external probe listening on http://"
+                        + settings.bindHost() + ':' + settings.port()
+                        + " for profile=" + settings.profile().label());
+                new CountDownLatch(1).await();
+            } finally {
+                shutdown.run();
+                if (shutdownHookRegistered) {
+                    try {
+                        runtime.removeShutdownHook(shutdownHook);
+                    } catch (IllegalStateException ignored) {
+                        // JVM shutdown has started; the hook owns cleanup now.
+                    }
+                }
             }
-        };
-        Runtime.getRuntime().addShutdownHook(new Thread(shutdown, "xuantong-probe-shutdown"));
-        scheduler.scheduleWithFixedDelay(
-                () -> metrics.record(runner.run()),
-                0L,
-                settings.intervalMs(),
-                TimeUnit.MILLISECONDS);
-        server.start();
-        System.err.println("Xuantong external probe listening on http://"
-                + settings.bindHost() + ':' + settings.port()
-                + " for profile=" + settings.profile().label());
-        try {
-            new CountDownLatch(1).await();
-        } finally {
-            shutdown.run();
         }
     }
 
     private static void printUsage() {
-        System.out.println("Usage: java -jar xuantong-probe.jar [--once|--serve|--help]");
         System.out.println("Configuration is read from XUANTONG_PROBE_* environment variables.");
     }
 

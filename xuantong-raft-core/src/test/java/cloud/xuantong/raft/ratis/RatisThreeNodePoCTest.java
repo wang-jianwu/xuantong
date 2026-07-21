@@ -72,6 +72,26 @@ class RatisThreeNodePoCTest {
             node.awaitReady(List.of(cluster.group().groupId()), Duration.ofSeconds(10));
             assertTrue(node.isReady(List.of(cluster.group().groupId())));
         }
+        List<RatisGroupRuntimeStatus> statuses = cluster.nodes().values().stream()
+                .map(node -> runtimeStatus(node, cluster.group().groupId()))
+                .toList();
+        assertEquals(1L, statuses.stream()
+                .filter(RatisGroupRuntimeStatus::leader)
+                .count());
+        assertTrue(statuses.stream().allMatch(
+                status -> status.alive()
+                        && !status.leaderId().isBlank()
+                        && status.lastCommittedIndex() >= 0L
+                        && status.lastAppliedIndex() >= 0L));
+    }
+
+    private RatisGroupRuntimeStatus runtimeStatus(
+            RatisStateNode node, StateGroupId groupId) {
+        try {
+            return node.groupRuntimeStatus(groupId);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read Ratis Group status", e);
+        }
     }
 
     @Test

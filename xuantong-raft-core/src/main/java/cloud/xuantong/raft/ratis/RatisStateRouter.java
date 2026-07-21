@@ -32,7 +32,8 @@ public final class RatisStateRouter implements StateClient {
             Collection<RatisGroupDefinition> groups,
             Duration requestTimeout,
             int maxAttempts) {
-        this(groups, requestTimeout, maxAttempts, StateWriteAdmission.allowAll());
+        this(groups, requestTimeout, maxAttempts,
+                StateWriteAdmission.allowAll(), Map.of());
     }
 
     public RatisStateRouter(
@@ -40,6 +41,15 @@ public final class RatisStateRouter implements StateClient {
             Duration requestTimeout,
             int maxAttempts,
             StateWriteAdmission writeAdmission) {
+        this(groups, requestTimeout, maxAttempts, writeAdmission, Map.of());
+    }
+
+    public RatisStateRouter(
+            Collection<RatisGroupDefinition> groups,
+            Duration requestTimeout,
+            int maxAttempts,
+            StateWriteAdmission writeAdmission,
+            Map<StateGroupId, String> initialLeaderIds) {
         if (groups == null || groups.isEmpty()) {
             throw new IllegalArgumentException("groups must not be empty");
         }
@@ -54,10 +64,17 @@ public final class RatisStateRouter implements StateClient {
         if (writeAdmission == null) {
             throw new IllegalArgumentException("writeAdmission must not be null");
         }
+        Map<StateGroupId, String> leaderIds = initialLeaderIds == null
+                ? Map.of()
+                : Map.copyOf(initialLeaderIds);
         Map<StateGroupId, ClientSlot> created = new LinkedHashMap<>();
         try {
             for (RatisGroupDefinition group : groups) {
-                ClientSlot slot = new ClientSlot(group, requestTimeout, maxAttempts);
+                ClientSlot slot = new ClientSlot(
+                        group,
+                        requestTimeout,
+                        maxAttempts,
+                        leaderIds.get(group.groupId()));
                 if (created.putIfAbsent(group.groupId(), slot) != null) {
                     slot.close();
                     throw new IllegalArgumentException(
@@ -105,7 +122,7 @@ public final class RatisStateRouter implements StateClient {
                 continue;
             }
             ClientSlot next = new ClientSlot(
-                    replacement, previous.requestTimeout, previous.maxAttempts);
+                    replacement, previous.requestTimeout, previous.maxAttempts, null);
             clients.put(replacement.groupId(), next);
             try {
                 previous.close();
@@ -194,16 +211,19 @@ public final class RatisStateRouter implements StateClient {
         private final RatisGroupDefinition group;
         private final Duration requestTimeout;
         private final int maxAttempts;
+        private String initialLeaderId;
         private RatisStateClient client;
         private boolean closed;
 
         private ClientSlot(
                 RatisGroupDefinition group,
                 Duration requestTimeout,
-                int maxAttempts) {
+                int maxAttempts,
+                String initialLeaderId) {
             this.group = group;
             this.requestTimeout = requestTimeout;
             this.maxAttempts = maxAttempts;
+            this.initialLeaderId = initialLeaderId;
         }
 
         private <T> CompletableFuture<T> execute(
@@ -230,7 +250,9 @@ public final class RatisStateRouter implements StateClient {
                         "State router is closed for " + group.groupId());
             }
             if (client == null) {
-                client = new RatisStateClient(group, requestTimeout, maxAttempts);
+                client = new RatisStateClient(
+                        group, requestTimeout, maxAttempts, initialLeaderId);
+                initialLeaderId = null;
             }
             return client;
         }

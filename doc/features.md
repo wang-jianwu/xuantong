@@ -417,6 +417,11 @@ stateDiagram-v2
 - Raft 存储扫描完整性、剩余字节/最低水位、WAL/Snapshot 文件数与字节数，以及 Snapshot checksum verified/mismatch/unverified/failure
 - 参数化真实 Socket.D TCP + Ratis 容量基准，输出吞吐、P50/P95/P99 和资源回收报告
 - 参数化 staircase/24 小时/72 小时长稳 Runner：`fetchRate=0` 为显式高测试配额的容量饱和模式，`fetchRate>0` 为配额高于目标速率的受控无损模式；JSONL 写出 run label、Git revision/clean-dirty、生产传输路径、Java/JVM、Socket.D/Solon/Ratis、OS/硬件、实际 tenant rate/burst 和限流总量，并周期输出 heap/non-heap、GC 后存活堆、GC、Direct/Mapped Buffer、线程、Gateway Session/Subscription/ACK/在途请求/队列、客户端活动 Session/in-flight request waits/注册 Watch/活动 SubscribeStream、WAL/Snapshot。增长从显式 warmup 后计算，24/72 小时默认 300 秒；固定桶延迟直方图不会随请求总量无限增长，任何配额拒绝都不会被冒充为 Socket.D 或 State Plane 容量失败
+- `topology/topology-staircase` 在单测试 JVM 内启动 3 个独立 Gateway、3 个独立 State Runtime 和真实三 voter Config Ratis Group；客户端首选地址轮转分布且最多保留 1 个活动 Session，停止 Gateway A 后只顺序打开 1 个备用地址并最终恢复。报告逐 Gateway/逐 voter 输出负载、leader、term、committed/applied index 和存储指标；该入口验证逻辑生产拓扑，不替代目标机器拆分进程容量与长稳
+- `split-topology/split-topology-staircase` 启动 3 个独立 Server 子 JVM，每个进程运行生产原生 Socket.D Gateway 和一个 Config Ratis voter；中途强杀完整 Gateway/voter 进程后，验证每客户端最多一个活动 Session、故障窗口可短暂无 Session、同一总 deadline 内有界顺序切换、剩余 quorum 继续发布、Watch/revision 收敛、逐进程日志样本和关闭后资源归零。报告区分 follower-loss 与 leader-loss：前者要求 Fetch 零失败，后者只允许不超过故障瞬间 Fetch 并发数的选主窗口瞬时失败，之后必须恢复。显式执行但无法绑定本机 TCP 时硬失败，不允许跳过后假绿；同机子进程结果仍不冒充目标生产规格
+- `split-topology-matrix/split-topology-matrix-staircase` 自动按 follower/leader 故障角色和 Client 档位运行，`split-topology-soak24/split-topology-soak72` 提供两个故障角色分别执行的拆分进程长稳入口。JSONL 由 `pre-crash/post-crash/final` 三阶段周期 `sample` 与最终 `summary` 组成；故障前采集三个子 JVM，故障后采集固定两个存活 JVM，每条样本带全程/阶段耗时并立即 flush。增长只使用 `post-crash + final`，final sample 必须在有界期限内达到 Server/Client 零 in-flight；同机短窗口只验证报告工具，不作为泄漏、容量或 SLO 结论
+- `scripts/verify-control-plane-load-report.sh` 使用 `jq` 独立复验拆分报告，并已强制接入全部 `split-topology*` Runner；每次运行先写唯一临时 JSONL，只有 Maven 和验收器都成功才原子发布，旧报告不能冒充本次证据。Maven 或验收器失败时，已实时写出的 partial 报告保留为 `.failed-*.jsonl`。报告行序、三阶段节点数、故障角色、失败预算、Session/Watch、双 voter 收敛、Gateway accepted/completed、关闭资源或日志预算任一不一致都会使 Runner 失败。验收器不虚构短窗口资源增长阈值，目标机器生成的归档 JSONL 可在其他环境重复验证
+- GitHub CI 的独立 `control-plane-fault-matrix` Job 在 Ubuntu 24.04/JDK 21 上运行最小 follower/leader 拆分进程矩阵、执行同一报告门禁并上传 JSONL Artifact；用于防回退，不作为生产容量或长稳证据
 - `ControlPlaneTransportMetricsSnapshot` 提供公开、无反射的客户端运行快照；Socket.D 2.6.0 未公开内部 RequestStream manager 大小，因此内部 RequestStream 泄漏通过客户端 waits、Gateway accepted/completed、Session 和线程回收组合判断，不声称不存在的精确内部计数
 - Ratis Snapshot 默认有界保留 3 份；客户端 Socket.D 工作执行器与维护调度器按 JVM 共享，每连接一个 Netty I/O/codec 线程
 - 真实慢消费者测试验证未 ACK Watch 在 deadline 后关闭 Session，并回收 Subscription 与 pending ACK
@@ -431,6 +436,7 @@ stateDiagram-v2
 - WAL 文件头损坏时 Ratis 启动抛出 `CorruptedFileException`，State Node 保持不健康
 - `XUANTONG_STATE_STORAGE_FREE_MIN_BYTES` 默认预留 512 MiB；低于水位或 bootstrap Division 初始化失败时节点拒绝上线，`JOIN_EXISTING` 空节点只存活不就绪
 - 普通 State Runtime 以 `XUANTONG_CONFIG_STATE_STARTUP_READY_TIMEOUT_MS` 为上限，等待所有 Config/Registry Group 观察到可用 Leader 后才注册业务处理器；本地 Leader 必须 leader-ready，Follower 必须应用当前任期的启动配置条目。`JOIN_EXISTING` 跳过阻塞但健康状态保持 DOWN，避免正常选主窗口制造业务 `NotLeader/AlreadyClosed` ERROR
+- State Router 创建内部 Ratis Client 时使用本地 Division 已观察到的 leader 作为初始提示，避免首次线性读随机命中 follower 后由 Ratis 打印正常重定向 `NotLeader` ERROR；真实换主后仍由 Ratis 协议更新 leader，不把初始提示当作固定路由
 - 运行期 Config/Registry 写统一在 `RatisStateRouter` 前检查目录可写性和可用空间；低水位返回 `STORAGE_EXHAUSTED + NOT_COMMITTED`，目录不可写返回 `STATE_UNAVAILABLE + NOT_COMMITTED`，管理写、Socket.D 写和 Registry 过期任务不能绕过
 - 受限 APFS 卷真实 ENOSPC 验收：请求进入 Raft 后递进耗尽专用卷，Ratis WAL index 3 预分配扩容抛出 `No space left on device`；客户端保持 `UNKNOWN`，释放空间重启后先 Resolve，只有未提交才复用原 `operationId`。macOS 入口为 `scripts/run-ratis-enospc-test.sh`，默认回归跳过且安全拒绝系统盘、工作区和大于 1 GiB 的卷
 - 独立 JVM 强制终止、不执行 `close()`/Snapshot 后，已确认写入可从 WAL 恢复并继续提交
@@ -476,7 +482,7 @@ Schema 功能合同：
 
 待完成：
 
-- 目标生产规格的阶梯负载和 24/72 小时长稳。
+- 目标生产规格、真实拆分 Server 机器和网络条件下的阶梯负载，以及 24/72 小时长稳。
 - 正式 SLO 校准与真实网络 30 天 Probe/Lease 数据；SDK Lease 续租余量、外部 Probe、默认告警规则和 Dashboard 已提供。
 - 取得 MySQL 脚本恢复与 H2/MySQL 联合恢复的 CI 首次绿灯，并在目标生产 MySQL 版本、网络、备份介质和完整 Server/Gateway 拓扑中完成隔离复演；通用远程 MySQL 9.5.0 联合验收已通过，但不能替代目标环境。PostgreSQL 不属于 2.0 官方生产矩阵。
 - 证书轮换工具和演练。

@@ -583,9 +583,71 @@ XUANTONG_LOAD_FETCH_RATE_PER_SECOND=500 \
 ./scripts/run-control-plane-load.sh soak24
 
 ./scripts/run-control-plane-load.sh soak72
+
+# 单测试 JVM 内启动 3 Gateway + 3 voter，默认中途停止 Gateway A
+XUANTONG_LOAD_CLIENTS=24 \
+XUANTONG_LOAD_WATCHERS=24 \
+XUANTONG_LOAD_FETCH_CONCURRENCY=16 \
+XUANTONG_LOAD_FETCH_RATE_PER_SECOND=1000 \
+./scripts/run-control-plane-load.sh topology
+
+# 12 → 24 → 48 Client 的三 Gateway、三 voter 逻辑拓扑阶梯
+./scripts/run-control-plane-load.sh topology-staircase
+
+# 3 个独立 Server 子 JVM；每个进程包含 1 Gateway + 1 voter，
+# 中途强杀整个 Server 进程并验证剩余 quorum、客户端切换和 Watch 收敛
+XUANTONG_LOAD_CLIENTS=12 \
+XUANTONG_LOAD_WATCHERS=12 \
+XUANTONG_LOAD_FETCH_CONCURRENCY=12 \
+XUANTONG_LOAD_FETCH_RATE_PER_SECOND=500 \
+XUANTONG_LOAD_SPLIT_CHILD_MAX_HEAP_MB=512 \
+./scripts/run-control-plane-load.sh split-topology
+
+# 显式强杀当前 Raft Leader；默认 crash target 为 follower
+XUANTONG_LOAD_SPLIT_CRASH_TARGET=leader \
+./scripts/run-control-plane-load.sh split-topology
+
+# 6 → 12 → 24 Client 的拆分 JVM 拓扑阶梯
+./scripts/run-control-plane-load.sh split-topology-staircase
+
+# 自动依次执行 follower-loss 与 leader-loss，报告分别落盘
+./scripts/run-control-plane-load.sh split-topology-matrix
+
+# 每个 Client 档位都执行 follower-loss 与 leader-loss
+./scripts/run-control-plane-load.sh split-topology-matrix-staircase
+
+# 拆分进程 24/72 小时长稳；两个故障角色必须分别执行
+XUANTONG_LOAD_SPLIT_CRASH_TARGET=follower \
+./scripts/run-control-plane-load.sh split-topology-soak24
+
+XUANTONG_LOAD_SPLIT_CRASH_TARGET=leader \
+./scripts/run-control-plane-load.sh split-topology-soak24
+
+XUANTONG_LOAD_SPLIT_CRASH_TARGET=follower \
+./scripts/run-control-plane-load.sh split-topology-soak72
+
+XUANTONG_LOAD_SPLIT_CRASH_TARGET=leader \
+./scripts/run-control-plane-load.sh split-topology-soak72
 ```
 
-如需覆盖测试 Gateway 配额，可显式设置 `XUANTONG_LOAD_TENANT_REQUEST_RATE_PER_SECOND` 和 `XUANTONG_LOAD_TENANT_REQUEST_BURST`；它们只属于测试 Profile，不会修改 Server 的生产默认值。受控模式要求测试 rate 严格大于 Fetch 目标速率，burst 至少覆盖 Client 初始化 Fetch 与 Watch 建立请求，否则 Runner 会在启动前拒绝参数。
+`staircase/soak24/soak72` 如需覆盖测试 Gateway 配额，可显式设置 `XUANTONG_LOAD_TENANT_REQUEST_RATE_PER_SECOND` 和 `XUANTONG_LOAD_TENANT_REQUEST_BURST`；它们只属于测试 Profile，不会修改 Server 的生产默认值。受控模式要求测试 rate 严格大于 Fetch 目标速率，burst 至少覆盖 Client 初始化 Fetch 与 Watch 建立请求，否则 Runner 会在启动前拒绝参数。`topology` 模式固定使用显式高测试配额，容量结果中的任何限流仍会使验收失败。
+
+`topology` 与 `topology-staircase` 使用真实原生 Socket.D TCP 和真实三 voter Config Ratis Group。三个客户端首选地址按 Gateway 轮转分布，每个客户端最多保留一个活动 Session；开启 `XUANTONG_LOAD_TOPOLOGY_FAILOVER=true` 时，Runner 会停止 Gateway A，并要求客户端只顺序切换一个可用地址并最终恢复。报告逐 Gateway 记录请求、Session、Watch 和队列峰值，逐 voter 记录 leader、term、committed/applied index 与 WAL/Snapshot 大小。它仍是单测试 JVM 的逻辑生产拓扑验收。
+
+`split-topology`、`split-topology-staircase` 及其 `matrix` 变体更接近部署形态：测试驱动 JVM 启动 3 个独立 Server 子 JVM，每个子进程运行生产原生 Socket.D Gateway 和同一 Config Ratis Group 的一个 voter；故障阶段使用 `destroyForcibly()` 强杀整个 Gateway/voter 进程。每个客户端任何时刻最多保留一个活动 Session，故障切换窗口允许短暂无 Session，最终必须恢复为一个；一次请求最多在同一总 deadline 内顺序尝试一个备用地址。剩余两个 voter 必须维持 quorum、继续发布并让 Watch/revision 收敛。强杀 follower 时要求 Fetch 零失败；恰好强杀 Leader 时，选主窗口内 Transport Fetch 失败最多不能超过故障瞬间的 Fetch 并发数，随后必须完全恢复。`split-topology-matrix` 自动依次执行 follower-loss 和 leader-loss，`split-topology-matrix-staircase` 则对每个 Client 档位执行完整故障矩阵，并使用独立报告文件避免覆盖。
+
+拆分进程报告是 JSONL：前面是多行 `type=sample`，最后一行是 `type=summary`。样本分为 `pre-crash`、`post-crash` 和唯一的 `final` 三阶段；故障前记录三个子 JVM，故障后和 final 固定记录两个存活子 JVM。每条样本都带全程 `elapsedMs`、阶段内 `phaseElapsedMs`，写入后立即 flush，因此 24/72 小时运行中途失败也能留下截至故障点的完整 JSON 行。周期样本汇总当前/峰值工作队列与 State callback 队列、heap/non-heap、GC 后存活堆、GC、Direct/Mapped Buffer、线程、Gateway Session/Subscription/ACK/in-flight、客户端 Session/request wait/Watch/SubscribeStream 以及 WAL/Snapshot；同时记录 `clientMinActiveSessions`、`clientMaxActiveSessions`、`clientsWithoutActiveSession` 和 `clientsWithMultipleActiveSessions`，因此能区分顺序切换中的短暂断连与错误的双 Session。`growth` 只从 `post-crash + final` 的固定两节点集合计算，不把“3 个进程变 2 个进程”直接当资源下降；关闭前 final sample 必须同时达到 Server/Client 零 in-flight，关闭后生命周期计数必须归零。可使用 `XUANTONG_LOAD_SAMPLE_INTERVAL_SECONDS` 和 `XUANTONG_LOAD_GROWTH_WARMUP_SECONDS` 调整采样与增长窗口。显式执行这些模式时，如果本机不能绑定 TCP 端口，测试会硬失败而不是跳过后假绿。该入口仍运行在同一台开发机，短时 growth 只验证报告工具，不替代目标机器、真实网络和 24/72 小时长稳。
+
+所有 `split-topology*` Runner 在 Maven 测试成功后还会强制调用 `scripts/verify-control-plane-load-report.sh`，因此运行环境需要 `jq`。每次运行先写同一报告目录下的唯一临时 JSONL，只有 Maven 成功且独立验收通过后才原子替换最终报告；失败不会让旧报告冒充本次证据，也不会破坏上一次已验证报告。Maven 或验收器失败时，Runner 会把已实时写出的临时报告保留为 `<报告名>.failed-<UTC时间>-<pid>-<random>.jsonl`，而不是删除 24/72 小时诊断证据。验收器重新解析完整 JSONL，而不是只相信测试退出码：检查 summary 位于最后一行、`pre-crash/post-crash/final` 行序与节点数、样本数和 growth 窗口一致、故障角色匹配、单客户端最多一个 Session、follower/leader Fetch 失败预算、最终 Session/Watch/SubscribeStream 恢复、两个存活 voter 的 Leader 与 committed/applied index 收敛、Gateway accepted/completed 配平、关闭后资源归零和 WARN/ERROR 有界。拿到已归档报告后也可独立复验：
+
+```bash
+./scripts/verify-control-plane-load-report.sh \
+  split-topology output/load-reports/split-process-topology-follower.jsonl follower
+```
+
+该门禁只验证协议、故障与生命周期不变量，不对短窗口 heap、线程或 Buffer growth 设置虚构阈值；生产增长阈值仍必须由目标规格 24/72 小时数据校准。
+
+GitHub CI 还会在独立 `control-plane-fault-matrix` Job 中，以 Ubuntu 24.04、JDK 21 和 3 Client 执行最小 follower/leader 拆分进程矩阵，自动运行同一验收器并上传 JSONL Artifact。它用于阻止生产 Socket.D TCP 路径、选主故障合同或报告校验器回退，不属于容量证明。
 
 2026-07-20 在 Apple M2 8 核、24 GB、JDK 21 开发机上，以单 JVM 同时运行 Client、Gateway 与单节点 Ratis，完成了每档 30 秒、1 KiB Payload、每分钟 12 次发布的短阶梯：
 
@@ -599,6 +661,12 @@ XUANTONG_LOAD_FETCH_RATE_PER_SECOND=500 \
 四档均无 revision 回退、发布失败、工作队列积压或 State callback 拒绝，关闭后 Server/Client Session、Subscription/SubscribeStream、客户端 request wait 和 Gateway 在途请求归零。吞吐在 16–32 Fetch 并发附近已进入平台区，继续提高 Client 数主要增加尾延迟和线程数。Socket.D 2.6.0 没有公开内部 RequestStream manager 的 size，因此玄同不会伪造“内部 RequestStream 精确数量”；`ControlPlaneTransportMetricsSnapshot` 与长稳报告组合使用客户端 in-flight request waits、Gateway accepted/completed 配平、Session 回收和连接线程归零。该结果只用于证明 Runner 语义与当前开发机短时边界，既不是生产默认配额，也不是拆分部署、多节点 Raft 或 24/72 小时长稳结论。结果默认写入被 Git 忽略的 `output/load-reports/*.jsonl`；未保存目标生产规格的完整阶梯和长稳报告前，不能宣布容量验收完成。
 
 同机又执行了 8 Client / 8 Watch、1,000 Fetch/s、60 秒的 `controlled-lossless` 报告验证：59,999 次 Fetch 全部成功，P99 上界 1 ms，11 次发布全部成功，0 限流、0 revision 回退。显式 30 秒 warmup 后，30.012–55.007 秒窗口内 GC 后存活堆变化为 -3,640 字节、活动线程变化为 0、注册 Watch 和活动 SubscribeStream 变化均为 0；关闭后 Server/Client Session、Subscription、在途请求、Watch 和 SubscribeStream 全部归零。该 60 秒结果只证明元数据、warmup 与增长报告口径可工作，不替代 24/72 小时长稳。
+
+三 Gateway、三 voter 的逻辑拓扑入口也完成了一次 8 秒冒烟：6 Client / 6 Watch、100 Fetch/s，中途停止 Gateway A；800 次 Fetch 和 3 次发布全部成功，P99 上界 5 ms，0 限流、0 revision 回退。受影响客户端各只打开一次备用 Gateway，三个 voter 最终 committed/applied index 一致；关闭后客户端 request wait、Watch、SubscribeStream，以及 Gateway Session、Subscription、在途请求全部归零。该结果只证明拓扑入口和顺序故障切换合同可工作。
+
+2026-07-21 通过 Runner 分别完成 follower-loss 与 leader-loss 两次拆分 JVM 冒烟：每次都在测试驱动进程外启动 3 个独立 Server 子 JVM，使用 3 Client / 3 Watch、30 Fetch/s 运行 5 秒，并强杀目标 Gateway/voter 整个进程。Follower-loss 完成 150 次 Fetch、0 失败，P99 上界 10 ms；Leader-loss 在选主窗口完成 65 次 Fetch、1 次瞬时失败，低于并发预算 3，P99 上界 10 s、最大约 8.0 s。两次均完成 3 次负载期/故障后发布，0 发布失败、0 revision 回退；剩余两个 voter 分别收敛到 committed/applied index 8 和 10，客户端关闭后活动 Session、request wait、Watch 和 SubscribeStream 全为 0，存活 Gateway 的 accepted/completed、Session 和 Subscription 计数配平。leader-loss 周期样本真实记录到一个客户端在选主/切换窗口短暂无 Session，约 8 秒后恢复；全部样本的 `clientMaxActiveSessions=1`、`clientsWithMultipleActiveSessions=0`，最终 3 个客户端和 3 个 Watch/SubscribeStream 全部收敛。State Router 在业务开放前把已观察到的 leader 作为 Ratis Client 初始提示，Follower-loss 启动/运行 ERROR 为 0；Leader-loss 的 Ratis leader-change WARN/ERROR 保持有界。该报告来自同一台开发机上的短测，资源 growth 只证明采样与故障合同可工作，不代表生产容量、泄漏结论或 SLO 已达标。
+
+报告门禁接入后又实际执行了 `XUANTONG_LOAD_SPLIT_STAGES=3,4` 的短矩阵阶梯。3/4 Client 的 follower-loss 都完成 150 Fetch、0 失败；leader-loss 分别完成 65 Fetch、1/2 次选主窗口失败，低于各自并发预算 3/4。四个场景均由独立验收器确认两个存活 voter 收敛、Gateway accepted/completed 配平、最终客户端壳恢复且关闭资源归零。该阶梯只验证 Runner 循环、文件命名和自动门禁，不外推容量。
 
 真实运行中 ENOSPC 使用独立受限卷执行，默认 Maven 回归会跳过，绝不会填充系统盘。macOS 可直接运行：
 

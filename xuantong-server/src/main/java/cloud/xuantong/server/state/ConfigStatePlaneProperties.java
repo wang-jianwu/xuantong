@@ -82,6 +82,18 @@ public class ConfigStatePlaneProperties {
             String peers,
             Path storageDirectory,
             boolean allowSingleNode) {
+        this(enabled, localNodeId, groupId, peers, storageDirectory,
+                allowSingleNode, Duration.ofSeconds(5));
+    }
+
+    public ConfigStatePlaneProperties(
+            boolean enabled,
+            String localNodeId,
+            String groupId,
+            String peers,
+            Path storageDirectory,
+            boolean allowSingleNode,
+            Duration startupReadyTimeout) {
         this.enabled = enabled;
         this.localNodeId = localNodeId;
         this.groupId = groupId;
@@ -95,7 +107,13 @@ public class ConfigStatePlaneProperties {
         this.electionTimeoutMinMs = 200;
         this.electionTimeoutMaxMs = 400;
         this.requestTimeoutMs = 2_000;
-        this.startupReadyTimeoutMs = 5_000;
+        if (startupReadyTimeout == null
+                || startupReadyTimeout.isZero()
+                || startupReadyTimeout.isNegative()) {
+            throw new IllegalArgumentException(
+                    "startupReadyTimeout must be positive");
+        }
+        this.startupReadyTimeoutMs = startupReadyTimeout.toMillis();
         this.clientMaxAttempts = 5;
         this.snapshotAutoTriggerThreshold = 10_000;
         this.snapshotOnShutdown = false;

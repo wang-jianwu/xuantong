@@ -8,6 +8,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 final class ProbeHttpServer implements AutoCloseable {
     private static final String PROMETHEUS_CONTENT_TYPE =
@@ -15,6 +16,7 @@ final class ProbeHttpServer implements AutoCloseable {
     private final HttpServer server;
     private final ExecutorService executor;
     private final ProbeMetrics metrics;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     ProbeHttpServer(String bindHost, int port, ProbeMetrics metrics) throws IOException {
         this.metrics = metrics;
@@ -68,6 +70,9 @@ final class ProbeHttpServer implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         server.stop(0);
         executor.shutdownNow();
     }

@@ -8,6 +8,7 @@ import cloud.xuantong.gateway.socketd.ControlPlaneStateExecutor;
 import cloud.xuantong.gateway.socketd.ControlPlaneGatewayRuntime;
 import cloud.xuantong.raft.ratis.RatisGroupCatalog;
 import cloud.xuantong.raft.ratis.RatisGroupDefinition;
+import cloud.xuantong.raft.ratis.RatisGroupRuntimeStatus;
 import cloud.xuantong.raft.ratis.RatisStateNode;
 import cloud.xuantong.raft.ratis.RatisStateRouter;
 import cloud.xuantong.registry.state.ExpireLeaseBatch;
@@ -24,7 +25,9 @@ import org.noear.solon.annotation.Init;
 import org.noear.solon.annotation.Inject;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -119,11 +122,24 @@ public final class ControlStatePlaneRuntime {
                         groups.stream().map(RatisGroupDefinition::groupId).toList(),
                         configProperties.startupReadyTimeout());
             }
+            Map<StateGroupId, String> initialLeaderIds = new LinkedHashMap<>();
+            var hostedGroups = candidateNode.hostedGroups();
+            for (RatisGroupDefinition group : groups) {
+                if (!hostedGroups.contains(group.groupId())) {
+                    continue;
+                }
+                String leaderId = candidateNode.groupRuntimeStatus(
+                        group.groupId()).leaderId();
+                if (!leaderId.isBlank()) {
+                    initialLeaderIds.put(group.groupId(), leaderId);
+                }
+            }
             candidateRouter = new RatisStateRouter(
                     groups,
                     configProperties.requestTimeout(),
                     configProperties.clientMaxAttempts(),
-                    storageAdmission);
+                    storageAdmission,
+                    initialLeaderIds);
             ControlPlaneStateExecutor stateExecutor =
                     new ControlPlaneStateExecutor(candidateRouter);
             addConfigHandlers(handlers, stateExecutor);
@@ -273,6 +289,16 @@ public final class ControlStatePlaneRuntime {
     public FixedLatencyHistogram.Snapshot stateApplyLatencySnapshot() {
         RatisStateRouter current = router;
         return current == null ? null : current.applyLatencySnapshot();
+    }
+
+    /** Local, read-only Raft status used by monitoring and topology acceptance tests. */
+    public RatisGroupRuntimeStatus stateGroupRuntimeStatus(StateGroupId groupId)
+            throws java.io.IOException {
+        RatisStateNode current = node;
+        if (current == null) {
+            throw new IllegalStateException("State Plane is not running");
+        }
+        return current.groupRuntimeStatus(groupId);
     }
 
     public synchronized void refreshTopology(List<cloud.xuantong.raft.ratis.RatisPeerDefinition> peers)

@@ -218,6 +218,24 @@ public final class RatisStateNode implements StateNode {
         return server.getDivision(raftGroupId(groupId)).getInfo().isLeaderReady();
     }
 
+    /** Returns the local Division status without issuing a Raft client request. */
+    public RatisGroupRuntimeStatus groupRuntimeStatus(StateGroupId groupId)
+            throws IOException {
+        var division = server.getDivision(raftGroupId(groupId));
+        var info = division.getInfo();
+        var leaderId = info.getLeaderId();
+        return new RatisGroupRuntimeStatus(
+                nodeId(),
+                groupId,
+                info.isAlive(),
+                info.isLeader(),
+                info.isLeaderReady(),
+                leaderId == null ? "" : leaderId.toString(),
+                info.getCurrentTerm(),
+                division.getRaftLog().getLastCommittedIndex(),
+                info.getLastAppliedIndex());
+    }
+
     /**
      * Returns true only after every requested Division is alive and has observed a
      * usable leader. A local leader must also have completed its leader-ready phase;

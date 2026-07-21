@@ -62,3 +62,42 @@ jobs:
         run: ./scripts/run-full-recovery-drill.sh
       - name: Check whitespace errors
         run: git diff --check
+
+  control-plane-fault-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Verify report tooling
+        run: jq --version
+      - name: Run split-process follower and leader fault matrix
+        env:
+          MVN_BIN: mvn
+          XUANTONG_LOAD_SPLIT_DURATION_SECONDS: "5"
+          XUANTONG_LOAD_CLIENTS: "3"
+          XUANTONG_LOAD_WATCHERS: "3"
+          XUANTONG_LOAD_FETCH_CONCURRENCY: "3"
+          XUANTONG_LOAD_FETCH_RATE_PER_SECOND: "30"
+          XUANTONG_LOAD_PUBLISH_RATE_PER_MINUTE: "30"
+          XUANTONG_LOAD_PAYLOAD_BYTES: "128"
+          XUANTONG_LOAD_SAMPLE_INTERVAL_SECONDS: "1"
+          XUANTONG_LOAD_GROWTH_WARMUP_SECONDS: "0"
+          XUANTONG_LOAD_SPLIT_CHILD_MAX_HEAP_MB: "256"
+          XUANTONG_LOAD_REPORT_DIR: output/load-reports/control-plane-matrix
+          XUANTONG_LOAD_RUN_LABEL: github-${{ github.run_id }}-${{ github.run_attempt }}
+          XUANTONG_LOAD_BUILD_REVISION: ${{ github.sha }}
+          XUANTONG_LOAD_BUILD_STATE: clean
+        run: ./scripts/run-control-plane-load.sh split-topology-matrix
+      - name: Upload control-plane fault reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-plane-fault-matrix-${{ github.run_id }}
+          path: output/load-reports/control-plane-matrix/*.jsonl
+          if-no-files-found: warn
+          retention-days: 14

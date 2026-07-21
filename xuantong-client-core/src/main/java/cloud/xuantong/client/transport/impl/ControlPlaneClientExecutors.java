@@ -10,8 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /** JVM-scoped bounded executors shared by every Xuantong Socket.D control connection. */
 final class ControlPlaneClientExecutors {
-    private static final int WORK_THREADS = Math.max(
-            4, Math.min(16, Runtime.getRuntime().availableProcessors()));
+    private static final int WORK_THREADS = Math.clamp(Runtime.getRuntime().availableProcessors(), 4, 16);
     private static final int WORK_QUEUE_CAPACITY = 8_192;
     private static final ThreadPoolExecutor SOCKETD_WORK = new ThreadPoolExecutor(
             WORK_THREADS,

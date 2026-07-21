@@ -174,7 +174,7 @@ public class ConfigCacheManager {
         if (Files.exists(cacheFile)) {
             try {
                 String content = FileKit.readFile(cacheFile);
-                if (content != null && !content.isEmpty() && !"{}".equals(content)) {
+                if (!content.isEmpty() && !"{}".equals(content)) {
                     Properties props = new Properties();
                     props.load(new StringReader(content));
                     for (String key : props.stringPropertyNames()) {
@@ -190,7 +190,7 @@ public class ConfigCacheManager {
     }
 
     private void persistSnapshotAsync(Map<String, String> snapshot) {
-        pendingSnapshot.set(Collections.unmodifiableMap(new HashMap<>(snapshot)));
+        pendingSnapshot.set(Map.copyOf(snapshot));
         scheduleFlush();
     }
 

@@ -103,7 +103,6 @@ public class JsonSerializer implements Serializer {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public <K, V> Map<K, V> deserializeMap(String str, Type keyType, Type valueType) {
         if (str == null || str.trim().isEmpty()) {
             return null;
