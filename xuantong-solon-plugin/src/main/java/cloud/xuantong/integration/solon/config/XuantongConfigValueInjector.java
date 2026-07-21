@@ -1,10 +1,10 @@
 package cloud.xuantong.integration.solon.config;
 
 import cloud.xuantong.client.XuantongConfigClient;
-import cloud.xuantong.client.XuantongConfig;
 import cloud.xuantong.client.annotation.ConfigValue;
 import cloud.xuantong.client.enums.ValueType;
 import cloud.xuantong.client.exception.XuantongException;
+import cloud.xuantong.client.listener.ListenerRegistration;
 import cloud.xuantong.client.serializer.Serializer;
 import org.noear.solon.core.BeanInjector;
 import org.noear.solon.core.VarHolder;
@@ -15,14 +15,24 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * author 封于修
  * date 2025/12/14 17:11
  * ConfigValue注解注入器
  */
-public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
+public class XuantongConfigValueInjector implements BeanInjector<ConfigValue>, AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(XuantongConfigValueInjector.class);
+    private final XuantongConfigClient client;
+    private final List<ListenerRegistration> registrations = new CopyOnWriteArrayList<>();
+
+    public XuantongConfigValueInjector(XuantongConfigClient client) {
+        if (client == null) {
+            throw new IllegalArgumentException("client must not be null");
+        }
+        this.client = client;
+    }
 
     @Override
     public void doInject(VarHolder varH, ConfigValue anno) {
@@ -31,7 +41,7 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
             String dataId = anno.value().isEmpty() ? varH.getFullName() : anno.value();
 
             // 获取配置值
-            String value = XuantongConfig.get(dataId, null);
+            String value = client.get(dataId, null);
 
             // 校验必需性
             if (anno.required() && value == null) {
@@ -130,12 +140,7 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
 
     private void registerAutoRefreshListener(VarHolder varH, ConfigValue configValue, String dataId) {
         try {
-            XuantongConfigClient client = XuantongConfigClient.getDefault();
-            if (client == null) {
-                logger.warn("XuantongConfigClient not initialized, skip auto-refresh for: {}", dataId);
-                return;
-            }
-            client.addListener(dataId, event -> {
+            ListenerRegistration registration = client.listen(dataId, event -> {
                 try {
                     String newValue = event.getNewValue();
 
@@ -168,8 +173,17 @@ public class XuantongConfigValueInjector implements BeanInjector<ConfigValue> {
                     logger.error("Failed to auto-refresh field: {}", dataId, e);
                 }
             });
+            registrations.add(registration);
         } catch (Exception e) {
             logger.warn("Failed to register auto-refresh listener for field: {}", dataId, e);
         }
+    }
+
+    @Override
+    public void close() {
+        for (ListenerRegistration registration : registrations) {
+            registration.close();
+        }
+        registrations.clear();
     }
 }

@@ -8,10 +8,12 @@ import cloud.xuantong.integration.spring.cloud.discovery.XuantongAutoServiceRegi
 import cloud.xuantong.integration.spring.cloud.discovery.XuantongDiscoveryClientFactory;
 import cloud.xuantong.integration.spring.cloud.discovery.XuantongDiscoveryClientManager;
 import cloud.xuantong.integration.spring.cloud.discovery.XuantongRegistration;
+import cloud.xuantong.integration.spring.cloud.discovery.XuantongReactiveDiscoveryClient;
 import cloud.xuantong.integration.spring.cloud.discovery.XuantongServiceInstanceMapper;
 import cloud.xuantong.integration.spring.cloud.discovery.XuantongServiceRegistry;
 import cloud.xuantong.integration.spring.cloud.discovery.XuantongSpringDiscoveryClient;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -19,7 +21,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.client.ConditionalOnBlockingDiscoveryEnabled;
 import org.springframework.cloud.client.ConditionalOnDiscoveryEnabled;
+import org.springframework.cloud.client.ConditionalOnReactiveDiscoveryEnabled;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
+import org.springframework.cloud.client.discovery.ReactiveDiscoveryClient;
 import org.springframework.cloud.client.serviceregistry.AutoServiceRegistrationProperties;
 import org.springframework.cloud.client.serviceregistry.RegistrationLifecycle;
 import org.springframework.cloud.commons.util.InetUtils;
@@ -64,19 +68,21 @@ public class XuantongSpringCloudAutoConfiguration {
                 properties.getGroup(),
                 properties.getAccessToken(),
                 clientIdentity,
-                properties.configControlPlaneOptions());
+                properties.configControlPlaneOptions(),
+                properties.configClientOptions());
     }
 
     @Bean
     @ConditionalOnMissingBean
     public static XuantongConfigValueProcessor xuantongConfigValueProcessor(
-            ObjectProvider<XuantongConfigClient> xuantongConfigClientProvider) {
-        return new XuantongConfigValueProcessor(xuantongConfigClientProvider);
+            ObjectProvider<XuantongConfigClient> xuantongConfigClientProvider,
+            ConfigurableListableBeanFactory beanFactory) {
+        return new XuantongConfigValueProcessor(
+                xuantongConfigClientProvider, beanFactory);
     }
 
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnDiscoveryEnabled
-    @ConditionalOnBlockingDiscoveryEnabled
     @ConditionalOnProperty(
             prefix = XuantongSpringCloudProperties.PREFIX + ".discovery",
             name = "enabled",
@@ -102,16 +108,6 @@ public class XuantongSpringCloudAutoConfiguration {
         @ConditionalOnMissingBean
         XuantongServiceInstanceMapper xuantongServiceInstanceMapper() {
             return new XuantongServiceInstanceMapper();
-        }
-
-        @Bean
-        @ConditionalOnMissingBean(XuantongSpringDiscoveryClient.class)
-        XuantongSpringDiscoveryClient xuantongDiscoveryClient(
-                XuantongDiscoveryClientManager manager,
-                XuantongServiceInstanceMapper mapper,
-                XuantongSpringCloudProperties properties) {
-            return new XuantongSpringDiscoveryClient(
-                    manager, mapper, properties.getNamespace(), properties.getGroup());
         }
 
         @Bean
@@ -179,6 +175,47 @@ public class XuantongSpringCloudAutoConfiguration {
             } catch (Exception ignored) {
                 return "127.0.0.1";
             }
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnDiscoveryEnabled
+    @ConditionalOnBlockingDiscoveryEnabled
+    @ConditionalOnProperty(
+            prefix = XuantongSpringCloudProperties.PREFIX + ".discovery",
+            name = "enabled",
+            matchIfMissing = true)
+    static class BlockingDiscoveryClientConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(XuantongSpringDiscoveryClient.class)
+        XuantongSpringDiscoveryClient xuantongDiscoveryClient(
+                XuantongDiscoveryClientManager manager,
+                XuantongServiceInstanceMapper mapper,
+                XuantongSpringCloudProperties properties) {
+            return new XuantongSpringDiscoveryClient(
+                    manager, mapper, properties.getNamespace(), properties.getGroup());
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnDiscoveryEnabled
+    @ConditionalOnReactiveDiscoveryEnabled
+    @ConditionalOnClass(ReactiveDiscoveryClient.class)
+    @ConditionalOnProperty(
+            prefix = XuantongSpringCloudProperties.PREFIX + ".discovery",
+            name = "enabled",
+            matchIfMissing = true)
+    static class ReactiveDiscoveryClientConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(XuantongReactiveDiscoveryClient.class)
+        XuantongReactiveDiscoveryClient xuantongReactiveDiscoveryClient(
+                XuantongDiscoveryClientManager manager,
+                XuantongServiceInstanceMapper mapper,
+                XuantongSpringCloudProperties properties) {
+            return new XuantongReactiveDiscoveryClient(
+                    manager, mapper, properties.getNamespace(), properties.getGroup());
         }
     }
 

@@ -373,6 +373,6 @@ public final class RatisStateMachineAdapter extends BaseStateMachine {
     private static String detectedImplementationVersion() {
         String version = RatisStateMachineAdapter.class.getPackage()
                 .getImplementationVersion();
-        return version == null || version.isBlank() ? "2.0.0-SNAPSHOT" : version;
+        return version == null || version.isBlank() ? "2.0.0" : version;
     }
 }

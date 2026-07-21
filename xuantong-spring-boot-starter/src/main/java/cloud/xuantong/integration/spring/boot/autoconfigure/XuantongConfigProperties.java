@@ -1,9 +1,11 @@
 package cloud.xuantong.integration.spring.boot.autoconfigure;
 
 import cloud.xuantong.client.TlsOptions;
+import cloud.xuantong.client.ConfigClientOptions;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.List;
+import java.nio.file.Path;
 
 @ConfigurationProperties(prefix = "xuantong.config")
 public class XuantongConfigProperties {
@@ -48,6 +50,9 @@ public class XuantongConfigProperties {
 
     /** 租户标识。 */
     private String tenant = "default";
+
+    /** 本地快照目录；留空时使用当前工作目录下的 .xuantong-cache。 */
+    private String cacheDirectory = "";
 
     /** Socket.D 控制面 TLS/mTLS。 */
     private final Tls tls = new Tls();
@@ -140,6 +145,19 @@ public class XuantongConfigProperties {
 
     public void setTenant(String tenant) {
         this.tenant = tenant;
+    }
+
+    public String getCacheDirectory() {
+        return cacheDirectory;
+    }
+
+    public void setCacheDirectory(String cacheDirectory) {
+        this.cacheDirectory = cacheDirectory;
+    }
+
+    public ConfigClientOptions clientOptions() {
+        return new ConfigClientOptions(cacheDirectory == null || cacheDirectory.isBlank()
+                ? null : Path.of(cacheDirectory.trim()));
     }
 
     public Tls getTls() {

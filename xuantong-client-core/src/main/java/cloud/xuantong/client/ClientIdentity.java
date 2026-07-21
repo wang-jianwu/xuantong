@@ -10,7 +10,7 @@ import java.util.UUID;
  * clientInstanceId.
  */
 public final class ClientIdentity {
-    public static final String CLIENT_VERSION = "2.0.0-SNAPSHOT";
+    public static final String CLIENT_VERSION = "2.0.0";
     private static final String RUNTIME_INSTANCE_SUFFIX = runtimeInstanceSuffix();
 
     private final String applicationName;

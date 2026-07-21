@@ -5,6 +5,8 @@ import cloud.xuantong.client.XuantongDiscoveryClient;
 import cloud.xuantong.client.transport.impl.SharedDiscoveryConnection;
 import cloud.xuantong.integration.spring.cloud.autoconfigure.XuantongSpringCloudProperties;
 
+import java.util.List;
+
 /** Creates service-scoped Discovery Agents over the shared Xuantong control-plane contract. */
 public class XuantongDiscoveryClientFactory implements AutoCloseable {
     private final XuantongSpringCloudProperties properties;
@@ -45,6 +47,14 @@ public class XuantongDiscoveryClientFactory implements AutoCloseable {
                 properties.getAccessToken(),
                 heartbeatIntervalMs,
                 sharedConnection.newServiceTransport()));
+    }
+
+    public List<String> getServices() {
+        return sharedConnection.fetchServices(
+                properties.getServerAddresses(),
+                properties.getNamespace(),
+                properties.getGroup(),
+                properties.getAccessToken());
     }
 
     @Override

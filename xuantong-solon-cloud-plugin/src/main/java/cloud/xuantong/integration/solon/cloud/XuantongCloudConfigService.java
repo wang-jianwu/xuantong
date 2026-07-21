@@ -3,6 +3,8 @@ package cloud.xuantong.integration.solon.cloud;
 import cloud.xuantong.client.XuantongConfigClient;
 import cloud.xuantong.client.ClientIdentity;
 import cloud.xuantong.client.ControlPlaneOptions;
+import cloud.xuantong.client.ConfigClientOptions;
+import cloud.xuantong.client.listener.ListenerRegistration;
 import org.noear.solon.Solon;
 import org.noear.solon.cloud.CloudConfigHandler;
 import org.noear.solon.cloud.CloudProps;
@@ -17,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.nio.file.Path;
 
 /**
  * 玄同配置服务实现
@@ -31,7 +35,10 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
     private final String accessToken;
     private final ClientIdentity clientIdentity;
     private final ControlPlaneOptions controlPlaneOptions;
+    private final ConfigClientOptions clientOptions;
     private final Map<String, XuantongConfigClient> clients = new ConcurrentHashMap<>();
+    private final List<ListenerRegistration> listenerRegistrations =
+            new CopyOnWriteArrayList<>();
 
     public XuantongCloudConfigService(CloudProps cloudProps) {
         this.namespace = cloudProps.getNamespace() == null ? "" : cloudProps.getNamespace().trim();
@@ -62,6 +69,11 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
                 defaults.operationTimeoutMs(),
                 defaults.closingTimeoutMs(),
                 SolonCloudTlsOptions.load());
+        String cacheDirectory = Solon.cfg().get(
+                "solon.cloud.xuantong.config.cacheDirectory", "");
+        this.clientOptions = new ConfigClientOptions(
+                cacheDirectory == null || cacheDirectory.isBlank()
+                        ? null : Path.of(cacheDirectory.trim()));
     }
 
     @Override
@@ -76,12 +88,16 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
 
     @Override
     public boolean push(String group, String name, String value) {
-        return false;
+        throw new UnsupportedOperationException(
+                "Xuantong Solon Cloud Config is read-only; publish configuration "
+                        + "through the Xuantong admin API or console");
     }
 
     @Override
     public boolean remove(String group, String name) {
-        return false;
+        throw new UnsupportedOperationException(
+                "Xuantong Solon Cloud Config is read-only; delete configuration "
+                        + "through the Xuantong admin API or console");
     }
 
     @Override
@@ -89,7 +105,8 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
         String normalizedGroup = normalizeGroup(group);
         CloudConfigObserverEntity entity = new CloudConfigObserverEntity(normalizedGroup, name, observer);
         //配置监听器
-        clientFor(normalizedGroup).addListener(entity.key, event -> {
+        ListenerRegistration registration = clientFor(normalizedGroup).listen(
+                entity.key, event -> {
             if (event.getNewValue() == null) {
                 log.info("cloud config tombstoned: {}", entity.key);
                 entity.handler.handle(new Config(entity.group, entity.key, null, event.getRevision()));
@@ -99,6 +116,7 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
             entity.handler.handle(new Config(
                     entity.group, entity.key, event.getNewValue(), event.getRevision()));
         });
+        listenerRegistrations.add(registration);
     }
 
     private XuantongConfigClient clientFor(String group) {
@@ -109,7 +127,8 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
                         item,
                         accessToken,
                         clientIdentity,
-                        controlPlaneOptions));
+                        controlPlaneOptions,
+                        clientOptions));
     }
 
     private String normalizeGroup(String group) {
@@ -135,6 +154,10 @@ public class XuantongCloudConfigService implements CloudConfigService, AutoClose
 
     @Override
     public void close() {
+        for (ListenerRegistration registration : listenerRegistrations) {
+            registration.close();
+        }
+        listenerRegistrations.clear();
         for (XuantongConfigClient client : clients.values()) {
             client.close();
         }

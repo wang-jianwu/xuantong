@@ -46,7 +46,7 @@ assert_suite \
   "xuantong-raft-core/target/surefire-reports/TEST-cloud.xuantong.raft.ratis.RatisThreeNodePoCTest.xml" \
   7 0 "Ratis three-voter"
 assert_suite \
-  "xuantong-spring-cloud-starter/target/surefire-reports/TEST-cloud.xuantong.gateway.socketd.SpringCloudDiscoveryCapacityIntegrationTest.xml" \
+  "xuantong-server/target/surefire-reports/TEST-cloud.xuantong.gateway.socketd.SpringCloudDiscoveryCapacityIntegrationTest.xml" \
   1 0 "Spring Cloud discovery capacity"
 
 echo "CI real-infrastructure reports verified: mysql=executed tcp=executed tls=executed ratis=executed spring-cloud=executed"

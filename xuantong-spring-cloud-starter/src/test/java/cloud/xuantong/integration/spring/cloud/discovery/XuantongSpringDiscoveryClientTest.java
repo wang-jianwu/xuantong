@@ -18,19 +18,21 @@ class XuantongSpringDiscoveryClientTest {
         source.setPort(8080);
         source.setHealthy(true);
         source.setEnabled(true);
-        XuantongDiscoveryOperations orderClient = operations(
-                List.of(source), List.of());
-        XuantongDiscoveryOperations catalogClient = operations(
-                List.of(), List.of("order-service", "pay-service"));
+        XuantongDiscoveryOperations orderClient = operations(List.of(source));
         XuantongDiscoveryClientProvider manager = new XuantongDiscoveryClientProvider() {
             @Override
             public XuantongDiscoveryOperations get(String serviceName) {
-                return "order-service".equals(serviceName) ? orderClient : catalogClient;
+                return orderClient;
             }
 
             @Override
             public XuantongDiscoveryOperations getIfPresent(String serviceName) {
                 return get(serviceName);
+            }
+
+            @Override
+            public List<String> getServices() {
+                return List.of("order-service", "pay-service");
             }
 
             @Override
@@ -46,8 +48,7 @@ class XuantongSpringDiscoveryClientTest {
         assertEquals(List.of("order-service", "pay-service"), client.getServices());
     }
 
-    private XuantongDiscoveryOperations operations(
-            List<ServiceInstance> instances, List<String> services) {
+    private XuantongDiscoveryOperations operations(List<ServiceInstance> instances) {
         return new XuantongDiscoveryOperations() {
             @Override
             public ServiceInstance register(ServiceInstance registration) {
@@ -62,11 +63,6 @@ class XuantongSpringDiscoveryClientTest {
             @Override
             public List<ServiceInstance> getInstances() {
                 return instances;
-            }
-
-            @Override
-            public List<String> getServices() {
-                return services;
             }
 
             @Override

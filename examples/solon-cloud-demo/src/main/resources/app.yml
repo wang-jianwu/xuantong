@@ -1,6 +1,6 @@
 server.port: 8080
 solon.app:
-  name: 'demo-app'
+  name: 'solon-cloud-demo'
   group: 'DEFAULT_GROUP'
 
 solon.logging:
@@ -11,7 +11,7 @@ solon.logging:
       level: INFO
 solon.cloud:
   xuantong:
-    server: 127.0.0.1:8090 # 原生 Socket.D TCP 控制面；多个地址用逗号分隔
+    server: 127.0.0.1:8090 #Socket.D TCP 控制面；多个地址用逗号分隔
     namespace: public
     token: ${XUANTONG_ACCESS_TOKEN:}
     clusterId: ${XUANTONG_CLUSTER_ID:}

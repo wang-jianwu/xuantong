@@ -6,6 +6,7 @@ import cloud.xuantong.client.model.ConfigInvalidation;
 import cloud.xuantong.client.model.ConfigSnapshot;
 import cloud.xuantong.client.model.ConfigWatchBatch;
 import cloud.xuantong.client.transport.ConfigTransport;
+import cloud.xuantong.client.listener.ListenerRegistration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -223,6 +224,32 @@ class ConfigCoreTest {
                     "public", "DEFAULT_GROUP");
             assertEquals(null, reloaded.get("app.yml"));
             reloaded.shutdown();
+        });
+    }
+
+    @Test
+    void closingListenerRegistrationStopsFutureNotifications() throws Exception {
+        withUserDir(() -> {
+            seed("app.yml", "baseline");
+            MutableConfigTransport transport = new MutableConfigTransport(
+                    new ConfigSnapshot("app.yml", "baseline", 1L, "sum-1", "text"),
+                    1L);
+            AtomicInteger notifications = new AtomicInteger();
+
+            try (ConfigCore core = new ConfigCore(
+                    List.of("gateway-a:8090"),
+                    "public", "DEFAULT_GROUP", "", transport)) {
+                ListenerRegistration registration = core.addConfigListener(
+                        "app.yml", event -> notifications.incrementAndGet());
+                registration.close();
+                registration.close();
+
+                transport.publish(new ConfigSnapshot(
+                        "app.yml", "candidate", 2L, "sum-2", "text"), 2L);
+                await(() -> "candidate".equals(core.get("app.yml", null)));
+                Thread.sleep(200L);
+                assertEquals(0, notifications.get());
+            }
         });
     }
 

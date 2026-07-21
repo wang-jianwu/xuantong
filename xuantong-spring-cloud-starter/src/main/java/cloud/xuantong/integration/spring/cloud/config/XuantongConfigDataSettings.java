@@ -1,6 +1,7 @@
 package cloud.xuantong.integration.spring.cloud.config;
 
 import cloud.xuantong.client.ControlPlaneOptions;
+import cloud.xuantong.client.ConfigClientOptions;
 import cloud.xuantong.integration.spring.cloud.autoconfigure.XuantongSpringCloudProperties;
 
 import java.util.List;
@@ -13,7 +14,8 @@ record XuantongConfigDataSettings(
         String accessToken,
         String applicationName,
         String clientInstanceId,
-        ControlPlaneOptions controlPlaneOptions) {
+        ControlPlaneOptions controlPlaneOptions,
+        ConfigClientOptions clientOptions) {
 
     static XuantongConfigDataSettings from(
             XuantongSpringCloudProperties properties, String applicationName) {
@@ -25,6 +27,7 @@ record XuantongConfigDataSettings(
                 properties.getAccessToken() == null ? "" : properties.getAccessToken(),
                 applicationName,
                 properties.getClientInstanceId(),
-                properties.configControlPlaneOptions());
+                properties.configControlPlaneOptions(),
+                properties.configClientOptions());
     }
 }

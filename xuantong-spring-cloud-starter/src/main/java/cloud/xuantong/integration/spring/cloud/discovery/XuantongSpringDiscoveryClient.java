@@ -6,8 +6,6 @@ import java.util.List;
 
 /** Blocking Spring Cloud DiscoveryClient backed by Xuantong Snapshot and Watch state. */
 public class XuantongSpringDiscoveryClient implements DiscoveryClient {
-    private static final String CATALOG_SERVICE = "xuantong-service-catalog";
-
     private final XuantongDiscoveryClientProvider manager;
     private final XuantongServiceInstanceMapper mapper;
     private final String namespace;
@@ -40,6 +38,6 @@ public class XuantongSpringDiscoveryClient implements DiscoveryClient {
 
     @Override
     public List<String> getServices() {
-        return manager.get(CATALOG_SERVICE).getServices();
+        return manager.getServices();
     }
 }

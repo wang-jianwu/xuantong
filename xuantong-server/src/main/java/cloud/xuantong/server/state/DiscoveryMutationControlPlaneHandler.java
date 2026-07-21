@@ -1,5 +1,6 @@
 package cloud.xuantong.server.state;
 
+import cloud.xuantong.discovery.management.service.ServiceDefinitionService;
 import cloud.xuantong.gateway.socketd.ControlPlaneReply;
 import cloud.xuantong.gateway.socketd.ControlPlaneRequestContext;
 import cloud.xuantong.gateway.socketd.ControlPlaneRequestHandler;
@@ -18,18 +19,25 @@ import cloud.xuantong.registry.state.LeaseRenewal;
 import cloud.xuantong.registry.state.RegisterLease;
 import cloud.xuantong.registry.state.RegistryActor;
 import cloud.xuantong.registry.state.RegistryMutation;
+import cloud.xuantong.registry.state.RegistryMutationResult;
 import cloud.xuantong.registry.state.RegistryStateCodec;
 import cloud.xuantong.registry.state.RenewLeaseBatch;
+import cloud.xuantong.registry.state.ServiceLifecycle;
 import cloud.xuantong.registry.state.ServiceRegistration;
 import cloud.xuantong.registry.state.TakeoverLease;
+import cloud.xuantong.state.api.ApplyResult;
+import cloud.xuantong.state.api.ApplyStatus;
 import cloud.xuantong.state.api.StateGroupId;
 import com.google.protobuf.InvalidProtocolBufferException;
+import lombok.extern.slf4j.Slf4j;
 
-import java.util.List;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
+@Slf4j
 final class DiscoveryMutationControlPlaneHandler implements ControlPlaneRequestHandler {
     enum Operation {
         REGISTER(ControlPlaneProtocol.DISCOVERY_REGISTER,
@@ -52,11 +60,20 @@ final class DiscoveryMutationControlPlaneHandler implements ControlPlaneRequestH
 
     private final ControlPlaneStateExecutor stateExecutor;
     private final Operation operation;
+    private final ServiceDefinitionService serviceDefinitions;
 
     DiscoveryMutationControlPlaneHandler(
             ControlPlaneStateExecutor stateExecutor, Operation operation) {
+        this(stateExecutor, operation, null);
+    }
+
+    DiscoveryMutationControlPlaneHandler(
+            ControlPlaneStateExecutor stateExecutor,
+            Operation operation,
+            ServiceDefinitionService serviceDefinitions) {
         this.stateExecutor = stateExecutor;
         this.operation = operation;
+        this.serviceDefinitions = serviceDefinitions;
     }
 
     @Override
@@ -91,9 +108,57 @@ final class DiscoveryMutationControlPlaneHandler implements ControlPlaneRequestH
                             RegistryStateCodec.mutationCommand(
                                     groupId, request.getOperationId(), mutation),
                             context)
-                    .thenApply(RegistryControlPlaneSupport::mutationReply);
+                    .thenApply(result -> mutationReply(context, mutation, result));
         } catch (InvalidProtocolBufferException | IllegalArgumentException e) {
             return RegistryControlPlaneSupport.invalid(e.getMessage());
+        }
+    }
+
+    private ControlPlaneReply mutationReply(
+            ControlPlaneRequestContext context,
+            RegistryMutation mutation,
+            ApplyResult result) {
+        if (operation == Operation.REGISTER
+                && serviceDefinitions != null
+                && result.status() != ApplyStatus.REJECTED
+                && RegistryStateCodec.RESULT_MUTATION.equals(result.resultType())) {
+            projectRegisteredService(context, (RegisterLease) mutation, result);
+        }
+        return RegistryControlPlaneSupport.mutationReply(result);
+    }
+
+    private void projectRegisteredService(
+            ControlPlaneRequestContext context,
+            RegisterLease register,
+            ApplyResult result) {
+        var key = register.registration().instanceKey().service();
+        try {
+            RegistryMutationResult mutation = RegistryStateCodec.decodeMutationResult(
+                    result.payload());
+            long generation = mutation.services().stream()
+                    .filter(ServiceLifecycle::active)
+                    .filter(value -> value.serviceKey().equals(key))
+                    .mapToLong(ServiceLifecycle::generation)
+                    .findFirst()
+                    .orElseGet(() -> mutation.instances().stream()
+                            .filter(value -> value.instanceKey().equals(
+                                    register.registration().instanceKey()))
+                            .mapToLong(value -> value.registration().serviceGeneration())
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "Registry registration returned no service generation")));
+            serviceDefinitions.ensureActiveProjection(
+                    key.namespace(),
+                    key.group(),
+                    key.serviceName(),
+                    generation,
+                    "client-auto-register");
+        } catch (IOException | RuntimeException e) {
+            log.warn(
+                    "Service registered in Registry State but its management projection could not be updated: service={}, clientInstanceId={}",
+                    key.canonicalName(),
+                    context.clientInstanceId(),
+                    e);
         }
     }
 

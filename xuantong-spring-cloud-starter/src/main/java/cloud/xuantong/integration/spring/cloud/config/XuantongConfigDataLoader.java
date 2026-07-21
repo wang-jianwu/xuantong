@@ -6,6 +6,7 @@ import org.springframework.boot.context.config.ConfigData;
 import org.springframework.boot.context.config.ConfigDataLoader;
 import org.springframework.boot.context.config.ConfigDataLoaderContext;
 import org.springframework.boot.context.config.ConfigDataResourceNotFoundException;
+import org.springframework.boot.bootstrap.ConfigurableBootstrapContext;
 import org.springframework.boot.env.PropertiesPropertySourceLoader;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.json.JsonParserFactory;
@@ -21,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Loads Xuantong content into Spring Boot's ConfigData environment. */
 public class XuantongConfigDataLoader
@@ -34,7 +37,8 @@ public class XuantongConfigDataLoader
                 settings.group(),
                 settings.accessToken(),
                 new ClientIdentity(settings.applicationName(), settings.clientInstanceId()),
-                settings.controlPlaneOptions())));
+                settings.controlPlaneOptions(),
+                settings.clientOptions())));
     }
 
     XuantongConfigDataLoader(ClientFactory clientFactory) {
@@ -51,13 +55,19 @@ public class XuantongConfigDataLoader
         }
 
         String content;
-        try (ConfigClient client = clientFactory.create(settings)) {
+        ConfigClient client = client(context, settings);
+        boolean closeAfterLoad = context == null;
+        try {
             content = client.get(resource.getDataId());
         } catch (RuntimeException exception) {
             if (resource.isOptional()) {
                 return ConfigData.EMPTY;
             }
             throw new ConfigDataResourceNotFoundException(resource, exception);
+        } finally {
+            if (closeAfterLoad) {
+                client.close();
+            }
         }
 
         if (content == null) {
@@ -76,6 +86,23 @@ public class XuantongConfigDataLoader
         }
         return new ConfigData(
                 propertySources, options.toArray(ConfigData.Option[]::new));
+    }
+
+    private ConfigClient client(
+            ConfigDataLoaderContext context, XuantongConfigDataSettings settings) {
+        if (context == null) {
+            return clientFactory.create(settings);
+        }
+        ConfigurableBootstrapContext bootstrapContext = context.getBootstrapContext();
+        if (!bootstrapContext.isRegistered(BootstrapClients.class)) {
+            bootstrapContext.registerIfAbsent(
+                    BootstrapClients.class,
+                    ignored -> new BootstrapClients(clientFactory));
+            bootstrapContext.addCloseListener(event -> event.getBootstrapContext()
+                    .get(BootstrapClients.class)
+                    .close());
+        }
+        return bootstrapContext.get(BootstrapClients.class).get(settings);
     }
 
     static List<PropertySource<?>> parse(String dataId, String content) throws IOException {
@@ -139,6 +166,35 @@ public class XuantongConfigDataLoader
         @Override
         public void close() {
             delegate.close();
+        }
+    }
+
+    private static final class BootstrapClients implements AutoCloseable {
+        private final ClientFactory clientFactory;
+        private final Map<XuantongConfigDataSettings, ConfigClient> clients =
+                new ConcurrentHashMap<>();
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private BootstrapClients(ClientFactory clientFactory) {
+            this.clientFactory = clientFactory;
+        }
+
+        private ConfigClient get(XuantongConfigDataSettings settings) {
+            if (closed.get()) {
+                throw new IllegalStateException("Xuantong bootstrap clients are closed");
+            }
+            return clients.computeIfAbsent(settings, clientFactory::create);
+        }
+
+        @Override
+        public void close() {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
+            for (ConfigClient client : clients.values()) {
+                client.close();
+            }
+            clients.clear();
         }
     }
 

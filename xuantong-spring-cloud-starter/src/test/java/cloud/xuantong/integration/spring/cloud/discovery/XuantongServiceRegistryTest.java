@@ -27,6 +27,11 @@ class XuantongServiceRegistryTest {
             }
 
             @Override
+            public List<String> getServices() {
+                return List.of();
+            }
+
+            @Override
             public void close() {
             }
         };
@@ -70,11 +75,6 @@ class XuantongServiceRegistryTest {
 
         @Override
         public List<ServiceInstance> getInstances() {
-            return List.of();
-        }
-
-        @Override
-        public List<String> getServices() {
             return List.of();
         }
 

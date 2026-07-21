@@ -30,6 +30,14 @@ public class XuantongDiscoveryClientManager implements XuantongDiscoveryClientPr
         return clients.get(serviceName);
     }
 
+    @Override
+    public List<String> getServices() {
+        if (closed.get()) {
+            throw new IllegalStateException("Xuantong discovery client manager is closed");
+        }
+        return factory.getServices();
+    }
+
     public List<LeaseRenewalMetricsSnapshot> leaseRenewalMetrics() {
         return clients.values().stream()
                 .map(XuantongDiscoveryOperations::leaseRenewalMetrics)

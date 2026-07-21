@@ -19,13 +19,13 @@ import java.util.List;
 /** Explicit compact-deployment configuration for the authoritative Config Group. */
 @Configuration
 public class ConfigStatePlaneProperties {
-    @Inject("${statePlane.config.enabled:false}")
+    @Inject("${statePlane.config.enabled:true}")
     private boolean enabled;
-    @Inject("${statePlane.config.localNodeId:}")
+    @Inject("${statePlane.config.localNodeId:state-1}")
     private String localNodeId;
     @Inject("${statePlane.config.groupId:config-default}")
     private String groupId;
-    @Inject("${statePlane.config.peers:}")
+    @Inject("${statePlane.config.peers:state-1@127.0.0.1:9101}")
     private String peers;
     @Inject("${statePlane.config.rpcBindHost:}")
     private String rpcBindHost;
@@ -35,7 +35,7 @@ public class ConfigStatePlaneProperties {
     private String storageDirectory;
     @Inject("${statePlane.config.storageFreeSpaceMinBytes:536870912}")
     private long storageFreeSpaceMinBytes;
-    @Inject("${statePlane.config.allowSingleNode:false}")
+    @Inject("${statePlane.config.allowSingleNode:true}")
     private boolean allowSingleNode;
     @Inject("${statePlane.config.joinExisting:false}")
     private boolean joinExisting;
@@ -297,7 +297,8 @@ public class ConfigStatePlaneProperties {
         }
         if (peerCount != 3 && peerCount != 5) {
             throw new IllegalStateException(
-                    "Config State requires 3 or 5 peers; single-node mode must be explicitly enabled for local development");
+                    "Config State requires 1, 3 or 5 peers; "
+                            + "one peer requires statePlane.config.allowSingleNode=true");
         }
     }
 

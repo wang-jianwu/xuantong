@@ -54,6 +54,63 @@ public class ServiceDefinitionService {
         return serviceRepository.find(ServiceKey.of(namespaceId, groupName, serviceName));
     }
 
+    /**
+     * Keeps the SQL management view aligned with an ACTIVE Registry State lifecycle.
+     * Registry State is authoritative; registration replays and concurrent Gateways
+     * may therefore call this method safely.
+     */
+    public ServiceDefinition ensureActiveProjection(
+            String namespaceId,
+            String groupName,
+            String serviceName,
+            long generation,
+            String operator) {
+        if (generation < 1) {
+            throw new IllegalArgumentException("Service generation must be positive");
+        }
+        ServiceKey key = ServiceKey.of(namespaceId, groupName, serviceName);
+        ServiceDefinition existing = serviceRepository.find(key);
+        if (existing == null) {
+            ServiceDefinition created = new ServiceDefinition();
+            created.setNamespaceId(key.namespaceId());
+            created.setGroupName(key.groupName());
+            created.setServiceName(key.serviceName());
+            created.setServiceGeneration(generation);
+            created.setLifecycleState(LIFECYCLE_ACTIVE);
+            created.setLifecycleOperationId(null);
+            created.setLifecycleError(null);
+            created.setCreatedBy(requiredOperator(operator));
+            created.setCreatedAt(new Date());
+            created.setUpdatedAt(new Date());
+            try {
+                if (serviceRepository.save(created) != 1) {
+                    throw new IllegalStateException(
+                            "Service lifecycle projection could not be created: "
+                                    + key.canonicalName());
+                }
+                existing = serviceRepository.find(key);
+                if (existing == null) {
+                    throw new IllegalStateException(
+                            "Service lifecycle projection is missing after insert: "
+                                    + key.canonicalName());
+                }
+            } catch (RuntimeException insertFailure) {
+                existing = serviceRepository.find(key);
+                if (existing == null) {
+                    throw insertFailure;
+                }
+            }
+        }
+        if (!LIFECYCLE_ACTIVE.equals(existing.getLifecycleState())
+                || existing.getServiceGeneration() == null
+                || existing.getServiceGeneration() != generation
+                || existing.getLifecycleOperationId() != null
+                || existing.getLifecycleError() != null) {
+            return markActive(existing, generation);
+        }
+        return existing;
+    }
+
     public List<ServiceDefinition> findPendingLifecycle(int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 1_000));
         return java.util.stream.Stream.concat(
@@ -176,5 +233,10 @@ public class ServiceDefinitionService {
                     "Service lifecycle projection could not be updated: "
                             + service.getServiceName());
         }
+    }
+
+    private String requiredOperator(String operator) {
+        return operator == null || operator.isBlank()
+                ? "client-auto-register" : operator.trim();
     }
 }

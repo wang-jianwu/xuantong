@@ -4,39 +4,67 @@ import cloud.xuantong.client.XuantongConfigClient;
 import cloud.xuantong.client.annotation.ConfigValue;
 import cloud.xuantong.client.enums.ValueType;
 import cloud.xuantong.client.exception.XuantongException;
+import cloud.xuantong.client.listener.ConfigListener;
+import cloud.xuantong.client.listener.ListenerRegistration;
+import cloud.xuantong.client.serializer.Serializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.config.DestructionAwareBeanPostProcessor;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /**
  * @author 封于修
  * 处理@ConfigValue注解的Bean后处理器
  */
-public class XuantongConfigValueProcessor implements BeanPostProcessor {
+public class XuantongConfigValueProcessor
+        implements BeanPostProcessor, DestructionAwareBeanPostProcessor, DisposableBean {
 
     private static final Logger logger = LoggerFactory.getLogger(XuantongConfigValueProcessor.class);
 
-    private final ObjectProvider<XuantongConfigClient> xuantongConfigClientProvider;
+    private final Supplier<ConfigClientAccess> clientProvider;
+    private final ConfigurableListableBeanFactory beanFactory;
+    private final Map<String, List<TrackedRegistration>> registrations =
+            new ConcurrentHashMap<>();
 
     public XuantongConfigValueProcessor(
-            ObjectProvider<XuantongConfigClient> xuantongConfigClientProvider) {
-        this.xuantongConfigClientProvider = xuantongConfigClientProvider;
+            ObjectProvider<XuantongConfigClient> xuantongConfigClientProvider,
+            ConfigurableListableBeanFactory beanFactory) {
+        this(() -> {
+            XuantongConfigClient client = xuantongConfigClientProvider.getIfAvailable();
+            return client == null ? null : new ConfigClientAdapter(client);
+        }, beanFactory);
+    }
+
+    XuantongConfigValueProcessor(
+            Supplier<ConfigClientAccess> clientProvider,
+            ConfigurableListableBeanFactory beanFactory) {
+        this.clientProvider = clientProvider;
+        this.beanFactory = beanFactory;
     }
 
     @Override
     public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
         // 注册配置监听器
-        registerConfigListeners(bean);
+        registerConfigListeners(bean, beanName);
         return bean;
     }
 
@@ -47,25 +75,50 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
         return bean;
     }
 
-    private void registerConfigListeners(Object bean) {
+    private void registerConfigListeners(Object bean, String beanName) {
+        if (isPrototype(beanName)) {
+            if (hasAutoRefreshField(bean.getClass())) {
+                logger.warn("Skip @ConfigValue auto-refresh for prototype bean '{}'; "
+                        + "prototype beans have no container-managed destruction callback", beanName);
+            }
+            return;
+        }
         Class<?> clazz = bean.getClass();
         ReflectionUtils.doWithFields(clazz, field -> {
             ConfigValue configValue = AnnotationUtils.getAnnotation(field, ConfigValue.class);
             if (configValue != null && configValue.autoRefresh()) {
                 String configKey = configValue.value();
-                XuantongConfigClient client = xuantongConfigClientProvider.getIfAvailable();
+                ConfigClientAccess client = clientProvider.get();
                 if (client != null) {
-                    // 注册配置变更监听器
-                    client.addListener(configKey, event -> {
-                        try {
-                            refreshFieldValue(bean, field, configValue, event.getNewValue());
-                        } catch (Exception e) {
-                            throw new XuantongException("Failed to refresh config value for key: " + configKey, e);
-                        }
-                    });
+                    AutoRefreshListener listener = new AutoRefreshListener(
+                            bean, field, configValue, configKey);
+                    ListenerRegistration registration = client.listen(configKey, listener);
+                    listener.bind(registration);
+                    registrations.computeIfAbsent(
+                                    beanName, ignored -> new CopyOnWriteArrayList<>())
+                            .add(new TrackedRegistration(bean, registration));
                 }
             }
         });
+    }
+
+    private boolean isPrototype(String beanName) {
+        try {
+            return beanFactory.isPrototype(beanName);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean hasAutoRefreshField(Class<?> type) {
+        AtomicBoolean found = new AtomicBoolean();
+        ReflectionUtils.doWithFields(type, field -> {
+            ConfigValue value = AnnotationUtils.getAnnotation(field, ConfigValue.class);
+            if (value != null && value.autoRefresh()) {
+                found.set(true);
+            }
+        });
+        return found.get();
     }
 
     private void injectConfigValues(Object bean) {
@@ -84,7 +137,7 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
             String configKey = configValue.value();
             String defaultValue = configValue.defaultValue();
 
-            XuantongConfigClient client = xuantongConfigClientProvider.getIfAvailable();
+            ConfigClientAccess client = clientProvider.get();
             if (client != null) {
                 ValueType resolvedType = ValueType.inferFromClass(field.getType());
                 Object configValueObj = getConfigValue(client, configKey, field, defaultValue, resolvedType);
@@ -100,7 +153,7 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
     }
 
     private Object getConfigValue(
-            XuantongConfigClient client,
+            ConfigClientAccess client,
             String configKey,
             Field field,
             String defaultValue,
@@ -214,16 +267,17 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
             }
 
             if (resolvedType == ValueType.JSON) {
-                XuantongConfigClient client = xuantongConfigClientProvider.getIfAvailable();
-                if (client == null) return;
                 Class<?> fieldType = field.getType();
                 if (List.class.isAssignableFrom(fieldType)) {
-                    convertedValue = client.getObjectList(configValue.value(), getComponentType(field));
+                    convertedValue = Serializer.defaultSerializer().deserializeToList(
+                            effectiveValue, getComponentType(field));
                 } else if (Map.class.isAssignableFrom(fieldType)) {
                     Type[] mapTypes = getMapGenericTypes(field);
-                    convertedValue = client.getObjectMap(configValue.value(), mapTypes[0], mapTypes[1]);
+                    convertedValue = Serializer.defaultSerializer().deserializeMap(
+                            effectiveValue, mapTypes[0], mapTypes[1]);
                 } else {
-                    convertedValue = client.getObject(configValue.value(), fieldType);
+                    convertedValue = Serializer.defaultSerializer().deserialize(
+                            effectiveValue, fieldType);
                 }
             } else {
                 convertedValue = convertStringToType(effectiveValue, field.getType(), resolvedType);
@@ -231,6 +285,138 @@ public class XuantongConfigValueProcessor implements BeanPostProcessor {
             field.set(bean, convertedValue);
         } catch (IllegalAccessException e) {
             throw new XuantongException("Failed to refresh field value", e);
+        }
+    }
+
+    @Override
+    public void postProcessBeforeDestruction(Object bean, String beanName) {
+        List<TrackedRegistration> beanRegistrations = registrations.get(beanName);
+        if (beanRegistrations == null) {
+            return;
+        }
+        beanRegistrations.removeIf(tracked -> {
+            Object registeredBean = tracked.bean().get();
+            if (registeredBean == null || registeredBean == bean) {
+                tracked.registration().close();
+                return true;
+            }
+            return false;
+        });
+        if (beanRegistrations.isEmpty()) {
+            registrations.remove(beanName, beanRegistrations);
+        }
+    }
+
+    @Override
+    public boolean requiresDestruction(Object bean) {
+        for (List<TrackedRegistration> values : registrations.values()) {
+            for (TrackedRegistration tracked : values) {
+                if (tracked.bean().get() == bean) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void destroy() {
+        List<ListenerRegistration> toClose = new ArrayList<>();
+        for (List<TrackedRegistration> values : registrations.values()) {
+            for (TrackedRegistration tracked : values) {
+                toClose.add(tracked.registration());
+            }
+        }
+        registrations.clear();
+        for (ListenerRegistration registration : toClose) {
+            registration.close();
+        }
+    }
+
+    private final class AutoRefreshListener implements ConfigListener {
+        private final WeakReference<Object> bean;
+        private final Field field;
+        private final ConfigValue configValue;
+        private final String configKey;
+        private final AtomicReference<ListenerRegistration> registration =
+                new AtomicReference<>();
+
+        private AutoRefreshListener(
+                Object bean, Field field, ConfigValue configValue, String configKey) {
+            this.bean = new WeakReference<>(bean);
+            this.field = field;
+            this.configValue = configValue;
+            this.configKey = configKey;
+        }
+
+        private void bind(ListenerRegistration value) {
+            registration.set(value);
+        }
+
+        @Override
+        public void onConfigChange(cloud.xuantong.client.model.ConfigChangeEvent event) {
+            Object target = bean.get();
+            if (target == null) {
+                ListenerRegistration value = registration.getAndSet(null);
+                if (value != null) {
+                    value.close();
+                }
+                return;
+            }
+            try {
+                refreshFieldValue(target, field, configValue, event.getNewValue());
+            } catch (Exception e) {
+                throw new XuantongException(
+                        "Failed to refresh config value for key: " + configKey, e);
+            }
+        }
+    }
+
+    private record TrackedRegistration(
+            WeakReference<Object> bean, ListenerRegistration registration) {
+        private TrackedRegistration(Object bean, ListenerRegistration registration) {
+            this(new WeakReference<>(bean), registration);
+        }
+    }
+
+    interface ConfigClientAccess {
+        String get(String dataId, String defaultValue);
+
+        <T> T getObject(String dataId, Class<T> type);
+
+        <T> List<T> getObjectList(String dataId, Class<T> type);
+
+        <K, V> Map<K, V> getObjectMap(String dataId, Type keyType, Type valueType);
+
+        ListenerRegistration listen(String dataId, ConfigListener listener);
+    }
+
+    private record ConfigClientAdapter(XuantongConfigClient delegate)
+            implements ConfigClientAccess {
+        @Override
+        public String get(String dataId, String defaultValue) {
+            return delegate.get(dataId, defaultValue);
+        }
+
+        @Override
+        public <T> T getObject(String dataId, Class<T> type) {
+            return delegate.getObject(dataId, type);
+        }
+
+        @Override
+        public <T> List<T> getObjectList(String dataId, Class<T> type) {
+            return delegate.getObjectList(dataId, type);
+        }
+
+        @Override
+        public <K, V> Map<K, V> getObjectMap(
+                String dataId, Type keyType, Type valueType) {
+            return delegate.getObjectMap(dataId, keyType, valueType);
+        }
+
+        @Override
+        public ListenerRegistration listen(String dataId, ConfigListener listener) {
+            return delegate.listen(dataId, listener);
         }
     }
 }

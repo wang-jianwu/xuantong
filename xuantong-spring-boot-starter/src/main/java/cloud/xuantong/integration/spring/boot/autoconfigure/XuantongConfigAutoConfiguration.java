@@ -4,6 +4,7 @@ import cloud.xuantong.client.ClientIdentity;
 import cloud.xuantong.client.ControlPlaneOptions;
 import cloud.xuantong.client.XuantongConfigClient;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -44,13 +45,16 @@ public class XuantongConfigAutoConfiguration {
                 properties.getGroup(),
                 properties.getAccessToken(),
                 new ClientIdentity(applicationName, properties.getClientInstanceId()),
-                controlPlaneOptions
+                controlPlaneOptions,
+                properties.clientOptions()
         );
     }
 
     @Bean
     public static XuantongConfigValueProcessor xuantongConfigValueProcessor(
-            ObjectProvider<XuantongConfigClient> xuantongConfigClientProvider) {
-        return new XuantongConfigValueProcessor(xuantongConfigClientProvider);
+            ObjectProvider<XuantongConfigClient> xuantongConfigClientProvider,
+            ConfigurableListableBeanFactory beanFactory) {
+        return new XuantongConfigValueProcessor(
+                xuantongConfigClientProvider, beanFactory);
     }
 }

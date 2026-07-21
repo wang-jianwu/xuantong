@@ -4,6 +4,7 @@ import cloud.xuantong.client.ClientIdentity;
 import cloud.xuantong.client.ControlPlaneOptions;
 import cloud.xuantong.client.TlsOptions;
 import cloud.xuantong.client.XuantongConfigClient;
+import cloud.xuantong.client.listener.ListenerRegistration;
 
 import java.util.Arrays;
 import java.util.List;
@@ -47,12 +48,11 @@ public final class JavaClientDemo {
                 System.getenv().getOrDefault("XUANTONG_GROUP", "DEFAULT_GROUP"),
                 System.getenv().getOrDefault("XUANTONG_ACCESS_TOKEN", ""),
                 new ClientIdentity("java-client-demo", null),
-                controlPlane)) {
+                controlPlane);
+             ListenerRegistration registration = client.listen(dataId, event ->
+                     System.out.println("revision=" + event.getRevision()
+                             + ", value=" + event.getNewValue()))) {
             System.out.println(dataId + "=" + client.get(dataId, "hello-xuantong"));
-
-            client.addListener(dataId, event ->
-                    System.out.println("revision=" + event.getRevision()
-                            + ", value=" + event.getNewValue()));
 
             System.out.println("Watching configuration changes. Press Ctrl+C to exit.");
             new CountDownLatch(1).await();

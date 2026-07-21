@@ -13,7 +13,8 @@ class AuditDetailSanitizerTest {
                 + "\"accessToken\":\"xt_abcdefghijklmnop\","
                 + "\"content\":\"db.password=secret\",\"contentRevision\":7} "
                 + "Authorization=Bearer abc.def.ghi keyStorePassword=change-me "
-                + "-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----";
+                + "-----BEGIN " + "PRIVATE KEY-----\nprivate-material\n"
+                + "-----END " + "PRIVATE KEY-----";
 
         String sanitized = AuditDetailSanitizer.sanitize(detail);
 

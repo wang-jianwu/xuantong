@@ -40,7 +40,7 @@ class ConfigStatePlanePropertiesTest {
     }
 
     @Test
-    void explicitLocalDevelopmentModeAllowsOneVoter() {
+    void singleNodeModeAllowsOneVoter() {
         ConfigStatePlaneProperties properties = new ConfigStatePlaneProperties(
                 true,
                 "state-1",
@@ -60,4 +60,5 @@ class ConfigStatePlanePropertiesTest {
         assertEquals("127.0.0.1", properties.nodeOptions(group).rpcBindHost());
         assertEquals(9101, properties.nodeOptions(group).rpcBindPort());
     }
+
 }

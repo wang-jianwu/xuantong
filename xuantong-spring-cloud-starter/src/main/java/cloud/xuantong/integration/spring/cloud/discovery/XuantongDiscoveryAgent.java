@@ -29,11 +29,6 @@ final class XuantongDiscoveryAgent implements XuantongDiscoveryOperations {
     }
 
     @Override
-    public List<String> getServices() {
-        return delegate.getServices();
-    }
-
-    @Override
     public LeaseRenewalMetricsSnapshot leaseRenewalMetrics() {
         return delegate.getLeaseRenewalMetrics();
     }

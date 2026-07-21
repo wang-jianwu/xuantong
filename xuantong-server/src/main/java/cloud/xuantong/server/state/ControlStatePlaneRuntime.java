@@ -2,6 +2,7 @@ package cloud.xuantong.server.state;
 
 import cloud.xuantong.common.metrics.FixedLatencyHistogram;
 import cloud.xuantong.config.state.ConfigStateMachine;
+import cloud.xuantong.discovery.management.service.ServiceDefinitionService;
 import cloud.xuantong.gateway.socketd.ControlPlaneRequestDispatcher;
 import cloud.xuantong.gateway.socketd.ControlPlaneRequestHandler;
 import cloud.xuantong.gateway.socketd.ControlPlaneStateExecutor;
@@ -48,6 +49,8 @@ public final class ControlStatePlaneRuntime {
     private ControlPlaneGatewayRuntime gatewayRuntime;
     @Inject
     private StateStorageTelemetry stateStorageTelemetry;
+    @Inject
+    private ServiceDefinitionService serviceDefinitionService;
 
     private final List<ControlPlaneRequestHandler> registeredHandlers = new ArrayList<>();
     private volatile RatisStateNode node;
@@ -82,9 +85,7 @@ public final class ControlStatePlaneRuntime {
                         "Registry State requires the compact Config State node to be enabled");
             }
             log.warn("State Plane is disabled; Config and Discovery handlers are unavailable. "
-                    + "For local development set XUANTONG_CONFIG_STATE_ENABLED=true, "
-                    + "XUANTONG_STATE_NODE_ID, XUANTONG_CONFIG_STATE_PEERS and "
-                    + "XUANTONG_CONFIG_STATE_ALLOW_SINGLE_NODE=true");
+                    + "Remove XUANTONG_CONFIG_STATE_ENABLED=false to restore the default local State Plane");
             return;
         }
         if (node != null || router != null) {
@@ -194,7 +195,9 @@ public final class ControlStatePlaneRuntime {
             List<ControlPlaneRequestHandler> handlers,
             ControlPlaneStateExecutor stateExecutor) {
         handlers.add(new DiscoveryMutationControlPlaneHandler(
-                stateExecutor, DiscoveryMutationControlPlaneHandler.Operation.REGISTER));
+                stateExecutor,
+                DiscoveryMutationControlPlaneHandler.Operation.REGISTER,
+                serviceDefinitionService));
         handlers.add(new DiscoveryMutationControlPlaneHandler(
                 stateExecutor, DiscoveryMutationControlPlaneHandler.Operation.RENEW_BATCH));
         handlers.add(new DiscoveryMutationControlPlaneHandler(

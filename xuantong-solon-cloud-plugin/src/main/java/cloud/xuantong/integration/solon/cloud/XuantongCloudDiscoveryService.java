@@ -6,6 +6,7 @@ import cloud.xuantong.client.ControlPlaneOptions;
 import cloud.xuantong.client.metrics.LeaseRenewalMetricsSnapshot;
 import cloud.xuantong.client.model.ServiceInstance;
 import cloud.xuantong.client.serializer.Serializer;
+import cloud.xuantong.client.transport.impl.SharedDiscoveryConnection;
 import org.noear.solon.cloud.CloudDiscoveryHandler;
 import org.noear.solon.cloud.CloudProps;
 import org.noear.solon.Solon;
@@ -22,12 +23,12 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class XuantongCloudDiscoveryService implements CloudDiscoveryService, AutoCloseable {
     private static final String DEFAULT_GROUP = "DEFAULT_GROUP";
-    private static final String CATALOG_SERVICE = "xuantong-service-catalog";
     private static final String TAGS_META = "solon.tags";
 
     private final List<String> serverAddresses;
@@ -36,9 +37,11 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
     private final long heartbeatIntervalMs;
     private final ClientIdentity clientIdentity;
     private final ControlPlaneOptions controlPlaneOptions;
+    private final SharedDiscoveryConnection sharedConnection;
     private final Serializer serializer = Serializer.defaultSerializer();
     private final Map<String, XuantongDiscoveryClient> discoveryClients = new ConcurrentHashMap<>();
-    private final Map<String, XuantongDiscoveryClient> registrationClients = new ConcurrentHashMap<>();
+    private final Map<String, LocalRegistration> registrationClients =
+            new ConcurrentHashMap<>();
 
     public XuantongCloudDiscoveryService(CloudProps cloudProps) {
         this.namespace = normalizeNamespace(cloudProps.getNamespace());
@@ -66,6 +69,16 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
                 defaults.operationTimeoutMs(),
                 defaults.closingTimeoutMs(),
                 SolonCloudTlsOptions.load());
+        long leaseTtlMs;
+        try {
+            leaseTtlMs = Math.max(
+                    30_000L, Math.multiplyExact(heartbeatIntervalMs, 3L));
+        } catch (ArithmeticException e) {
+            throw new CloudException(
+                    "discovery.healthCheckInterval 数值过大", e);
+        }
+        this.sharedConnection = new SharedDiscoveryConnection(
+                clientIdentity, controlPlaneOptions, leaseTtlMs);
     }
 
     @Override
@@ -74,7 +87,8 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
     }
 
     @Override
-    public void registerState(String group, Instance instance, boolean health) {
+    public synchronized void registerState(
+            String group, Instance instance, boolean health) {
         if (instance == null) {
             throw new IllegalArgumentException("instance must not be null");
         }
@@ -82,29 +96,37 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
         String serviceName = requireName("service", instance.service());
         String instanceId = instanceId(instance);
         String key = registrationKey(normalizedGroup, serviceName, instanceId);
-        XuantongDiscoveryClient client = registrationClients.computeIfAbsent(key,
-                ignored -> newClient(normalizedGroup, serviceName));
         ServiceInstance registration = toXuantongInstance(instance, instanceId, health);
+        LocalRegistration existing = registrationClients.get(key);
+        if (existing != null && sameRegistration(existing.definition(), registration)) {
+            return;
+        }
+        if (existing != null) {
+            registrationClients.remove(key, existing);
+            existing.client().close();
+        }
+        XuantongDiscoveryClient client = newClient(normalizedGroup, serviceName);
         try {
             client.register(registration);
+            registrationClients.put(
+                    key, new LocalRegistration(client, copyRegistration(registration)));
         } catch (RuntimeException e) {
-            registrationClients.remove(key, client);
             client.close();
             throw e;
         }
     }
 
     @Override
-    public void deregister(String group, Instance instance) {
+    public synchronized void deregister(String group, Instance instance) {
         if (instance == null) {
             return;
         }
         String normalizedGroup = normalizeGroup(group);
         String instanceId = instanceId(instance);
         String key = registrationKey(normalizedGroup, instance.service(), instanceId);
-        XuantongDiscoveryClient client = registrationClients.remove(key);
-        if (client != null) {
-            client.close();
+        LocalRegistration registration = registrationClients.remove(key);
+        if (registration != null) {
+            registration.client().close();
         }
     }
 
@@ -119,7 +141,8 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
     @Override
     public Collection<String> findServices(String group) {
         String normalizedGroup = normalizeGroup(group);
-        return discoveryClient(normalizedGroup, CATALOG_SERVICE).getServices();
+        return sharedConnection.fetchServices(
+                serverAddresses, namespace, normalizedGroup, accessToken);
     }
 
     @Override
@@ -141,14 +164,35 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
     private XuantongDiscoveryClient newClient(String group, String serviceName) {
         return new XuantongDiscoveryClient(
                 serverAddresses, namespace, group, serviceName, accessToken,
-                heartbeatIntervalMs, clientIdentity, controlPlaneOptions);
+                heartbeatIntervalMs, sharedConnection.newServiceTransport());
     }
 
     /** Returns fixed-memory renewal telemetry for locally registered leases. */
     public List<LeaseRenewalMetricsSnapshot> leaseRenewalMetrics() {
         return registrationClients.values().stream()
+                .map(LocalRegistration::client)
                 .map(XuantongDiscoveryClient::getLeaseRenewalMetrics)
                 .toList();
+    }
+
+    private boolean sameRegistration(ServiceInstance left, ServiceInstance right) {
+        return Objects.equals(left.getInstanceId(), right.getInstanceId())
+                && Objects.equals(left.getIp(), right.getIp())
+                && Objects.equals(left.getPort(), right.getPort())
+                && Objects.equals(left.getWeight(), right.getWeight())
+                && Objects.equals(left.getEnabled(), right.getEnabled())
+                && Objects.equals(left.getMetadata(), right.getMetadata());
+    }
+
+    private ServiceInstance copyRegistration(ServiceInstance source) {
+        ServiceInstance target = new ServiceInstance();
+        target.setInstanceId(source.getInstanceId());
+        target.setIp(source.getIp());
+        target.setPort(source.getPort());
+        target.setWeight(source.getWeight());
+        target.setEnabled(source.getEnabled());
+        target.setMetadata(source.getMetadata());
+        return target;
     }
 
     private ServiceInstance toXuantongInstance(
@@ -264,14 +308,19 @@ public class XuantongCloudDiscoveryService implements CloudDiscoveryService, Aut
     }
 
     @Override
-    public void close() {
-        for (XuantongDiscoveryClient client : registrationClients.values()) {
-            client.close();
+    public synchronized void close() {
+        for (LocalRegistration registration : registrationClients.values()) {
+            registration.client().close();
         }
         for (XuantongDiscoveryClient client : discoveryClients.values()) {
             client.close();
         }
         registrationClients.clear();
         discoveryClients.clear();
+        sharedConnection.close();
+    }
+
+    private record LocalRegistration(
+            XuantongDiscoveryClient client, ServiceInstance definition) {
     }
 }

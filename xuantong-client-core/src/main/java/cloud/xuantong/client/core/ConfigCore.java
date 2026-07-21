@@ -4,6 +4,7 @@ import cloud.xuantong.client.cache.ConfigCacheManager;
 import cloud.xuantong.client.exception.XuantongException;
 import cloud.xuantong.client.listener.ConfigListener;
 import cloud.xuantong.client.listener.ConfigListenerManager;
+import cloud.xuantong.client.listener.ListenerRegistration;
 import cloud.xuantong.client.model.ConfigChangeEvent;
 import cloud.xuantong.client.model.ConfigGroupSnapshot;
 import cloud.xuantong.client.model.ConfigInvalidation;
@@ -28,6 +29,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.time.Duration;
+import java.nio.file.Path;
 
 /**
  * Config Agent built around the authoritative Config State Snapshot/Watch contract.
@@ -70,10 +72,21 @@ public class ConfigCore implements AutoCloseable {
                       String group,
                       String accessToken,
                       ConfigTransport transport) {
+        this(serverAddresses, namespace, group, accessToken, transport, null);
+    }
+
+    public ConfigCore(List<String> serverAddresses,
+                      String namespace,
+                      String group,
+                      String accessToken,
+                      ConfigTransport transport,
+                      Path cacheRoot) {
         this.namespace = requireName("namespace", namespace);
         this.group = requireName("group", group);
         this.transport = Objects.requireNonNull(transport, "transport");
-        this.cacheManager = new ConfigCacheManager(this.namespace, this.group);
+        this.cacheManager = cacheRoot == null
+                ? new ConfigCacheManager(this.namespace, this.group)
+                : new ConfigCacheManager(this.namespace, this.group, cacheRoot);
         this.reconcileExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "xuantong-config-watch");
             thread.setDaemon(true);
@@ -371,11 +384,18 @@ public class ConfigCore implements AutoCloseable {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
     }
 
-    public void addConfigListener(String dataId, ConfigListener listener) {
+    public ListenerRegistration addConfigListener(String dataId, ConfigListener listener) {
         String normalizedDataId = requireName("dataId", dataId);
+        Objects.requireNonNull(listener, "listener");
         listenerManager.addListener(normalizedDataId, listener);
         listenerDataIds.add(normalizedDataId);
         requestRecovery();
+        AtomicBoolean registrationClosed = new AtomicBoolean();
+        return () -> {
+            if (registrationClosed.compareAndSet(false, true)) {
+                removeConfigListener(normalizedDataId, listener);
+            }
+        };
     }
 
     public void removeConfigListener(String dataId, ConfigListener listener) {

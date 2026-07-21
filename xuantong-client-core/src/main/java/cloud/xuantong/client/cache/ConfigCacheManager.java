@@ -48,7 +48,10 @@ public class ConfigCacheManager {
         this(namespace, group, Paths.get(System.getProperty("user.dir"), ".xuantong-cache"));
     }
 
-    ConfigCacheManager(String namespace, String group, Path cacheRoot) {
+    public ConfigCacheManager(String namespace, String group, Path cacheRoot) {
+        if (cacheRoot == null) {
+            throw new IllegalArgumentException("cacheRoot must not be null");
+        }
         this.cacheDir = cacheRoot.resolve(namespace).resolve(group);
         this.cacheFile = cacheDir.resolve("all.properties");
         try {

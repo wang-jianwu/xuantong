@@ -13,8 +13,6 @@ public interface XuantongDiscoveryOperations extends AutoCloseable {
 
     List<ServiceInstance> getInstances();
 
-    List<String> getServices();
-
     default LeaseRenewalMetricsSnapshot leaseRenewalMetrics() {
         return null;
     }

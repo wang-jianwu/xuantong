@@ -70,6 +70,45 @@ class RegistryStateMachineTest {
     }
 
     @Test
+    void firstRegistrationCreatesActiveServiceDefinition() throws Exception {
+        RegistryStateMachine freshStateMachine = new RegistryStateMachine(
+                groupId,
+                new RegistryStateOptions(1_000, 60_000, 100, 100, 10, 2, 100));
+        stateMachine = freshStateMachine;
+
+        ApplyResult result = apply("register-first-service",
+                register(CLIENT_A, "lease-first-service", 10_000, 1_000));
+
+        assertEquals(ApplyStatus.APPLIED, result.status());
+        RegistryMutationResult mutation = RegistryStateCodec.decodeMutationResult(
+                result.payload());
+        assertEquals(1, mutation.services().size());
+        assertEquals(ServiceLifecycleStatus.ACTIVE,
+                mutation.services().getFirst().status());
+        assertEquals(1L, mutation.services().getFirst().generation());
+        assertEquals(1L, mutation.instances().getFirst()
+                .registration().serviceGeneration());
+        assertEquals(ServiceLifecycleStatus.ACTIVE, lifecycle().lifecycle().status());
+        assertEquals(1L, lifecycle().lifecycle().generation());
+    }
+
+    @Test
+    void staleGenerationDoesNotCreateMissingServiceDefinition() throws Exception {
+        stateMachine = new RegistryStateMachine(
+                groupId,
+                new RegistryStateOptions(1_000, 60_000, 100, 100, 10, 2, 100));
+
+        ApplyResult result = apply("register-stale-missing-service",
+                register(CLIENT_A, "lease-stale", 10_000, 1_000, 2L));
+
+        assertEquals(ApplyStatus.REJECTED, result.status());
+        assertEquals("SERVICE_GENERATION_FENCED",
+                RegistryStateCodec.decodeMutationError(result.payload()).code());
+        assertFalse(lifecycle().found());
+        assertTrue(snapshot().instances().isEmpty());
+    }
+
+    @Test
     void renewBatchIsAtomicAndSequenceFencesDelayedHeartbeats() throws Exception {
         RegistryInstance registered = registerAndRead(CLIENT_A, "lease-1", 1_000);
         LeaseReference lease = reference(registered);

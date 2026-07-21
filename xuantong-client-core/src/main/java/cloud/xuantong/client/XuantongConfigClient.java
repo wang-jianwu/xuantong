@@ -2,12 +2,14 @@ package cloud.xuantong.client;
 
 import cloud.xuantong.client.core.ConfigCore;
 import cloud.xuantong.client.listener.ConfigListener;
+import cloud.xuantong.client.listener.ListenerRegistration;
 import cloud.xuantong.client.serializer.Serializer;
 import cloud.xuantong.client.transport.impl.SocketDTransport;
 
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 玄同配置客户端，负责配置读取、类型转换和变更监听。
@@ -15,8 +17,10 @@ import java.util.Map;
 public class XuantongConfigClient implements AutoCloseable {
 
     private final ConfigCore configCore;
-    private static volatile XuantongConfigClient defaultInstance = null;
-    private static final Object LOCK = new Object();
+
+    XuantongConfigClient(ConfigCore configCore) {
+        this.configCore = Objects.requireNonNull(configCore, "configCore");
+    }
 
     public XuantongConfigClient(List<String> serverAddresses, String namespace, String group) {
         this(serverAddresses, namespace, group, "");
@@ -64,34 +68,25 @@ public class XuantongConfigClient implements AutoCloseable {
             String accessToken,
             ClientIdentity identity,
             ControlPlaneOptions controlPlaneOptions) {
+        this(serverAddresses, namespace, group, accessToken, identity,
+                controlPlaneOptions, ConfigClientOptions.defaults());
+    }
+
+    public XuantongConfigClient(
+            List<String> serverAddresses,
+            String namespace,
+            String group,
+            String accessToken,
+            ClientIdentity identity,
+            ControlPlaneOptions controlPlaneOptions,
+            ConfigClientOptions clientOptions) {
         this.configCore = new ConfigCore(
                 serverAddresses,
                 namespace,
                 group,
                 accessToken,
-                new SocketDTransport(identity, controlPlaneOptions));
-        registerAsDefault();
-    }
-
-    /**
-     * 注册当前实例为默认实例（双重检查锁定，静态锁保护静态字段）
-     */
-    private void registerAsDefault() {
-        if (defaultInstance == null) {
-            synchronized (LOCK) {
-                if (defaultInstance == null) {
-                    defaultInstance = this;
-                    XuantongConfig.setClient(this);
-                }
-            }
-        }
-    }
-
-    /**
-     * 获取默认实例（如果存在）
-     */
-    public static XuantongConfigClient getDefault() {
-        return defaultInstance;
+                new SocketDTransport(identity, controlPlaneOptions),
+                clientOptions == null ? null : clientOptions.cacheRoot());
     }
 
     /**
@@ -137,8 +132,15 @@ public class XuantongConfigClient implements AutoCloseable {
     /**
      * 添加配置变更监听器
      */
-    public void addListener(String dataId, ConfigListener listener) {
-        configCore.addConfigListener(dataId, listener);
+    public ListenerRegistration listen(String dataId, ConfigListener listener) {
+        return configCore.addConfigListener(dataId, listener);
+    }
+
+    /**
+     * 添加配置变更监听器，并返回用于释放监听关系的句柄。
+     */
+    public ListenerRegistration addListener(String dataId, ConfigListener listener) {
+        return listen(dataId, listener);
     }
 
     /**
@@ -154,11 +156,5 @@ public class XuantongConfigClient implements AutoCloseable {
     @Override
     public void close() {
         configCore.close();
-        synchronized (LOCK) {
-            if (defaultInstance == this) {
-                defaultInstance = null;
-                XuantongConfig.clearClient(this);
-            }
-        }
     }
 }

@@ -2,7 +2,7 @@ solon:
   app:
     name: xuantong-server
     group: xuantong
-    version: ${XUANTONG_VERSION:2.0.0-SNAPSHOT}
+    version: ${XUANTONG_VERSION:2.0.0}
 
   serialization.json:
     dateAsFormat: 'yyyy-MM-dd HH:mm:ss'
@@ -78,14 +78,15 @@ controlPlane:
     # NONE / WANT / REQUIRE。REQUIRE 时必须同时配置 server.socket.ssl trustStore。
     clientAuth: ${XUANTONG_CONTROL_TLS_CLIENT_AUTH:NONE}
 
-# Config 权威状态面。默认关闭，避免在未明确配置 3/5 个 voter 时误启动伪集群。
+# Config 权威状态面。默认使用本地单节点，可用于开发或单机生产。
 statePlane:
   config:
-    enabled: ${XUANTONG_CONFIG_STATE_ENABLED:false}
-    localNodeId: ${XUANTONG_STATE_NODE_ID:}
+    # 高可用部署时改为 3 或 5 个 peer；生产安全模式不强制部署规模。
+    enabled: ${XUANTONG_CONFIG_STATE_ENABLED:true}
+    localNodeId: ${XUANTONG_STATE_NODE_ID:state-1}
     groupId: ${XUANTONG_CONFIG_GROUP_ID:config-default}
     # 格式：state-1@10.0.0.11:9101,state-2@10.0.0.12:9101,state-3@10.0.0.13:9101
-    peers: ${XUANTONG_CONFIG_STATE_PEERS:}
+    peers: ${XUANTONG_CONFIG_STATE_PEERS:state-1@127.0.0.1:9101}
     # 默认绑定当前 peer 公布地址；容器/NAT 场景可只覆盖本地 bind，peers 仍必须填写节点间可直连地址，禁止使用 LB/VIP。
     rpcBindHost: ${XUANTONG_STATE_RPC_BIND_HOST:}
     rpcBindPort: ${XUANTONG_STATE_RPC_BIND_PORT:0}
@@ -93,7 +94,7 @@ statePlane:
     storageDirectory: ${XUANTONG_STATE_DIR:./data/state}
     # 低于该可用空间时 Ratis 拒绝节点上线；生产默认保留 512 MiB，需按 WAL/Snapshot 峰值调大。
     storageFreeSpaceMinBytes: ${XUANTONG_STATE_STORAGE_FREE_MIN_BYTES:536870912}
-    # 只允许本地开发显式开启；生产必须保持 false 并配置 3 或 5 个 voter。
+    # 单节点部署保持 true；要求高可用拓扑时可设为 false。
     allowSingleNode: ${XUANTONG_CONFIG_STATE_ALLOW_SINGLE_NODE:true}
     # 新节点加入已有集群时设为 true；进程先启动空 Ratis Server，等待安全成员变更流程。
     joinExisting: ${XUANTONG_STATE_JOIN_EXISTING:false}
@@ -119,7 +120,7 @@ statePlane:
     operationRecoveryIntervalMs: ${XUANTONG_CONFIG_OPERATION_RECOVERY_MS:1000}
   registry:
     # 与 Config Group 复用同一批 State voter 和物理 Ratis Server，但使用独立 Group/WAL/Snapshot。
-    enabled: ${XUANTONG_REGISTRY_STATE_ENABLED:false}
+    enabled: ${XUANTONG_REGISTRY_STATE_ENABLED:true}
     groupId: ${XUANTONG_REGISTRY_GROUP_ID:registry-default}
     minLeaseTtlMs: ${XUANTONG_REGISTRY_MIN_LEASE_TTL_MS:3000}
     maxLeaseTtlMs: ${XUANTONG_REGISTRY_MAX_LEASE_TTL_MS:120000}

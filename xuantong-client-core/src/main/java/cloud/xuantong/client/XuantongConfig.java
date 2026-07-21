@@ -11,7 +11,7 @@ import java.util.Map;
  */
 public final class XuantongConfig {
     private static XuantongConfigClient defaultClient = null;
-    private static volatile boolean initialized = false;
+    private static boolean ownsDefaultClient;
 
     private XuantongConfig() {
         // 防止实例化
@@ -57,47 +57,40 @@ public final class XuantongConfig {
             String group,
             String accessToken,
             ClientIdentity identity) {
-        if (initialized) {
-            throw new XuantongException("XuantongConfig already initialized. Use close() before reinitializing.");
-        }
         if (defaultClient != null) {
-            throw new XuantongException("XuantongConfig singleton instance already exists");
+            throw new XuantongException("XuantongConfig already initialized. Use close() before reinitializing.");
         }
         defaultClient = new XuantongConfigClient(
                 serverAddresses, namespace, group, accessToken, identity);
-        initialized = true;
+        ownsDefaultClient = true;
     }
 
     /**
      * 获取字符串配置值
      */
     public static String get(String dataId) {
-        checkInitialized();
-        return defaultClient.get(dataId);
+        return requiredDefault().get(dataId);
     }
 
     /**
      * 获取字符串配置值（带默认值）
      */
     public static String get(String dataId, String defaultValue) {
-        checkInitialized();
-        return defaultClient.get(dataId, defaultValue);
+        return requiredDefault().get(dataId, defaultValue);
     }
 
     /**
      * 获取对象配置值
      */
     public static <T> T getObject(String dataId, Class<T> clazz) {
-        checkInitialized();
-        return defaultClient.getObject(dataId, clazz);
+        return requiredDefault().getObject(dataId, clazz);
     }
 
     /**
      * 获取对象列表配置值
      */
     public static <T> List<T> getObjectList(String dataId, Class<T> clazz) {
-        checkInitialized();
-        return defaultClient.getObjectList(dataId, clazz);
+        return requiredDefault().getObjectList(dataId, clazz);
     }
     /**
      * 获取 Map 配置值（支持 Enum key 等泛型类型）
@@ -105,48 +98,64 @@ public final class XuantongConfig {
      * @param valueType 值类型，如 SomeObject.class
      */
     public static <K, V> Map<K, V> getObjectMap(String dataId, Type keyType, Type valueType) {
-        checkInitialized();
-        return defaultClient.getObjectMap(dataId, keyType, valueType);
+        return requiredDefault().getObjectMap(dataId, keyType, valueType);
     }
     /**
-     * 设置默认配置客户端实例（供 XuantongConfigClient 内部使用）
+     * 显式绑定一个由调用方管理生命周期的默认客户端。
+     * 普通客户端构造不会再修改全局默认实例。
      */
-    static synchronized void setClient(XuantongConfigClient client) {
+    public static synchronized void setDefault(XuantongConfigClient client) {
+        if (client == null) {
+            throw new IllegalArgumentException("client must not be null");
+        }
         if (defaultClient != null && defaultClient != client) {
             throw new IllegalStateException("Default client already set");
         }
+        if (defaultClient == client) {
+            return;
+        }
         defaultClient = client;
-        initialized = true;
+        ownsDefaultClient = false;
     }
 
-    static synchronized void clearClient(XuantongConfigClient client) {
+    /** 返回显式配置的默认客户端；未配置时返回 null。 */
+    public static synchronized XuantongConfigClient getDefault() {
+        return defaultClient;
+    }
+
+    /** 仅当当前默认实例与参数相同时解除绑定，不关闭客户端。 */
+    public static synchronized void clearDefault(XuantongConfigClient client) {
         if (defaultClient == client) {
             defaultClient = null;
-            initialized = false;
+            ownsDefaultClient = false;
         }
     }
 
     /**
-     * 关闭配置客户端并清理单例实例
+     * 清理默认实例。通过 {@link #init(List, String, String)} 创建的客户端会被关闭；
+     * 通过 {@link #setDefault(XuantongConfigClient)} 绑定的客户端仍由调用方关闭。
      */
     public static synchronized void close() {
-        if (defaultClient != null) {
-            defaultClient.close();
-            defaultClient = null;
-            initialized = false;
+        XuantongConfigClient client = defaultClient;
+        boolean closeClient = ownsDefaultClient;
+        defaultClient = null;
+        ownsDefaultClient = false;
+        if (client != null && closeClient) {
+            client.close();
         }
     }
 
     /**
      * 检查是否已初始化
      */
-    public static boolean isInitialized() {
-        return initialized;
+    public static synchronized boolean isInitialized() {
+        return defaultClient != null;
     }
 
-    private static void checkInitialized() {
-        if (!initialized || defaultClient == null) {
+    private static synchronized XuantongConfigClient requiredDefault() {
+        if (defaultClient == null) {
             throw new XuantongException("XuantongConfig not initialized. Please call XuantongConfig.init() first.");
         }
+        return defaultClient;
     }
 }

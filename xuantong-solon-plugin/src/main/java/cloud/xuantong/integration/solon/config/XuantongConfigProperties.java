@@ -1,9 +1,11 @@
 package cloud.xuantong.integration.solon.config;
 
 import cloud.xuantong.client.TlsOptions;
+import cloud.xuantong.client.ConfigClientOptions;
 import org.noear.solon.annotation.BindProps;
 
 import java.util.List;
+import java.nio.file.Path;
 
 /**
  * author 封于修
@@ -22,6 +24,7 @@ public class XuantongConfigProperties {
     private long transportGeneration;
     private String transportPool = "tcp-default";
     private String tenant = "default";
+    private String cacheDirectory = "";
     private Tls tls = new Tls();
 
     public List<String> getServerAddresses() {
@@ -84,6 +87,14 @@ public class XuantongConfigProperties {
     public void setTransportPool(String transportPool) { this.transportPool = transportPool; }
     public String getTenant() { return tenant; }
     public void setTenant(String tenant) { this.tenant = tenant; }
+    public String getCacheDirectory() { return cacheDirectory; }
+    public void setCacheDirectory(String cacheDirectory) {
+        this.cacheDirectory = cacheDirectory;
+    }
+    public ConfigClientOptions clientOptions() {
+        return new ConfigClientOptions(cacheDirectory == null || cacheDirectory.isBlank()
+                ? null : Path.of(cacheDirectory.trim()));
+    }
     public Tls getTls() { return tls; }
     public void setTls(Tls tls) { this.tls = tls == null ? new Tls() : tls; }
 

@@ -252,15 +252,17 @@ public final class RegistryStateMachine implements StateMachine {
         validateTtl(command.ttlMs());
         InstanceKey key = command.registration().instanceKey();
         ServiceLifecycle lifecycle = services.get(key.service());
-        if (lifecycle == null || !lifecycle.active()) {
+        if (lifecycle != null && !lifecycle.active()) {
             throw reject("SERVICE_DEFINITION_NOT_ACTIVE",
-                    "Service definition is not active: " + key.service().canonicalName());
+                    "Service definition was explicitly deleted and must be reactivated: "
+                            + key.service().canonicalName());
         }
+        long committedGeneration = lifecycle == null ? 1L : lifecycle.generation();
         long expectedGeneration = command.registration().serviceGeneration();
-        if (expectedGeneration != 0 && expectedGeneration != lifecycle.generation()) {
+        if (expectedGeneration != 0 && expectedGeneration != committedGeneration) {
             throw reject("SERVICE_GENERATION_FENCED",
                     "Service definition generation was fenced: expected="
-                            + expectedGeneration + ", current=" + lifecycle.generation());
+                            + expectedGeneration + ", current=" + committedGeneration);
         }
         RegistryInstance existing = instances.get(key);
         if (existing != null && !existing.expiredAt(logicalTimeEpochMs)) {
@@ -271,9 +273,21 @@ public final class RegistryStateMachine implements StateMachine {
             throw reject("REGISTRY_CAPACITY_EXCEEDED",
                     "Registry instance capacity has been reached");
         }
+        if (lifecycle == null) {
+            if (services.size() >= options.maxServices()) {
+                throw reject("SERVICE_CAPACITY_EXCEEDED",
+                        "Registry service lifecycle capacity has been reached");
+            }
+            lifecycle = new ServiceLifecycle(
+                    key.service(),
+                    committedGeneration,
+                    ServiceLifecycleStatus.ACTIVE,
+                    logicalTimeEpochMs);
+            services.put(key.service(), lifecycle);
+        }
         long nextLeaseEpoch = nextEpoch(key);
         ServiceRegistration committedRegistration =
-                command.registration().withServiceGeneration(lifecycle.generation());
+                command.registration().withServiceGeneration(committedGeneration);
         RegistryInstance registered = new RegistryInstance(
                 committedRegistration,
                 command.proposedLeaseId(),
@@ -289,7 +303,12 @@ public final class RegistryStateMachine implements StateMachine {
         leaseEpochs.put(key, nextLeaseEpoch);
         appendChange(existing == null ? "INSTANCE_REGISTERED" : "INSTANCE_REPLACED",
                 key, registered);
-        return success(requestHash, "REGISTER", List.of(registered), List.of());
+        return success(
+                requestHash,
+                "REGISTER",
+                List.of(lifecycle),
+                List.of(registered),
+                List.of());
     }
 
     private OperationRecord activateService(
@@ -653,11 +672,20 @@ public final class RegistryStateMachine implements StateMachine {
             String action,
             List<RegistryInstance> changed,
             List<InstanceKey> removed) {
+        return success(requestHash, action, List.of(), changed, removed);
+    }
+
+    private OperationRecord success(
+            String requestHash,
+            String action,
+            List<ServiceLifecycle> services,
+            List<RegistryInstance> changed,
+            List<InstanceKey> removed) {
         RegistryMutationResult result = new RegistryMutationResult(
                 action,
                 registryRevision,
                 logicalTimeEpochMs,
-                List.of(),
+                services,
                 changed,
                 removed);
         return new OperationRecord(

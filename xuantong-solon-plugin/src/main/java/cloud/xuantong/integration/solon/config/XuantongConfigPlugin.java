@@ -3,7 +3,6 @@ package cloud.xuantong.integration.solon.config;
 import cloud.xuantong.client.ClientIdentity;
 import cloud.xuantong.client.ControlPlaneOptions;
 import cloud.xuantong.client.XuantongConfigClient;
-import cloud.xuantong.client.XuantongConfig;
 import cloud.xuantong.client.annotation.ConfigValue;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.Solon;
@@ -19,6 +18,8 @@ import org.slf4j.LoggerFactory;
  */
 public class XuantongConfigPlugin implements Plugin {
     private static final Logger logger = LoggerFactory.getLogger(XuantongConfigPlugin.class);
+    private XuantongConfigClient configClient;
+    private XuantongConfigValueInjector valueInjector;
 
     @Inject(value = "xuantong.config")
     private XuantongConfigProperties xuantongProps;
@@ -48,19 +49,21 @@ public class XuantongConfigPlugin implements Plugin {
                     defaults.operationTimeoutMs(),
                     defaults.closingTimeoutMs(),
                     configBindings.getTls().toOptions());
-            new XuantongConfigClient(
+            configClient = new XuantongConfigClient(
                     configBindings.getServerAddresses(),
                     configBindings.getNamespace(),
                     configBindings.getGroup(),
                     configBindings.getAccessToken(),
                     new ClientIdentity(applicationName, configBindings.getClientInstanceId()),
-                    controlPlaneOptions);
+                    controlPlaneOptions,
+                    configBindings.clientOptions());
         } catch (Exception e) {
             logger.error("XuantongConfig init failed, config will not be available: {}", e.getMessage());
-            // 不抛出异常，让应用继续启动。配置注入会在配置中心可用后获取到值
+            return;
         }
         // 注册ConfigValue 注入器
-        context.beanInjectorAdd(ConfigValue.class, new XuantongConfigValueInjector());
+        valueInjector = new XuantongConfigValueInjector(configClient);
+        context.beanInjectorAdd(ConfigValue.class, valueInjector);
 
         logger.info("Xuantong Solon Plugin started successfully");
     }
@@ -68,6 +71,13 @@ public class XuantongConfigPlugin implements Plugin {
     @Override
     public void stop() throws Throwable {
         logger.info("Xuantong Solon Plugin stopped");
-        XuantongConfig.close();
+        if (valueInjector != null) {
+            valueInjector.close();
+            valueInjector = null;
+        }
+        if (configClient != null) {
+            configClient.close();
+            configClient = null;
+        }
     }
 }

@@ -142,11 +142,26 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
 
     @Override
     public List<String> fetchServices() {
-        DiscoverySnapshotResponse snapshot = snapshot(List.of(), 0L);
+        return fetchServices(controlTransport, namespace, group);
+    }
+
+    static List<String> fetchServices(
+            SocketDTransport controlTransport, String namespace, String group) {
+        DiscoverySnapshotResponse snapshot = snapshot(
+                controlTransport, group, List.of(), 0L);
         Set<String> services = new LinkedHashSet<>();
         for (DiscoveryServiceInstance instance : snapshot.getInstancesList()) {
-            validateScope(instance.getInstance().getService(), false);
-            services.add(instance.getInstance().getService().getServiceName());
+            if (!instance.hasInstance() || !instance.getInstance().hasService()) {
+                throw new XuantongException(
+                        "Discovery catalog contains an invalid service coordinate");
+            }
+            ServiceCoordinate coordinate = instance.getInstance().getService();
+            if (!namespace.equals(coordinate.getNamespaceId())
+                    || !group.equals(coordinate.getGroupName())) {
+                throw new XuantongException(
+                        "Discovery catalog response is outside the request scope");
+            }
+            services.add(coordinate.getServiceName());
         }
         return services.stream().sorted().toList();
     }
@@ -321,6 +336,14 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
 
     private DiscoverySnapshotResponse snapshot(
             List<String> services, long minRevision) {
+        return snapshot(controlTransport, group, services, minRevision);
+    }
+
+    private static DiscoverySnapshotResponse snapshot(
+            SocketDTransport controlTransport,
+            String group,
+            List<String> services,
+            long minRevision) {
         try {
             DiscoverySnapshotRequest payload = DiscoverySnapshotRequest.newBuilder()
                     .setGroupName(group)
@@ -493,13 +516,14 @@ public class SocketDDiscoveryTransport implements DiscoveryTransport {
         if (error.code() == ResponseCode.SERVICE_FENCED) {
             return new DiscoveryLeaseException(
                     DiscoveryLeaseException.Reason.SERVICE_FENCED,
-                    operation + " failed because the service definition generation was fenced",
+                    operation + " failed because service registration was fenced: "
+                            + error.getMessage(),
                     error);
         }
         return new XuantongException(operation + " failed: " + error.getMessage(), error);
     }
 
-    private RuntimeException translate(String message, Exception error) {
+    private static RuntimeException translate(String message, Exception error) {
         if (error instanceof RuntimeException runtime) {
             return runtime;
         }

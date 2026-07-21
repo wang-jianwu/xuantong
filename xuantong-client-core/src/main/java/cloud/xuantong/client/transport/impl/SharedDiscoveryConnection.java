@@ -35,6 +35,23 @@ public final class SharedDiscoveryConnection implements AutoCloseable {
         return new SocketDDiscoveryTransport(this, leaseTtlMs);
     }
 
+    /**
+     * 查询当前 namespace/group 下的服务目录，不创建虚拟服务 Agent 或额外 Watch。
+     */
+    public List<String> fetchServices(
+            List<String> serverAddresses,
+            String namespace,
+            String group,
+            String accessToken) {
+        synchronized (this) {
+            connect(serverAddresses, namespace, group, accessToken);
+        }
+        return SocketDDiscoveryTransport.fetchServices(
+                controlTransport,
+                requireName("namespace", namespace),
+                requireName("group", group));
+    }
+
     synchronized void connect(
             List<String> serverAddresses,
             String namespace,

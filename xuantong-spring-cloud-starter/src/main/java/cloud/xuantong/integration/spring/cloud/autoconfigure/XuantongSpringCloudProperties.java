@@ -1,10 +1,12 @@
 package cloud.xuantong.integration.spring.cloud.autoconfigure;
 
 import cloud.xuantong.client.ControlPlaneOptions;
+import cloud.xuantong.client.ConfigClientOptions;
 import cloud.xuantong.client.TlsOptions;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -172,6 +174,12 @@ public class XuantongSpringCloudProperties {
         return controlPlaneOptions(config.getStateGroupId());
     }
 
+    public ConfigClientOptions configClientOptions() {
+        String directory = config.getCacheDirectory();
+        return new ConfigClientOptions(directory == null || directory.isBlank()
+                ? null : Path.of(directory.trim()));
+    }
+
     public ControlPlaneOptions discoveryControlPlaneOptions() {
         return controlPlaneOptions(discovery.getStateGroupId());
     }
@@ -208,6 +216,7 @@ public class XuantongSpringCloudProperties {
     public static class Config {
         private boolean enabled = true;
         private String stateGroupId = "config-default";
+        private String cacheDirectory = "";
 
         public boolean isEnabled() {
             return enabled;
@@ -223,6 +232,14 @@ public class XuantongSpringCloudProperties {
 
         public void setStateGroupId(String stateGroupId) {
             this.stateGroupId = stateGroupId;
+        }
+
+        public String getCacheDirectory() {
+            return cacheDirectory;
+        }
+
+        public void setCacheDirectory(String cacheDirectory) {
+            this.cacheDirectory = cacheDirectory;
         }
     }
 

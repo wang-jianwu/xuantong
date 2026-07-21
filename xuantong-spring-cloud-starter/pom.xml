@@ -5,39 +5,20 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>cloud.xuantong</groupId>
+    <parent>
+        <groupId>cloud.xuantong</groupId>
+        <artifactId>xuantong-parent</artifactId>
+        <version>2.0.0</version>
+    </parent>
+
     <artifactId>xuantong-spring-cloud-starter</artifactId>
-    <version>2.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Xuantong Spring Cloud Starter</name>
     <description>Spring Cloud ConfigData, DiscoveryClient, ServiceRegistry and LoadBalancer integration for Xuantong</description>
-    <url>https://github.com/wang-jianwu/xuantong</url>
-
-    <licenses>
-        <license>
-            <name>Apache-2.0</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
-        </license>
-    </licenses>
-
-    <developers>
-        <developer>
-            <name>fengyuxiu</name>
-            <email>1252348549@qq.com</email>
-        </developer>
-    </developers>
-
-    <scm>
-        <url>https://github.com/wang-jianwu/xuantong</url>
-        <connection>scm:git:https://github.com/wang-jianwu/xuantong.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/wang-jianwu/xuantong.git</developerConnection>
-    </scm>
-
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <java.version>21</java.version>
-        <xuantong.version>2.0.0-SNAPSHOT</xuantong.version>
         <spring-boot.version>4.0.6</spring-boot.version>
         <spring-cloud.version>5.0.2</spring-cloud.version>
         <snakeyaml.version>2.5</snakeyaml.version>
@@ -47,7 +28,7 @@
         <dependency>
             <groupId>cloud.xuantong</groupId>
             <artifactId>xuantong-spring-boot-starter</artifactId>
-            <version>${xuantong.version}</version>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
@@ -81,12 +62,6 @@
             <version>${spring-boot.version}</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>cloud.xuantong</groupId>
-            <artifactId>xuantong-server</artifactId>
-            <version>${xuantong.version}</version>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -103,28 +78,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.5</version>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-                <version>3.3.1</version>
-                <executions>
-                    <execution>
-                        <id>attach-sources</id>
-                        <goals>
-                            <goal>jar-no-fork</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-                <version>3.12.0</version>
-                <configuration>
-                    <release>${java.version}</release>
-                    <doclint>none</doclint>
-                </configuration>
             </plugin>
         </plugins>
     </build>
