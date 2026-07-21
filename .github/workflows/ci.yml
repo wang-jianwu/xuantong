@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -93,6 +96,14 @@ jobs:
           XUANTONG_LOAD_BUILD_REVISION: ${{ github.sha }}
           XUANTONG_LOAD_BUILD_STATE: clean
         run: ./scripts/run-control-plane-load.sh split-topology-matrix
+      - name: Verify report validator fails closed
+        run: |
+          ./scripts/test-control-plane-load-report-verifier.sh \
+            output/load-reports/control-plane-matrix/split-process-topology-follower.jsonl \
+            follower
+          ./scripts/test-control-plane-load-report-verifier.sh \
+            output/load-reports/control-plane-matrix/split-process-topology-leader.jsonl \
+            leader
       - name: Upload control-plane fault reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,3 +112,46 @@ jobs:
           path: output/load-reports/control-plane-matrix/*.jsonl
           if-no-files-found: warn
           retention-days: 14
+
+  release-supply-chain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Verify release metadata and tracked credentials
+        run: |
+          ./scripts/verify-release-metadata.sh --allow-snapshot
+          ./scripts/verify-no-secrets.sh
+      - name: Generate aggregate CycloneDX SBOM
+        run: >-
+          mvn --batch-mode --no-transfer-progress -Psbom
+          -DskipTests verify
+          -Dxuantong.build.outputTimestamp="$(git show -s --format=%cI HEAD)"
+      - name: Verify SBOM license policy
+        run: ./scripts/verify-sbom-policy.sh target/xuantong-sbom.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: xuantong-sbom-${{ github.sha }}
+          path: target/xuantong-sbom.json
+          if-no-files-found: error
+          retention-days: 30
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject newly introduced vulnerable or incompatible dependencies
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, SSPL-1.0

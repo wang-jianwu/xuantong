@@ -328,8 +328,30 @@ case "$MODE" in
       "$FETCH_CONCURRENCY" \
       "$SPLIT_CRASH_TARGET"
     ;;
+  split-topology-matrix-soak24)
+    for crash_target in follower leader; do
+      run_split_topology_profile \
+        "split-process-topology-${crash_target}-soak-24h" \
+        86400 \
+        "$CLIENTS" \
+        "$WATCHERS" \
+        "$FETCH_CONCURRENCY" \
+        "$crash_target"
+    done
+    ;;
+  split-topology-matrix-soak72)
+    for crash_target in follower leader; do
+      run_split_topology_profile \
+        "split-process-topology-${crash_target}-soak-72h" \
+        259200 \
+        "$CLIENTS" \
+        "$WATCHERS" \
+        "$FETCH_CONCURRENCY" \
+        "$crash_target"
+    done
+    ;;
   *)
-    echo "Usage: $0 {staircase|soak24|soak72|topology|topology-staircase|split-topology|split-topology-staircase|split-topology-matrix|split-topology-matrix-staircase|split-topology-soak24|split-topology-soak72}" >&2
+    echo "Usage: $0 {staircase|soak24|soak72|topology|topology-staircase|split-topology|split-topology-staircase|split-topology-matrix|split-topology-matrix-staircase|split-topology-soak24|split-topology-soak72|split-topology-matrix-soak24|split-topology-matrix-soak72}" >&2
     exit 2
     ;;
 esac

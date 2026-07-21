@@ -6,16 +6,20 @@ import cloud.xuantong.client.metrics.ControlPlaneTransportMetricsSnapshot;
 import cloud.xuantong.client.model.ConfigSnapshot;
 import cloud.xuantong.client.transport.WatchSubscription;
 import cloud.xuantong.client.transport.impl.SocketDTransport;
+import org.apache.ratis.server.RaftServer;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.noear.socketd.SocketD;
 import org.noear.socketd.transport.client.ClientSession;
 import org.noear.socketd.transport.core.listener.EventListener;
+import org.noear.solon.Solon;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.management.ManagementFactory;
 import java.net.ServerSocket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
@@ -64,15 +68,33 @@ class ControlPlaneSplitProcessTopologyLoadTest {
     Path tempDirectory;
 
     @Test
+    void splitReportRuntimeMetadataRecordsExactExecutionContext() {
+        RuntimeMetadata metadata = RuntimeMetadata.capture();
+        String json = metadata.toJson();
+
+        assertTrue(json.contains("\"transportPath\":"
+                + "\"native-socketd-tcp+ratis-three-voter"
+                + "+three-child-jvms\""));
+        assertTrue(json.contains("\"socketdVersion\":\"2.6.0\""));
+        assertTrue(json.contains("\"solonVersion\":\"4.0.3\""));
+        assertTrue(json.contains("\"ratisVersion\":\"3.2.2\""));
+        assertTrue(json.contains("\"javaVersion\":\""));
+        assertTrue(metadata.availableProcessors() > 0);
+        assertTrue(metadata.physicalMemoryBytes() > 0L);
+        assertTrue(metadata.driverMaxHeapBytes() > 0L);
+    }
+
+    @Test
     void splitJvmTopologySurvivesWholeGatewayAndVoterCrash()
             throws Exception {
         Assumptions.assumeTrue(Boolean.getBoolean(PREFIX + "enabled"),
                 "Enable with -D" + PREFIX + "enabled=true");
         LoadProfile profile = LoadProfile.fromSystemProperties();
+        RuntimeMetadata runtimeMetadata = RuntimeMetadata.capture();
+        long startedEpochMs = System.currentTimeMillis();
         SplitReportJournal reportJournal = SplitReportJournal.open(
-                reportPath(profile));
-        List<Integer> ports = freePorts(NODE_COUNT * 2);
-        String peers = peers(ports.subList(0, NODE_COUNT));
+                reportPath(profile),
+                reportHeaderJson(profile, runtimeMetadata, startedEpochMs));
         List<NodeProcess> nodes = new ArrayList<>();
         List<ClientHarness> clients = new ArrayList<>();
         List<WatchSubscription> subscriptions = new ArrayList<>();
@@ -97,10 +119,11 @@ class ControlPlaneSplitProcessTopologyLoadTest {
         List<ControlPlaneTransportMetricsSnapshot> clientAfterClose = List.of();
         boolean crashedVoterWasLeader = false;
         long allowedFetchFailures = 0L;
-        long startedEpochMs = System.currentTimeMillis();
         long workloadStartedNanos = 0L;
         long workloadElapsedNanos = 0L;
         try {
+            List<Integer> ports = freePorts(NODE_COUNT * 2);
+            String peers = peers(ports.subList(0, NODE_COUNT));
             for (int index = 0; index < NODE_COUNT; index++) {
                 nodes.add(startNode(
                         index,
@@ -500,6 +523,7 @@ class ControlPlaneSplitProcessTopologyLoadTest {
                     "Expected Ratis leader-loss errors must remain bounded");
             writeSummary(
                     profile,
+                    runtimeMetadata,
                     nodes,
                     startedEpochMs,
                     workloadElapsedNanos,
@@ -1162,6 +1186,7 @@ class ControlPlaneSplitProcessTopologyLoadTest {
 
     private void writeSummary(
             LoadProfile profile,
+            RuntimeMetadata runtimeMetadata,
             List<NodeProcess> nodes,
             long startedEpochMs,
             long workloadElapsedNanos,
@@ -1201,6 +1226,7 @@ class ControlPlaneSplitProcessTopologyLoadTest {
         StringBuilder json = new StringBuilder(8_192);
         json.append('{')
                 .append("\"type\":\"summary\",")
+                .append("\"schemaVersion\":1,")
                 .append("\"runLabel\":\"").append(json(profile.runLabel()))
                 .append("\",")
                 .append("\"buildRevision\":\"")
@@ -1209,6 +1235,8 @@ class ControlPlaneSplitProcessTopologyLoadTest {
                 .append(json(profile.buildState())).append("\",")
                 .append("\"startedEpochMs\":").append(startedEpochMs)
                 .append(',')
+                .append("\"runtime\":")
+                .append(runtimeMetadata.toJson()).append(',')
                 .append("\"durationMs\":")
                 .append(TimeUnit.NANOSECONDS.toMillis(workloadElapsedNanos))
                 .append(',')
@@ -1568,6 +1596,29 @@ class ControlPlaneSplitProcessTopologyLoadTest {
                 : Path.of(profile.reportPath()).toAbsolutePath().normalize();
     }
 
+    private static String reportHeaderJson(
+            LoadProfile profile,
+            RuntimeMetadata runtimeMetadata,
+            long startedEpochMs) {
+        return new StringBuilder(1_024)
+                .append('{')
+                .append("\"type\":\"header\",")
+                .append("\"schemaVersion\":1,")
+                .append("\"startedEpochMs\":").append(startedEpochMs)
+                .append(',')
+                .append("\"runLabel\":\"")
+                .append(json(profile.runLabel())).append("\",")
+                .append("\"buildRevision\":\"")
+                .append(json(profile.buildRevision())).append("\",")
+                .append("\"buildState\":\"")
+                .append(json(profile.buildState())).append("\",")
+                .append("\"profile\":").append(profile.toJson()).append(',')
+                .append("\"runtime\":")
+                .append(runtimeMetadata.toJson())
+                .append('}')
+                .toString();
+    }
+
     private static void closeQuietly(SplitReportJournal reportJournal) {
         try {
             reportJournal.close();
@@ -1594,6 +1645,7 @@ class ControlPlaneSplitProcessTopologyLoadTest {
 
     private static final class SplitReportJournal implements AutoCloseable {
         private final BufferedWriter writer;
+        private boolean headerWritten;
         private boolean summaryWritten;
         private boolean closed;
 
@@ -1601,21 +1653,47 @@ class ControlPlaneSplitProcessTopologyLoadTest {
             this.writer = writer;
         }
 
-        private static SplitReportJournal open(Path reportPath)
+        private static SplitReportJournal open(
+                Path reportPath, String header)
                 throws IOException {
             if (reportPath.getParent() != null) {
                 Files.createDirectories(reportPath.getParent());
             }
-            return new SplitReportJournal(Files.newBufferedWriter(
-                    reportPath,
-                    StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING,
-                    StandardOpenOption.WRITE));
+            SplitReportJournal journal = new SplitReportJournal(
+                    Files.newBufferedWriter(
+                            reportPath,
+                            StandardCharsets.UTF_8,
+                            StandardOpenOption.CREATE,
+                            StandardOpenOption.TRUNCATE_EXISTING,
+                            StandardOpenOption.WRITE));
+            try {
+                journal.writeHeader(header);
+                return journal;
+            } catch (IOException e) {
+                try {
+                    journal.close();
+                } catch (IOException closeFailure) {
+                    e.addSuppressed(closeFailure);
+                }
+                throw e;
+            }
+        }
+
+        private synchronized void writeHeader(String header)
+                throws IOException {
+            if (headerWritten) {
+                throw new IOException("Split report header was already written");
+            }
+            writeLine(header);
+            headerWritten = true;
         }
 
         private synchronized void writeSample(SplitResourceSample sample)
                 throws IOException {
+            if (!headerWritten) {
+                throw new IOException(
+                        "Cannot append a resource sample before header");
+            }
             if (summaryWritten) {
                 throw new IOException(
                         "Cannot append a resource sample after summary");
@@ -1625,6 +1703,9 @@ class ControlPlaneSplitProcessTopologyLoadTest {
 
         private synchronized void writeSummary(String summary)
                 throws IOException {
+            if (!headerWritten) {
+                throw new IOException("Cannot append summary before header");
+            }
             if (summaryWritten) {
                 throw new IOException("Split report summary was already written");
             }
@@ -1654,6 +1735,84 @@ class ControlPlaneSplitProcessTopologyLoadTest {
     @FunctionalInterface
     private interface Check {
         boolean evaluate() throws Exception;
+    }
+
+    private record RuntimeMetadata(
+            String transportPath,
+            String javaVersion,
+            String javaVmName,
+            String javaVmVendor,
+            String socketdVersion,
+            String solonVersion,
+            String ratisVersion,
+            String osName,
+            String osVersion,
+            String osArch,
+            int availableProcessors,
+            long physicalMemoryBytes,
+            long driverMaxHeapBytes) {
+
+        private static RuntimeMetadata capture() {
+            java.lang.management.OperatingSystemMXBean osBean =
+                    ManagementFactory.getOperatingSystemMXBean();
+            long physicalMemoryBytes = 0L;
+            if (osBean instanceof
+                    com.sun.management.OperatingSystemMXBean extended) {
+                physicalMemoryBytes = Math.max(
+                        0L, extended.getTotalMemorySize());
+            }
+            String ratisVersion = RaftServer.class.getPackage()
+                    .getImplementationVersion();
+            return new RuntimeMetadata(
+                    "native-socketd-tcp+ratis-three-voter"
+                            + "+three-child-jvms",
+                    System.getProperty("java.version", "unknown"),
+                    System.getProperty("java.vm.name", "unknown"),
+                    System.getProperty("java.vm.vendor", "unknown"),
+                    SocketD.version(),
+                    Solon.version(),
+                    ratisVersion == null || ratisVersion.isBlank()
+                            ? "unknown" : ratisVersion,
+                    System.getProperty("os.name", "unknown"),
+                    System.getProperty("os.version", "unknown"),
+                    System.getProperty("os.arch", "unknown"),
+                    Runtime.getRuntime().availableProcessors(),
+                    physicalMemoryBytes,
+                    Runtime.getRuntime().maxMemory());
+        }
+
+        private String toJson() {
+            return new StringBuilder(768)
+                    .append('{')
+                    .append("\"transportPath\":\"")
+                    .append(json(transportPath)).append("\",")
+                    .append("\"javaVersion\":\"")
+                    .append(json(javaVersion)).append("\",")
+                    .append("\"javaVmName\":\"")
+                    .append(json(javaVmName)).append("\",")
+                    .append("\"javaVmVendor\":\"")
+                    .append(json(javaVmVendor)).append("\",")
+                    .append("\"socketdVersion\":\"")
+                    .append(json(socketdVersion)).append("\",")
+                    .append("\"solonVersion\":\"")
+                    .append(json(solonVersion)).append("\",")
+                    .append("\"ratisVersion\":\"")
+                    .append(json(ratisVersion)).append("\",")
+                    .append("\"osName\":\"")
+                    .append(json(osName)).append("\",")
+                    .append("\"osVersion\":\"")
+                    .append(json(osVersion)).append("\",")
+                    .append("\"osArch\":\"")
+                    .append(json(osArch)).append("\",")
+                    .append("\"availableProcessors\":")
+                    .append(availableProcessors).append(',')
+                    .append("\"physicalMemoryBytes\":")
+                    .append(physicalMemoryBytes).append(',')
+                    .append("\"driverMaxHeapBytes\":")
+                    .append(driverMaxHeapBytes)
+                    .append('}')
+                    .toString();
+        }
     }
 
     private record PublishResult(
