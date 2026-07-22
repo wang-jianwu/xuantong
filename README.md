@@ -105,6 +105,8 @@ public class DemoConfig {
 
 单机可以直接用于生产。它的功能和集群版一样，只是机器挂了以后没有其他节点接管。
 
+默认部署模式就是 `standalone`，不会启动多 Server 使用的 Gateway 数据库协调任务。
+
 XUANTONG_PRODUCTION=true 只会打开生产安全检查，和你部署一台、三台还是五台没有关系。
 
 单机生产通常只需要配置数据库和安全项：
@@ -126,7 +128,7 @@ java -jar xuantong-server.jar
 
 State 节点继续使用默认的 state-1@127.0.0.1:9101，不需要再配一串 Raft 参数。
 
-如果以后需要机器故障自动接管，再改成 3 个或 5 个 State 节点。具体配置见[快速入门](doc/quick-start.md#8-生产部署)。
+如果以后需要机器故障自动接管，再改成 3 个或 5 个 State 节点。具体配置见[快速入门](doc/quick-start.md#8-三节点或五节点)。
 
 ## 项目结构
 

@@ -13,6 +13,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,34 +22,60 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Low-frequency filesystem telemetry for Raft WAL and Snapshot growth. */
 @Component
 public class StateStorageTelemetry implements StateWriteAdmission {
+    private static final long DEFAULT_SNAPSHOT_CACHE_TTL_MS = 15_000L;
+
     @Inject
     private ConfigStatePlaneProperties properties;
 
     private final AtomicLong scanFailureTotal = new AtomicLong();
     private final AtomicLong snapshotChecksumFailureTotal = new AtomicLong();
-    private final Set<String> reportedSnapshotChecksumFailures =
-            ConcurrentHashMap.newKeySet();
+    private final Map<Path, String> reportedSnapshotChecksumFailures =
+            new ConcurrentHashMap<>();
     private final StorageSpaceProbe storageSpaceProbe;
+    private final long snapshotCacheTtlNanos;
+    private final Object snapshotMonitor = new Object();
+    private volatile CachedSnapshot cachedSnapshot;
 
     public StateStorageTelemetry() {
         this.storageSpaceProbe = StateStorageTelemetry::usableSpace;
+        this.snapshotCacheTtlNanos = java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
+                DEFAULT_SNAPSHOT_CACHE_TTL_MS);
     }
 
     StateStorageTelemetry(ConfigStatePlaneProperties properties) {
-        this(properties, StateStorageTelemetry::usableSpace);
+        this(properties, StateStorageTelemetry::usableSpace,
+                DEFAULT_SNAPSHOT_CACHE_TTL_MS);
+    }
+
+    StateStorageTelemetry(
+            ConfigStatePlaneProperties properties,
+            long snapshotCacheTtlMs) {
+        this(properties, StateStorageTelemetry::usableSpace, snapshotCacheTtlMs);
     }
 
     StateStorageTelemetry(
             ConfigStatePlaneProperties properties,
             StorageSpaceProbe storageSpaceProbe) {
+        this(properties, storageSpaceProbe, DEFAULT_SNAPSHOT_CACHE_TTL_MS);
+    }
+
+    StateStorageTelemetry(
+            ConfigStatePlaneProperties properties,
+            StorageSpaceProbe storageSpaceProbe,
+            long snapshotCacheTtlMs) {
         if (properties == null) {
             throw new IllegalArgumentException("properties must not be null");
         }
         if (storageSpaceProbe == null) {
             throw new IllegalArgumentException("storageSpaceProbe must not be null");
         }
+        if (snapshotCacheTtlMs < 0L) {
+            throw new IllegalArgumentException("snapshotCacheTtlMs must not be negative");
+        }
         this.properties = properties;
         this.storageSpaceProbe = storageSpaceProbe;
+        this.snapshotCacheTtlNanos = java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
+                snapshotCacheTtlMs);
     }
 
     @Override
@@ -84,6 +112,25 @@ public class StateStorageTelemetry implements StateWriteAdmission {
     }
 
     public Snapshot snapshot() {
+        long now = System.nanoTime();
+        CachedSnapshot current = cachedSnapshot;
+        if (current != null && current.validAt(now)) {
+            return current.value();
+        }
+        synchronized (snapshotMonitor) {
+            current = cachedSnapshot;
+            now = System.nanoTime();
+            if (current != null && current.validAt(now)) {
+                return current.value();
+            }
+            Snapshot refreshed = scanSnapshot();
+            cachedSnapshot = new CachedSnapshot(
+                    refreshed, now + snapshotCacheTtlNanos, snapshotCacheTtlNanos > 0L);
+            return refreshed;
+        }
+    }
+
+    private Snapshot scanSnapshot() {
         Path root = properties.storageDirectory();
         long storageFreeSpaceMinBytes = properties.storageFreeSpaceMinBytes();
         long storageFreeBytes = storageFreeBytes(root);
@@ -99,6 +146,7 @@ public class StateStorageTelemetry implements StateWriteAdmission {
         MutableSnapshot result = new MutableSnapshot();
         try (var paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile).forEach(path -> accumulate(path, result));
+            reportedSnapshotChecksumFailures.keySet().retainAll(result.snapshotPaths);
             long failures = result.partial
                     ? scanFailureTotal.incrementAndGet() : scanFailureTotal.get();
             return result.freeze(
@@ -158,6 +206,7 @@ public class StateStorageTelemetry implements StateWriteAdmission {
                 result.latestWalModifiedAtEpochMs = Math.max(
                         result.latestWalModifiedAtEpochMs, modifiedAt);
             } else if (name.startsWith("snapshot.") && !name.endsWith(".md5")) {
+                result.snapshotPaths.add(path.toAbsolutePath().normalize());
                 result.snapshotFileCount++;
                 result.snapshotBytes += size;
                 result.latestSnapshotModifiedAtEpochMs = Math.max(
@@ -179,18 +228,22 @@ public class StateStorageTelemetry implements StateWriteAdmission {
             MutableSnapshot result) {
         Path checksum = snapshot.resolveSibling(
                 snapshot.getFileName().toString() + ".md5");
+        Path snapshotKey = snapshot.toAbsolutePath().normalize();
         if (!Files.isRegularFile(checksum)) {
+            reportedSnapshotChecksumFailures.remove(snapshotKey);
             result.snapshotChecksumUnverifiedCount++;
             return;
         }
         try {
             RatisSnapshotChecksum.verify(snapshot);
+            reportedSnapshotChecksumFailures.remove(snapshotKey);
             result.snapshotChecksumVerifiedCount++;
         } catch (IOException | RuntimeException e) {
             result.snapshotChecksumMismatchCount++;
-            String fingerprint = snapshot.toAbsolutePath().normalize()
-                    + ":" + size + ":" + modifiedAt;
-            if (reportedSnapshotChecksumFailures.add(fingerprint)) {
+            String fingerprint = size + ":" + modifiedAt;
+            String previous = reportedSnapshotChecksumFailures.put(
+                    snapshotKey, fingerprint);
+            if (!fingerprint.equals(previous)) {
                 snapshotChecksumFailureTotal.incrementAndGet();
             }
         }
@@ -272,6 +325,7 @@ public class StateStorageTelemetry implements StateWriteAdmission {
         private long latestModifiedAtEpochMs;
         private long latestWalModifiedAtEpochMs;
         private long latestSnapshotModifiedAtEpochMs;
+        private final Set<Path> snapshotPaths = new HashSet<>();
 
         private Snapshot freeze(
                 boolean enabled,
@@ -303,6 +357,13 @@ public class StateStorageTelemetry implements StateWriteAdmission {
                     latestModifiedAtEpochMs,
                     latestWalModifiedAtEpochMs,
                     latestSnapshotModifiedAtEpochMs);
+        }
+    }
+
+    private record CachedSnapshot(
+            Snapshot value, long expiresAtNanos, boolean cacheEnabled) {
+        private boolean validAt(long nowNanos) {
+            return cacheEnabled && nowNanos - expiresAtNanos < 0L;
         }
     }
 

@@ -64,6 +64,25 @@ class GatewayClusterViewTest {
         assertEquals(0, view.logicalClients());
     }
 
+    @Test
+    void localViewUsesExactSnapshotCountersWithoutReaggregatingConnectionDetails() {
+        GatewayRuntimeSnapshot local = snapshot(
+                "gateway-a", 20, true,
+                List.of(connection(
+                        "gateway-a", "session-a", "client-1", 100L, 1L)));
+
+        GatewayClusterView view = GatewayClusterView.local(local);
+
+        assertFalse(view.clusterAggregated());
+        assertEquals("CURRENT_GATEWAY", view.scope());
+        assertFalse(view.clusterViewComplete());
+        assertEquals(1, view.activeGatewayCount());
+        assertEquals(20, view.sessions());
+        assertEquals(20L, view.logicalClients());
+        assertEquals(1, view.connections().size());
+        assertEquals(1, view.truncatedGatewayCount());
+    }
+
     private GatewayClusterStore.StoredGatewaySnapshot stored(
             GatewayRuntimeSnapshot snapshot, long leaseExpiresAt) {
         return new GatewayClusterStore.StoredGatewaySnapshot(

@@ -38,6 +38,7 @@ public final class GatewayClusterCoordinator
     private final AtomicBoolean stopping = new AtomicBoolean(true);
     private final AtomicBoolean tickInProgress = new AtomicBoolean();
     private volatile List<GatewayClusterStore.StoredGatewaySnapshot> cachedSnapshots = List.of();
+    private volatile GatewayClusterSummary cachedSummary;
     private volatile long ownLeaseExpiresAtEpochMs;
     private volatile long revocationCursor;
     private volatile long joinNotBeforeEpochMs;
@@ -69,8 +70,8 @@ public final class GatewayClusterCoordinator
         if (!clusterProperties.isCoordinationEnabled()) {
             gatewayRuntime.updateClusterQuotaAllocation(ClusterQuotaAllocation.disabled());
             coordinationReady = false;
-            log.warn("Gateway cluster coordination is disabled; connection and quota views "
-                    + "are limited to the current Gateway");
+            cachedSummary = GatewayClusterSummary.local(gatewayRuntime.localSummary());
+            log.info("Standalone deployment: Gateway database coordination is not started");
             return;
         }
         long now = System.currentTimeMillis();
@@ -136,6 +137,7 @@ public final class GatewayClusterCoordinator
             gatewayRuntime.updateClusterQuotaAllocation(ClusterQuotaAllocation.disabled());
         }
         coordinationReady = false;
+        cachedSummary = GatewayClusterSummary.local(gatewayRuntime.localSummary());
     }
 
     @Override
@@ -143,6 +145,9 @@ public final class GatewayClusterCoordinator
         long now = System.currentTimeMillis();
         GatewayRuntimeSnapshot local = gatewayRuntime.localSnapshot(
                 clusterProperties.maxConnectionDetails());
+        if (!clusterProperties.isCoordinationEnabled()) {
+            return GatewayClusterView.local(local);
+        }
         ClusterQuotaAllocation allocation = gatewayRuntime.clusterQuotaAllocation();
         return GatewayClusterView.aggregate(
                 gatewayProperties.getClusterId(), gatewayProperties.getGatewayId(), now,
@@ -150,6 +155,23 @@ public final class GatewayClusterCoordinator
                         && allocation.admissionsEnabled()
                         && allocation.leaseValid(now),
                 cachedSnapshots, local, ownLeaseExpiresAtEpochMs);
+    }
+
+    @Override
+    public GatewayClusterSummary currentSummary() {
+        if (!clusterProperties.isCoordinationEnabled()) {
+            return GatewayClusterSummary.local(gatewayRuntime.localSummary());
+        }
+        GatewayClusterSummary summary = cachedSummary;
+        if (summary == null) {
+            return GatewayClusterSummary.local(gatewayRuntime.localSummary());
+        }
+        long now = System.currentTimeMillis();
+        ClusterQuotaAllocation allocation = gatewayRuntime.clusterQuotaAllocation();
+        boolean ready = coordinationReady
+                && allocation.admissionsEnabled()
+                && allocation.leaseValid(now);
+        return summary.withCoordinationReady(ready, now);
     }
 
     void tick() {
@@ -250,6 +272,9 @@ public final class GatewayClusterCoordinator
         cachedSnapshots = snapshots;
         ownLeaseExpiresAtEpochMs = leaseExpiresAt;
         coordinationReady = true;
+        cachedSummary = GatewayClusterSummary.aggregate(
+                gatewayProperties.getClusterId(), now, admissionsEnabled,
+                snapshots, gatewayRuntime.localSummary(), allocation);
         if (!allocationPossible) {
             log.error("Gateway cluster quota cannot allocate at least one unit per active "
                             + "Gateway; admissions are disabled: activeGateways={}",

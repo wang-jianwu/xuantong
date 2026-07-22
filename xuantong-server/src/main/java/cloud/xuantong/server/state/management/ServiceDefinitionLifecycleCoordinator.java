@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 
+import java.util.List;
+
 @Component
 @Slf4j
 public final class ServiceDefinitionLifecycleCoordinator {
@@ -28,8 +30,9 @@ public final class ServiceDefinitionLifecycleCoordinator {
         return deletePending(service);
     }
 
-    public void recoverPending() {
-        for (ServiceDefinition service : definitions.findPendingLifecycle(100)) {
+    public int recoverPending() {
+        List<ServiceDefinition> pending = definitions.findPendingLifecycle(100);
+        for (ServiceDefinition service : pending) {
             try {
                 if (ServiceDefinitionService.LIFECYCLE_ACTIVATING.equals(
                         service.getLifecycleState())) {
@@ -48,6 +51,7 @@ public final class ServiceDefinitionLifecycleCoordinator {
                         e);
             }
         }
+        return pending.size();
     }
 
     private ServiceDefinition activatePending(ServiceDefinition pending) {

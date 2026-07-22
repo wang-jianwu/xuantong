@@ -12,9 +12,7 @@ import cloud.xuantong.raft.ratis.RatisGroupDefinition;
 import cloud.xuantong.raft.ratis.RatisGroupRuntimeStatus;
 import cloud.xuantong.raft.ratis.RatisStateNode;
 import cloud.xuantong.raft.ratis.RatisStateRouter;
-import cloud.xuantong.registry.state.ExpireLeaseBatch;
 import cloud.xuantong.registry.state.RegistryActor;
-import cloud.xuantong.registry.state.RegistryStateCodec;
 import cloud.xuantong.registry.state.RegistryStateMachine;
 import cloud.xuantong.state.api.StateClient;
 import cloud.xuantong.state.api.StateGroupId;
@@ -29,11 +27,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Starts one compact physical State Node hosting independent Config/Registry Groups. */
 @Slf4j
@@ -55,8 +48,7 @@ public final class ControlStatePlaneRuntime {
     private final List<ControlPlaneRequestHandler> registeredHandlers = new ArrayList<>();
     private volatile RatisStateNode node;
     private volatile RatisStateRouter router;
-    private ScheduledExecutorService expirationExecutor;
-    private final AtomicBoolean expirationProposalInFlight = new AtomicBoolean();
+    private volatile RegistryExpirationCoordinator expirationCoordinator;
 
     public ControlStatePlaneRuntime() {
     }
@@ -197,13 +189,23 @@ public final class ControlStatePlaneRuntime {
         handlers.add(new DiscoveryMutationControlPlaneHandler(
                 stateExecutor,
                 DiscoveryMutationControlPlaneHandler.Operation.REGISTER,
-                serviceDefinitionService));
+                serviceDefinitionService,
+                this::wakeExpirationCoordinator));
         handlers.add(new DiscoveryMutationControlPlaneHandler(
-                stateExecutor, DiscoveryMutationControlPlaneHandler.Operation.RENEW_BATCH));
+                stateExecutor,
+                DiscoveryMutationControlPlaneHandler.Operation.RENEW_BATCH,
+                null,
+                this::wakeExpirationCoordinator));
         handlers.add(new DiscoveryMutationControlPlaneHandler(
-                stateExecutor, DiscoveryMutationControlPlaneHandler.Operation.DEREGISTER));
+                stateExecutor,
+                DiscoveryMutationControlPlaneHandler.Operation.DEREGISTER,
+                null,
+                this::wakeExpirationCoordinator));
         handlers.add(new DiscoveryMutationControlPlaneHandler(
-                stateExecutor, DiscoveryMutationControlPlaneHandler.Operation.TAKEOVER));
+                stateExecutor,
+                DiscoveryMutationControlPlaneHandler.Operation.TAKEOVER,
+                null,
+                this::wakeExpirationCoordinator));
         handlers.add(new DiscoverySnapshotControlPlaneHandler(stateExecutor));
         handlers.add(new DiscoveryWatchBatchControlPlaneHandler(stateExecutor));
         handlers.add(new DiscoveryLeaseStateControlPlaneHandler(stateExecutor));
@@ -214,37 +216,21 @@ public final class ControlStatePlaneRuntime {
             RatisStateNode stateNode,
             RatisStateRouter stateRouter,
             StateGroupId registryGroupId) {
-        long intervalMs = registryProperties.expirationInterval().toMillis();
-        expirationExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "xuantong-registry-expirer");
-            thread.setDaemon(true);
-            return thread;
-        });
-        RegistryActor actor = RegistryActor.system(configProperties.localNodeId());
-        expirationExecutor.scheduleWithFixedDelay(() -> {
-            try {
-                if (!stateNode.isLeaderReady(registryGroupId)
-                        || !expirationProposalInFlight.compareAndSet(false, true)) {
-                    return;
-                }
-                stateRouter.submit(RegistryStateCodec.mutationCommand(
-                        registryGroupId,
-                        "expire:" + UUID.randomUUID(),
-                        new ExpireLeaseBatch(
-                                actor,
-                                registryProperties.expirationBatchSize(),
-                                System.currentTimeMillis())))
-                        .whenComplete((ignored, failure) -> {
-                            expirationProposalInFlight.set(false);
-                            if (failure != null) {
-                                log.debug("Registry expiration proposal failed", failure);
-                            }
-                        });
-            } catch (Exception e) {
-                expirationProposalInFlight.set(false);
-                log.debug("Registry expiration scheduling failed", e);
-            }
-        }, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+        RegistryExpirationCoordinator coordinator = new RegistryExpirationCoordinator(
+                stateNode,
+                stateRouter,
+                registryProperties,
+                registryGroupId,
+                RegistryActor.system(configProperties.localNodeId()));
+        coordinator.start();
+        expirationCoordinator = coordinator;
+    }
+
+    private void wakeExpirationCoordinator() {
+        RegistryExpirationCoordinator coordinator = expirationCoordinator;
+        if (coordinator != null) {
+            coordinator.wakeUp();
+        }
     }
 
     @Destroy
@@ -266,12 +252,11 @@ public final class ControlStatePlaneRuntime {
     }
 
     private void stopExpirationCoordinator() {
-        ScheduledExecutorService executor = expirationExecutor;
-        expirationExecutor = null;
-        if (executor != null) {
-            executor.shutdownNow();
+        RegistryExpirationCoordinator coordinator = expirationCoordinator;
+        expirationCoordinator = null;
+        if (coordinator != null) {
+            coordinator.close();
         }
-        expirationProposalInFlight.set(false);
     }
 
     public boolean isRunning() {

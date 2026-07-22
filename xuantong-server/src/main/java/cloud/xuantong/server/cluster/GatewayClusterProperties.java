@@ -5,8 +5,8 @@ import org.noear.solon.annotation.Inject;
 
 @Configuration
 public class GatewayClusterProperties {
-    @Inject("${controlPlane.cluster.coordinationEnabled:true}")
-    private boolean coordinationEnabled;
+    @Inject("${xuantong.deployment:standalone}")
+    private String deployment;
     @Inject("${controlPlane.cluster.snapshotIntervalMs:2000}")
     private long snapshotIntervalMs;
     @Inject("${controlPlane.cluster.leaseTtlMs:10000}")
@@ -40,7 +40,7 @@ public class GatewayClusterProperties {
             int revocationBatchSize,
             long revocationRetentionMs,
             long cleanupIntervalMs) {
-        this.coordinationEnabled = coordinationEnabled;
+        this.deployment = coordinationEnabled ? "cluster" : "standalone";
         this.snapshotIntervalMs = snapshotIntervalMs;
         this.leaseTtlMs = leaseTtlMs;
         this.staleRetentionMs = staleRetentionMs;
@@ -53,7 +53,15 @@ public class GatewayClusterProperties {
     }
 
     public boolean isCoordinationEnabled() {
-        return coordinationEnabled;
+        if (deployment == null || deployment.isBlank()
+                || "standalone".equalsIgnoreCase(deployment)) {
+            return false;
+        }
+        if ("cluster".equalsIgnoreCase(deployment)) {
+            return true;
+        }
+        throw new IllegalStateException(
+                "xuantong.deployment must be standalone or cluster");
     }
 
     public long snapshotIntervalMs() {

@@ -187,11 +187,15 @@ H2
 
 直接 java -jar 就能用。也可以换成 MySQL，并开启 XUANTONG_PRODUCTION=true 跑单机生产。
 
+单机使用 `XUANTONG_DEPLOYMENT=standalone`，这是默认值。Gateway 连接和配额只在当前进程维护，不会启动多 Server 的数据库租约和连接视图同步。
+
 单机没有节点接管能力。这台机器停了，玄同也会停，但功能没有被删减。
 
 ### 三节点或五节点
 
 需要机器故障自动接管时，再使用 3 个或 5 个 State voter。
+
+多节点必须设置 `XUANTONG_DEPLOYMENT=cluster`。
 
 所有节点使用相同的：
 

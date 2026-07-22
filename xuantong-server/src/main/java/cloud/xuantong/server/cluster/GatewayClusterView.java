@@ -37,9 +37,39 @@ public record GatewayClusterView(
         List<ControlPlaneConnectionView> connections) {
 
     public static GatewayClusterView local(GatewayRuntimeSnapshot snapshot) {
-        return aggregate(
-                snapshot.clusterId(), snapshot.gatewayId(),
-                System.currentTimeMillis(), false, List.of(), snapshot, Long.MAX_VALUE);
+        int truncated = snapshot.connectionDetailsTruncated() ? 1 : 0;
+        return new GatewayClusterView(
+                "CURRENT_GATEWAY",
+                false,
+                truncated == 0,
+                snapshot.clusterId(),
+                snapshot.capturedAt(),
+                1,
+                0,
+                truncated,
+                snapshot.totalConnectionCount(),
+                snapshot.logicalClients(),
+                snapshot.inFlightRequests(),
+                snapshot.activeSubscriptions(),
+                snapshot.pendingWatchAcknowledgements(),
+                snapshot.sessionQuotaRejectedTotal(),
+                snapshot.rateLimitedTotal(),
+                snapshot.clusterCoordinationRejectedTotal(),
+                Map.copyOf(snapshot.tenantSessionCounts()),
+                Map.copyOf(snapshot.credentialSessionCounts()),
+                Map.copyOf(snapshot.tenantSubscriptionCounts()),
+                snapshot.quotaAllocation(),
+                List.of(new GatewaySummary(
+                        snapshot.gatewayId(),
+                        snapshot.transportGeneration(),
+                        snapshot.capturedAt(),
+                        Long.MAX_VALUE,
+                        snapshot.totalConnectionCount(),
+                        snapshot.logicalClients(),
+                        snapshot.activeSubscriptions(),
+                        snapshot.connectionDetailsTruncated(),
+                        snapshot.quotaAllocation())),
+                List.copyOf(snapshot.connections()));
     }
 
     static GatewayClusterView aggregate(

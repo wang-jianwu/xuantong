@@ -7,12 +7,15 @@ import org.noear.solon.annotation.Init;
 import org.noear.solon.annotation.Inject;
 
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 @Component
 @Slf4j
 public final class ServiceDefinitionLifecycleRecovery {
+    private static final long MAX_IDLE_INTERVAL_MS = 30_000L;
+
     @Inject
     private ServiceDefinitionLifecycleCoordinator coordinator;
     @Inject("${statePlane.registry.lifecycleRecoveryIntervalMs:5000}")
@@ -20,6 +23,7 @@ public final class ServiceDefinitionLifecycleRecovery {
 
     private ScheduledExecutorService executor;
     private volatile boolean running;
+    private volatile long nextDelayMs;
 
     @Init(index = 1_800)
     public synchronized void start() {
@@ -37,11 +41,8 @@ public final class ServiceDefinitionLifecycleRecovery {
             return thread;
         });
         running = true;
-        executor.scheduleWithFixedDelay(
-                this::recoverSafely,
-                intervalMs,
-                intervalMs,
-                TimeUnit.MILLISECONDS);
+        nextDelayMs = intervalMs;
+        scheduleNext(0L);
     }
 
     @Destroy
@@ -55,13 +56,35 @@ public final class ServiceDefinitionLifecycleRecovery {
     }
 
     private void recoverSafely() {
+        int pending = 0;
         try {
-            coordinator.recoverPending();
+            pending = coordinator.recoverPending();
         } catch (RuntimeException e) {
             if (!running) {
                 return;
             }
             log.debug("Service lifecycle recovery scan failed; it will retry", e);
+        } finally {
+            if (running) {
+                nextDelayMs = pending > 0
+                        ? intervalMs
+                        : Math.min(MAX_IDLE_INTERVAL_MS,
+                                Math.max(intervalMs, nextDelayMs * 2L));
+                scheduleNext(nextDelayMs);
+            }
+        }
+    }
+
+    private void scheduleNext(long delayMs) {
+        ScheduledExecutorService current = executor;
+        if (running && current != null && !current.isShutdown()) {
+            try {
+                current.schedule(this::recoverSafely, delayMs, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException e) {
+                if (running) {
+                    throw e;
+                }
+            }
         }
     }
 }

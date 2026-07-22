@@ -10,11 +10,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -71,6 +69,7 @@ public class ControlPlaneGatewayRuntime {
     private final AtomicInteger activeSubscriptions = new AtomicInteger();
     private final AtomicInteger pendingWatchAcknowledgements = new AtomicInteger();
     private final Map<String, TrackedConnection> connections = new ConcurrentHashMap<>();
+    private final Map<String, Integer> clientInstanceSessionCounts = new HashMap<>();
     private final Map<String, Integer> tenantSessionCounts = new HashMap<>();
     private final Map<String, Integer> credentialSessionCounts = new HashMap<>();
     private final Map<String, Integer> tenantSubscriptionCounts = new HashMap<>();
@@ -221,17 +220,29 @@ public class ControlPlaneGatewayRuntime {
     }
 
     void sessionIdentified(String sessionId, cloud.xuantong.protocol.v2.HelloRequest hello) {
-        TrackedConnection connection = connections.get(sessionId);
-        if (connection == null) {
-            return;
+        synchronized (quotaMonitor) {
+            TrackedConnection connection = connections.get(sessionId);
+            if (connection == null) {
+                return;
+            }
+            String previousClientInstanceId = connection.clientInstanceId;
+            String clientInstanceId = normalized(hello.getClientInstanceId());
+            if (!java.util.Objects.equals(previousClientInstanceId, clientInstanceId)) {
+                if (previousClientInstanceId != null) {
+                    decrement(clientInstanceSessionCounts, previousClientInstanceId);
+                }
+                if (clientInstanceId != null) {
+                    increment(clientInstanceSessionCounts, clientInstanceId);
+                }
+            }
+            connection.clientInstanceId = clientInstanceId;
+            connection.applicationName = normalized(hello.getApplicationName());
+            connection.clientVersion = normalized(hello.getClientVersion());
+            connection.sdkName = normalized(hello.getSdkName());
+            connection.transportPool = normalized(hello.getTransportPool());
+            connection.capabilities = List.copyOf(hello.getCapabilitiesList());
+            connection.lastActiveAt = System.currentTimeMillis();
         }
-        connection.clientInstanceId = normalized(hello.getClientInstanceId());
-        connection.applicationName = normalized(hello.getApplicationName());
-        connection.clientVersion = normalized(hello.getClientVersion());
-        connection.sdkName = normalized(hello.getSdkName());
-        connection.transportPool = normalized(hello.getTransportPool());
-        connection.capabilities = List.copyOf(hello.getCapabilitiesList());
-        connection.lastActiveAt = System.currentTimeMillis();
     }
 
     AuthenticationAdmission sessionAuthenticated(
@@ -316,6 +327,9 @@ public class ControlPlaneGatewayRuntime {
         if (sessionId != null) {
             synchronized (quotaMonitor) {
                 TrackedConnection connection = connections.remove(sessionId);
+                if (connection != null && connection.clientInstanceId != null) {
+                    decrement(clientInstanceSessionCounts, connection.clientInstanceId);
+                }
                 if (connection != null && connection.principalId != null) {
                     decrement(tenantSessionCounts, connection.tenant);
                     decrement(credentialSessionCounts, connection.credentialQuotaKey);
@@ -468,6 +482,7 @@ public class ControlPlaneGatewayRuntime {
             sessionClosedTotal.addAndGet(connections.size());
             subscriptionClosedTotal.addAndGet(activeSubscriptions.get());
             connections.clear();
+            clientInstanceSessionCounts.clear();
             tenantSessionCounts.clear();
             credentialSessionCounts.clear();
             tenantSubscriptionCounts.clear();
@@ -737,13 +752,9 @@ public class ControlPlaneGatewayRuntime {
     }
 
     public long logicalClients() {
-        Set<String> clientInstanceIds = new HashSet<>();
-        for (TrackedConnection connection : connections.values()) {
-            if (connection.clientInstanceId != null) {
-                clientInstanceIds.add(connection.clientInstanceId);
-            }
+        synchronized (quotaMonitor) {
+            return clientInstanceSessionCounts.size();
         }
-        return clientInstanceIds.size();
     }
 
     public List<ControlPlaneConnectionView> connections() {
@@ -776,6 +787,24 @@ public class ControlPlaneGatewayRuntime {
 
     public ClusterQuotaAllocation clusterQuotaAllocation() {
         return clusterQuotaAllocation;
+    }
+
+    public GatewayRuntimeSummary localSummary() {
+        long logicalClients;
+        synchronized (quotaMonitor) {
+            logicalClients = clientInstanceSessionCounts.size();
+        }
+        return new GatewayRuntimeSummary(
+                clusterId(), gatewayId(), transportGeneration(), System.currentTimeMillis(),
+                activeSessions(), inFlightRequests(), activeSubscriptions(),
+                pendingWatchAcknowledgements(), logicalClients,
+                gatewaySessionLimitRejectedTotal()
+                        + tenantSessionLimitRejectedTotal()
+                        + credentialSessionLimitRejectedTotal(),
+                tenantSubscriptionLimitRejectedTotal()
+                        + tenantRequestRateLimitedTotal()
+                        + authenticationRateLimitedTotal(),
+                clusterCoordinationRejectedTotal(), clusterQuotaAllocation());
     }
 
     public GatewayRuntimeSnapshot localSnapshot(int maxConnectionDetails) {
@@ -1035,6 +1064,22 @@ public class ControlPlaneGatewayRuntime {
             Map<String, Integer> tenantSessionCounts,
             Map<String, Integer> credentialSessionCounts,
             Map<String, Integer> tenantSubscriptionCounts,
+            int inFlightRequests,
+            int activeSubscriptions,
+            int pendingWatchAcknowledgements,
+            long logicalClients,
+            long sessionQuotaRejectedTotal,
+            long rateLimitedTotal,
+            long clusterCoordinationRejectedTotal,
+            ClusterQuotaAllocation quotaAllocation) {
+    }
+
+    public record GatewayRuntimeSummary(
+            String clusterId,
+            String gatewayId,
+            long transportGeneration,
+            long capturedAt,
+            int totalConnectionCount,
             int inFlightRequests,
             int activeSubscriptions,
             int pendingWatchAcknowledgements,

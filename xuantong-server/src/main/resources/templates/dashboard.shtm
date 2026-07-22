@@ -76,7 +76,7 @@
                             <dd id="uptime">-</dd>
                         </div>
                         <div>
-                            <dt>JVM 内存</dt>
+                            <dt>JVM 堆内存（使用 / 已提交）</dt>
                             <dd id="memory">-</dd>
                         </div>
                         <div>
@@ -111,26 +111,39 @@
 <script src="/js/common.js?v=2.0.2-20260719-cluster"></script>
 <script>
     let overviewTimer;
+    let overviewLoading = false;
 
     async function loadOverview() {
+        window.clearTimeout(overviewTimer);
+        if (overviewLoading) return;
+        overviewLoading = true;
         try {
-            const [health, metricsText] = await Promise.all([apiGet('/health'), apiGetText('/metrics')]);
-            const metrics = parsePrometheus(metricsText);
-            setText('systemStatus', health.status === 'UP' ? '正常' : '异常');
-            document.getElementById('systemStatus').className = 'stat-value ' + (health.status === 'UP' ? 'text-success' : 'text-danger');
-            setText('versionBadge', health.version || '-');
-            setText('publishTotal', number(metrics.xuantong_config_publish_committed_total));
-            setText('controlConnections', number(metrics.xuantong_control_plane_clients) + ' / ' + number(metrics.xuantong_control_plane_sessions));
-            setText('serviceInstances', number(metrics.xuantong_discovery_services) + ' / ' + number(metrics.xuantong_discovery_instances));
-            setText('authFailures', number(metrics.xuantong_client_auth_failure_total));
-            setText('uptime', formatDuration(number(metrics.process_uptime_seconds)));
-            setText('memory', formatBytes(number(metrics.jvm_memory_used_bytes)));
-            setText('registerTotal', number(metrics.xuantong_registry_revision));
-            setText('tokenTotals', number(metrics.xuantong_client_token_issued_total) + ' / ' + number(metrics.xuantong_client_token_revoked_total));
-            const components = health.components || {};
+            const overview = await apiGet('/api/dashboard/overview');
+            setText('systemStatus', overview.status === 'UP' ? '正常' : '异常');
+            document.getElementById('systemStatus').className = 'stat-value ' + (overview.status === 'UP' ? 'text-success' : 'text-danger');
+            setText('versionBadge', overview.version || '-');
+            setText('publishTotal', number(overview.publishTotal));
+            setText('controlConnections', number(overview.controlPlaneClients) + ' / ' + number(overview.controlPlaneSessions));
+            setText('serviceInstances', number(overview.discoveryServices) + ' / ' + number(overview.discoveryInstances));
+            setText('authFailures', number(overview.authFailures));
+            setText('uptime', formatDuration(number(overview.uptimeSeconds)));
+            setText('memory', formatBytes(number(overview.heapUsedBytes)) + ' / ' + formatBytes(number(overview.heapCommittedBytes)));
+            setText('registerTotal', number(overview.registryRevision));
+            setText('tokenTotals', number(overview.tokensIssued) + ' / ' + number(overview.tokensRevoked));
+            const components = overview.components || {};
             document.getElementById('componentHealth').innerHTML = Object.keys(components).map(name => `<div class="health-item"><span>${escapeHtml(componentName(name))}</span><span class="status-dot ${components[name] === 'UP' ? 'up' : 'down'}"></span><strong>${escapeHtml(components[name])}</strong></div>`).join('');
         } catch (e) {
             showToast(e.message || '概览加载失败', 'error')
+        } finally {
+            overviewLoading = false;
+            scheduleOverviewRefresh();
+        }
+    }
+
+    function scheduleOverviewRefresh() {
+        window.clearTimeout(overviewTimer);
+        if (!document.hidden) {
+            overviewTimer = window.setTimeout(loadOverview, 10000);
         }
     }
 
@@ -148,6 +161,7 @@
             controlPlaneGateway: '控制面 Gateway',
             gatewayClusterCoordination: 'Gateway 集群协调',
             configStatePlane: 'Config State',
+            stateStorage: '状态存储',
             registryStatePlane: 'Registry State'
         }[name] || name
     }
@@ -160,9 +174,12 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         loadOverview();
-        overviewTimer = setInterval(loadOverview, 10000)
     });
-    window.addEventListener('beforeunload', () => clearInterval(overviewTimer));
+    document.addEventListener('visibilitychange', () => {
+        window.clearTimeout(overviewTimer);
+        if (!document.hidden) loadOverview();
+    });
+    window.addEventListener('beforeunload', () => window.clearTimeout(overviewTimer));
 </script>
 </body>
 </html>

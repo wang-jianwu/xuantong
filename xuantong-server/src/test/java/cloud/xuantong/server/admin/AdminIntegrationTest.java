@@ -128,8 +128,9 @@ public class AdminIntegrationTest {
         @DisplayName("仪表盘、Token、审计和范围授权接入 2.0 API")
         void newPagesUseExpectedApis() throws IOException {
             String dashboard = readTemplate("dashboard.shtm");
-            assertTrue(dashboard.contains("apiGet('/health')"));
-            assertTrue(dashboard.contains("apiGetText('/metrics')"));
+            assertTrue(dashboard.contains(
+                    "apiGet('/api/dashboard/overview')"));
+            assertFalse(dashboard.contains("apiGetText('/metrics')"));
 
             String token = readTemplate("token.shtm");
             assertTrue(token.contains("/api/v2/tokens"));

@@ -211,7 +211,7 @@ xuantong-probe 会从外部重新建立 Socket.D 连接并执行 Hello 和 Probe
 
 单机生产：配置 MySQL、Session Secret、Secure Cookie、Cluster ID 和 Gateway ID。
 
-高可用生产：在单机配置的基础上，再增加每个节点的 State Node ID 和所有节点共用的 peers。
+高可用生产：在单机配置的基础上，设置 `XUANTONG_DEPLOYMENT=cluster`，再增加每个节点的 State Node ID 和所有节点共用的 peers。
 
 线程数、队列大小、超时、Watch 间隔、Snapshot 和容量限制都有默认值。没有遇到明确问题时不要改。
 
@@ -226,4 +226,4 @@ xuantong-probe 会从外部重新建立 Socket.D 连接并执行 Hello 和 Probe
 - 多语言客户端；
 - 1.x 兼容和数据迁移。
 
-这些功能如果要做，会放到后续版本，不会在文档里写成 2.0 已经支持。
+这些功能如果要做，会放到后续版本。

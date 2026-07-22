@@ -61,19 +61,29 @@ final class DiscoveryMutationControlPlaneHandler implements ControlPlaneRequestH
     private final ControlPlaneStateExecutor stateExecutor;
     private final Operation operation;
     private final ServiceDefinitionService serviceDefinitions;
+    private final Runnable mutationCommitted;
 
     DiscoveryMutationControlPlaneHandler(
             ControlPlaneStateExecutor stateExecutor, Operation operation) {
-        this(stateExecutor, operation, null);
+        this(stateExecutor, operation, null, () -> { });
     }
 
     DiscoveryMutationControlPlaneHandler(
             ControlPlaneStateExecutor stateExecutor,
             Operation operation,
             ServiceDefinitionService serviceDefinitions) {
+        this(stateExecutor, operation, serviceDefinitions, () -> { });
+    }
+
+    DiscoveryMutationControlPlaneHandler(
+            ControlPlaneStateExecutor stateExecutor,
+            Operation operation,
+            ServiceDefinitionService serviceDefinitions,
+            Runnable mutationCommitted) {
         this.stateExecutor = stateExecutor;
         this.operation = operation;
         this.serviceDefinitions = serviceDefinitions;
+        this.mutationCommitted = mutationCommitted == null ? () -> { } : mutationCommitted;
     }
 
     @Override
@@ -118,6 +128,9 @@ final class DiscoveryMutationControlPlaneHandler implements ControlPlaneRequestH
             ControlPlaneRequestContext context,
             RegistryMutation mutation,
             ApplyResult result) {
+        if (result.status() != ApplyStatus.REJECTED) {
+            mutationCommitted.run();
+        }
         if (operation == Operation.REGISTER
                 && serviceDefinitions != null
                 && result.status() != ApplyStatus.REJECTED

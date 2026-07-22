@@ -3,6 +3,7 @@ package cloud.xuantong.server.admin.controller;
 import cloud.xuantong.gateway.socketd.ControlPlaneGatewayRuntime;
 import cloud.xuantong.security.service.ClientAccessTokenService;
 import cloud.xuantong.server.cluster.GatewayClusterProperties;
+import cloud.xuantong.server.cluster.GatewayClusterSummary;
 import cloud.xuantong.server.cluster.GatewayClusterView;
 import cloud.xuantong.server.cluster.GatewayClusterViewProvider;
 import cloud.xuantong.server.state.ConfigStatePlaneProperties;
@@ -90,6 +91,20 @@ class MonitoringControllerContractTest {
                 "xuantong_control_plane_watch_ack_duration_seconds_count 0\n"));
     }
 
+    @Test
+    void dashboardOverviewUsesLightweightSummaryAndExplicitHeapValues() throws Exception {
+        MonitoringController controller = controller(false);
+
+        Map<String, Object> overview = controller.overview();
+
+        assertEquals("UP", overview.get("status"));
+        assertEquals("test", overview.get("version"));
+        assertEquals(0L, overview.get("controlPlaneClients"));
+        assertEquals(0, overview.get("controlPlaneSessions"));
+        assertTrue(((Number) overview.get("heapUsedBytes")).longValue() > 0L);
+        assertTrue(((Number) overview.get("heapCommittedBytes")).longValue() > 0L);
+    }
+
     private MonitoringController controller(boolean configStateEnabled) throws Exception {
         return controller(configStateEnabled, 0L);
     }
@@ -113,7 +128,7 @@ class MonitoringControllerContractTest {
 
         ControlPlaneGatewayRuntime gatewayRuntime = new ControlPlaneGatewayRuntime();
         GatewayClusterProperties clusterProperties = new GatewayClusterProperties();
-        setField(clusterProperties, "coordinationEnabled", false);
+        setField(clusterProperties, "deployment", "standalone");
 
         StateStorageTelemetry telemetry = new StateStorageTelemetry();
         setField(telemetry, "properties", configProperties);
@@ -127,9 +142,21 @@ class MonitoringControllerContractTest {
         setField(controller, "tokenService", new ClientAccessTokenService());
         setField(controller, "gatewayRuntime", gatewayRuntime);
         setField(controller, "gatewayClusterProperties", clusterProperties);
+        GatewayClusterSummary summary = GatewayClusterSummary.local(
+                gatewayRuntime.localSummary());
         setField(controller, "gatewayClusterViewProvider",
-                (GatewayClusterViewProvider) () ->
-                        GatewayClusterView.local(gatewayRuntime.localSnapshot(100)));
+                new GatewayClusterViewProvider() {
+                    @Override
+                    public GatewayClusterView currentView() {
+                        throw new AssertionError(
+                                "monitoring endpoints must not build a connection view");
+                    }
+
+                    @Override
+                    public GatewayClusterSummary currentSummary() {
+                        return summary;
+                    }
+                });
         setField(controller, "configStateProperties", configProperties);
         setField(controller, "configStateRuntime", new ControlStatePlaneRuntime());
         setField(controller, "stateStorageTelemetry", telemetry);

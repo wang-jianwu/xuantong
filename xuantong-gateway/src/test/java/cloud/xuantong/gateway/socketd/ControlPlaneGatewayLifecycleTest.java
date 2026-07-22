@@ -70,6 +70,28 @@ class ControlPlaneGatewayLifecycleTest {
     }
 
     @Test
+    void countsOneLogicalClientAcrossMultiplePhysicalSessions() {
+        ControlPlaneGatewayRuntime runtime = new ControlPlaneGatewayRuntime(
+                new ControlPlaneGatewayProperties(
+                        "cluster-test", "gateway-test", 1L, 4_000L));
+        HelloRequest hello = HelloRequest.newBuilder()
+                .setClientInstanceId("orders@node-1")
+                .setApplicationName("orders")
+                .build();
+
+        runtime.sessionOpened("session-1", 1L, "127.0.0.1");
+        runtime.sessionOpened("session-2", 2L, "127.0.0.1");
+        runtime.sessionIdentified("session-1", hello);
+        runtime.sessionIdentified("session-2", hello);
+
+        assertEquals(1L, runtime.logicalClients());
+        runtime.sessionClosed("session-1");
+        assertEquals(1L, runtime.logicalClients());
+        runtime.sessionClosed("session-2");
+        assertEquals(0L, runtime.logicalClients());
+    }
+
+    @Test
     void boundedWorkQueueAppliesCallerRunsBackpressureInsteadOfDroppingTasks() throws Exception {
         int port = freePort();
         ControlPlaneGatewayProperties properties = new ControlPlaneGatewayProperties(

@@ -57,7 +57,9 @@ class DiscoveryMutationControlPlaneHandlerTest {
     @Test
     void firstRegisterCreatesServiceAndUpdatesManagementProjection() throws Exception {
         RecordingProjection projection = new RecordingProjection(false);
-        DiscoveryMutationControlPlaneHandler handler = handler(projection);
+        AtomicLong committedMutations = new AtomicLong();
+        DiscoveryMutationControlPlaneHandler handler = handler(
+                projection, committedMutations::incrementAndGet);
 
         ControlPlaneReply reply = handler.handle(context, registerEnvelope())
                 .toCompletableFuture().get(5, TimeUnit.SECONDS);
@@ -69,6 +71,7 @@ class DiscoveryMutationControlPlaneHandlerTest {
         assertEquals(1L, response.getInstances(0).getServiceGeneration());
         assertEquals("public:DEFAULT_GROUP:demo-app", projection.service);
         assertEquals(1L, projection.generation);
+        assertEquals(1L, committedMutations.get());
     }
 
     @Test
@@ -87,10 +90,17 @@ class DiscoveryMutationControlPlaneHandlerTest {
 
     private DiscoveryMutationControlPlaneHandler handler(
             ServiceDefinitionService projection) {
+        return handler(projection, () -> { });
+    }
+
+    private DiscoveryMutationControlPlaneHandler handler(
+            ServiceDefinitionService projection,
+            Runnable mutationCommitted) {
         return new DiscoveryMutationControlPlaneHandler(
                 new ControlPlaneStateExecutor(stateClient),
                 DiscoveryMutationControlPlaneHandler.Operation.REGISTER,
-                projection);
+                projection,
+                mutationCommitted);
     }
 
     private Envelope registerEnvelope() {

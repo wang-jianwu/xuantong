@@ -53,7 +53,7 @@ class ConfigRolloutPreviewServiceTest {
                 ConfigRolloutPolicy.clientInstances(List.of("client-b")),
                 "preview-key");
 
-        assertEquals("CURRENT_GATEWAY_FALLBACK", preview.scope());
+        assertEquals("CURRENT_GATEWAY", preview.scope());
         assertFalse(preview.clusterAggregated());
         assertEquals("cluster-test", preview.clusterId());
         assertEquals(2, preview.visibleInstanceCount());

@@ -18,7 +18,7 @@
                 <div><h2>控制面客户端连接</h2>
                     <p>Config 与 Discovery 都进入统一 `/control-v2` Gateway，不再按旧通道拆分；逻辑客户端按进程实例 ID
                         在集群内去重。</p></div>
-                <button class="btn btn-outline-secondary" onclick="loadConnections()"><i class="fas fa-rotate"></i> 刷新
+                <button class="btn btn-outline-secondary" onclick="loadConnections(true)"><i class="fas fa-rotate"></i> 刷新
                 </button>
             </div>
             <div class="stats-grid">
@@ -99,25 +99,44 @@
 <script src="/lib/bootstrap/5.3.8/bootstrap.bundle.min.js"></script>
 <script src="/js/common.js?v=2.0.2-20260719-cluster"></script>
 <script>
-    let connectionRows = [], connectionTimer;
+    let connectionRows = [], connectionTimer, connectionLoading = false;
 
-    async function loadConnections() {
-        const data = requireApiSuccess(await apiGet('/api/v2/connections')) || {};
-        connectionRows = data.connections || [];
-        document.getElementById('logicalClients').textContent = data.logicalClients || 0;
-        document.getElementById('sessions').textContent = data.sessions || 0;
-        document.getElementById('runtimeLoads').textContent = (data.inFlightRequests || 0) + ' / ' + (data.subscriptions || 0);
-        document.getElementById('quotaRejects').textContent = (data.sessionQuotaRejectedTotal || 0) + ' / ' + (data.rateLimitedTotal || 0) + ' / ' + (data.clusterCoordinationRejectedTotal || 0);
-        const allocation = data.localQuotaAllocation || {};
-        const status = document.getElementById('clusterViewStatus');
-        const issues = [];
-        if (!data.clusterAggregated) issues.push('当前为本 Gateway 降级视图');
-        if (data.staleGatewayCount) issues.push(`${data.staleGatewayCount} 个过期 Gateway 快照已剔除`);
-        if (data.truncatedGatewayCount) issues.push(`${data.truncatedGatewayCount} 个 Gateway 的连接明细被截断`);
-        if (allocation.enabled && !allocation.admissionsEnabled) issues.push('本 Gateway 尚未取得安全接入额度');
-        status.className = `alert ${issues.length ? 'alert-warning' : 'alert-info'}`;
-        status.textContent = `集群 ${data.clusterId || '-'} · 活跃 Gateway ${data.activeGatewayCount || 0} · 视图${data.clusterViewComplete ? '完整' : '不完整'} · 本地 Session 配额 ${allocation.maxSessions || '-'} / Tenant ${allocation.maxSessionsPerTenant || '-'} / Credential ${allocation.maxSessionsPerCredential || '-'}${issues.length ? `；${issues.join('；')}` : ''}`;
-        filterConnections()
+    async function loadConnections(showError = false) {
+        window.clearTimeout(connectionTimer);
+        if (connectionLoading) return;
+        connectionLoading = true;
+        try {
+            const data = requireApiSuccess(await apiGet('/api/v2/connections')) || {};
+            connectionRows = data.connections || [];
+            document.getElementById('logicalClients').textContent = data.logicalClients || 0;
+            document.getElementById('sessions').textContent = data.sessions || 0;
+            document.getElementById('runtimeLoads').textContent = (data.inFlightRequests || 0) + ' / ' + (data.subscriptions || 0);
+            document.getElementById('quotaRejects').textContent = (data.sessionQuotaRejectedTotal || 0) + ' / ' + (data.rateLimitedTotal || 0) + ' / ' + (data.clusterCoordinationRejectedTotal || 0);
+            const allocation = data.localQuotaAllocation || {};
+            const status = document.getElementById('clusterViewStatus');
+            const issues = [];
+            const standalone = data.scope === 'CURRENT_GATEWAY';
+            if (!standalone && !data.clusterAggregated) issues.push('当前为本 Gateway 降级视图');
+            if (data.staleGatewayCount) issues.push(`${data.staleGatewayCount} 个过期 Gateway 快照已剔除`);
+            if (data.truncatedGatewayCount) issues.push(`${data.truncatedGatewayCount} 个 Gateway 的连接明细被截断`);
+            if (allocation.enabled && !allocation.admissionsEnabled) issues.push('本 Gateway 尚未取得安全接入额度');
+            status.className = `alert ${issues.length ? 'alert-warning' : 'alert-info'}`;
+            const topology = standalone ? '单机 Gateway' : `集群 ${data.clusterId || '-'}`;
+            status.textContent = `${topology} · 活跃 Gateway ${data.activeGatewayCount || 0} · 视图${data.clusterViewComplete ? '完整' : '不完整'} · 本地 Session 配额 ${allocation.maxSessions || '-'} / Tenant ${allocation.maxSessionsPerTenant || '-'} / Credential ${allocation.maxSessionsPerCredential || '-'}${issues.length ? `；${issues.join('；')}` : ''}`;
+            filterConnections()
+        } catch (e) {
+            if (showError) showToast(e.message || '连接加载失败', 'error')
+        } finally {
+            connectionLoading = false;
+            scheduleConnectionRefresh();
+        }
+    }
+
+    function scheduleConnectionRefresh() {
+        window.clearTimeout(connectionTimer);
+        if (!document.hidden) {
+            connectionTimer = window.setTimeout(() => loadConnections(false), 10000)
+        }
     }
 
     function filterConnections() {
@@ -138,11 +157,13 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        loadConnections().catch(e => showToast(e.message || '连接加载失败', 'error'));
-        connectionTimer = setInterval(() => loadConnections().catch(() => {
-        }), 10000)
+        loadConnections(true)
     });
-    window.addEventListener('beforeunload', () => clearInterval(connectionTimer));
+    document.addEventListener('visibilitychange', () => {
+        window.clearTimeout(connectionTimer);
+        if (!document.hidden) loadConnections(false)
+    });
+    window.addEventListener('beforeunload', () => window.clearTimeout(connectionTimer));
 </script>
 </body>
 </html>

@@ -232,6 +232,8 @@ Token 可以限制 namespace、group 和读写权限。
 
 单机可以跑生产，不需要改 Raft 配置。
 
+默认的 `XUANTONG_DEPLOYMENT=standalone` 不会启动多 Server 使用的 Gateway 数据库协调任务，不需要手动配置。
+
 第一次安装时，先按普通模式启动，登录后台把 admin123 改掉。然后停掉服务，配置 MySQL 和安全项后重新启动：
 
 ~~~bash
@@ -259,6 +261,7 @@ java -jar xuantong-server.jar
 
 所有节点都连接同一个 MySQL，并使用相同的：
 
+- XUANTONG_DEPLOYMENT=cluster
 - XUANTONG_CLUSTER_ID
 - XUANTONG_ADMIN_SESSION_SECRET
 - XUANTONG_CONFIG_STATE_PEERS
@@ -271,6 +274,7 @@ java -jar xuantong-server.jar
 三节点 peers 示例：
 
 ~~~bash
+export XUANTONG_DEPLOYMENT='cluster'
 export XUANTONG_STATE_NODE_ID='state-1'
 export XUANTONG_CONFIG_STATE_PEERS='state-1@10.0.0.11:9101,state-2@10.0.0.12:9101,state-3@10.0.0.13:9101'
 ~~~

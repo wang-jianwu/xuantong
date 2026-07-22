@@ -11,7 +11,7 @@ import cloud.xuantong.server.state.ControlStatePlaneRuntime;
 import cloud.xuantong.server.state.StateStorageTelemetry;
 import cloud.xuantong.gateway.socketd.ControlPlaneGatewayRuntime;
 import cloud.xuantong.server.cluster.GatewayClusterProperties;
-import cloud.xuantong.server.cluster.GatewayClusterView;
+import cloud.xuantong.server.cluster.GatewayClusterSummary;
 import cloud.xuantong.server.cluster.GatewayClusterViewProvider;
 import org.noear.solon.annotation.*;
 import org.noear.solon.core.handle.Context;
@@ -43,16 +43,61 @@ public class MonitoringController {
 
     @Mapping("/health")
     public Map<String, Object> health(Context context) {
+        RegistryOverview registryOverview = registryOverview();
+        HealthAssessment assessment = assessHealth(
+                gatewayClusterViewProvider.currentSummary(),
+                !registryStateProperties.isEnabled() || registryOverview != null);
+        if (!assessment.up()) context.status(503);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", assessment.up() ? "UP" : "DOWN");
+        result.put("version", applicationVersion);
+        result.put("components", assessment.components());
+        return result;
+    }
+
+    @Mapping("/api/dashboard/overview")
+    public Map<String, Object> overview() {
+        RegistryOverview registryOverview = registryOverview();
+        GatewayClusterSummary clusterSummary = gatewayClusterViewProvider.currentSummary();
+        HealthAssessment assessment = assessHealth(
+                clusterSummary,
+                !registryStateProperties.isEnabled() || registryOverview != null);
+        MemoryMXBean memory = ManagementFactory.getMemoryMXBean();
+        java.lang.management.MemoryUsage heap = memory.getHeapMemoryUsage();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", assessment.up() ? "UP" : "DOWN");
+        result.put("version", applicationVersion);
+        result.put("components", assessment.components());
+        result.put("publishTotal", configStateManagementService.publishCommittedTotal());
+        result.put("controlPlaneClients", clusterSummary.logicalClients());
+        result.put("controlPlaneSessions", clusterSummary.sessions());
+        result.put("activeGateways", clusterSummary.activeGatewayCount());
+        result.put("discoveryServices",
+                registryOverview == null ? 0 : registryOverview.activeServiceCount());
+        result.put("discoveryInstances",
+                registryOverview == null ? 0 : registryOverview.activeInstanceCount());
+        result.put("registryRevision",
+                registryOverview == null ? 0 : registryOverview.registryRevision());
+        result.put("authFailures", tokenService.authFailureTotal());
+        result.put("tokensIssued", tokenService.issuedTotal());
+        result.put("tokensRevoked", tokenService.revokedTotal());
+        result.put("uptimeSeconds", ManagementFactory.getRuntimeMXBean().getUptime() / 1000D);
+        result.put("heapUsedBytes", heap.getUsed());
+        result.put("heapCommittedBytes", heap.getCommitted());
+        return result;
+    }
+
+    private HealthAssessment assessHealth(
+            GatewayClusterSummary clusterSummary, boolean registryStateUp) {
         Map<String, Object> components = new LinkedHashMap<>();
         boolean databaseUp = databaseUp();
         components.put("database", databaseUp ? "UP" : "DOWN");
         boolean gatewayUp = !gatewayRuntime.isDraining();
         components.put("controlPlaneGateway", gatewayUp ? "UP" : "DOWN");
-        GatewayClusterView clusterView = gatewayClusterViewProvider.currentView();
         boolean clusterCoordinationUp = !gatewayClusterProperties.isCoordinationEnabled()
-                || clusterView.clusterAggregated()
-                && clusterView.localQuotaAllocation().admissionsEnabled()
-                && clusterView.localQuotaAllocation().leaseValid(System.currentTimeMillis());
+                || clusterSummary.clusterAggregated()
+                && clusterSummary.localQuotaAllocation().admissionsEnabled()
+                && clusterSummary.localQuotaAllocation().leaseValid(System.currentTimeMillis());
         components.put("gatewayClusterCoordination",
                 gatewayClusterProperties.isCoordinationEnabled()
                         ? (clusterCoordinationUp ? "UP" : "DOWN") : "DISABLED");
@@ -66,17 +111,11 @@ public class MonitoringController {
                 && stateStorage.storageFreeSpaceAboveMinimum();
         components.put("stateStorage", configStateProperties.isEnabled()
                 ? (stateStorageUp ? "UP" : "DOWN") : "DISABLED");
-        boolean registryStateUp = registryStateUp();
         components.put("registryStatePlane", registryStateProperties.isEnabled()
                 ? (registryStateUp ? "UP" : "DOWN") : "DISABLED");
         boolean up = databaseUp && gatewayUp && clusterCoordinationUp
                 && configStateUp && stateStorageUp && registryStateUp;
-        if (!up) context.status(503);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("status", up ? "UP" : "DOWN");
-        result.put("version", applicationVersion);
-        result.put("components", components);
-        return result;
+        return new HealthAssessment(up, components);
     }
 
     @Mapping("/metrics")
@@ -93,7 +132,7 @@ public class MonitoringController {
         FixedLatencyHistogram.Snapshot stateApplyLatency =
                 configStateRuntime.stateApplyLatencySnapshot();
         RegistryOverview registryOverview = registryOverview();
-        GatewayClusterView clusterView = gatewayClusterViewProvider.currentView();
+        GatewayClusterSummary clusterSummary = gatewayClusterViewProvider.currentSummary();
         StringBuilder out = new StringBuilder();
         metric(out, "xuantong_config_publish_committed_total",
                 configStateManagementService.publishCommittedTotal());
@@ -200,24 +239,24 @@ public class MonitoringController {
         metric(out, "xuantong_control_plane_hello_timeout_closed_total",
                 gatewayRuntime.helloTimeoutClosedTotal());
         metric(out, "xuantong_gateway_cluster_active_gateways",
-                clusterView.activeGatewayCount());
+                clusterSummary.activeGatewayCount());
         metric(out, "xuantong_gateway_cluster_stale_gateways",
-                clusterView.staleGatewayCount());
+                clusterSummary.staleGatewayCount());
         metric(out, "xuantong_gateway_cluster_truncated_gateways",
-                clusterView.truncatedGatewayCount());
+                clusterSummary.truncatedGatewayCount());
         metric(out, "xuantong_gateway_cluster_view_complete",
-                clusterView.clusterViewComplete() ? 1 : 0);
-        metric(out, "xuantong_gateway_cluster_sessions", clusterView.sessions());
+                clusterSummary.clusterViewComplete() ? 1 : 0);
+        metric(out, "xuantong_gateway_cluster_sessions", clusterSummary.sessions());
         metric(out, "xuantong_gateway_cluster_logical_clients",
-                clusterView.logicalClients());
+                clusterSummary.logicalClients());
         metric(out, "xuantong_gateway_cluster_coordination_rejected_total",
                 gatewayRuntime.clusterCoordinationRejectedTotal());
         metric(out, "xuantong_gateway_local_allocated_sessions",
-                clusterView.localQuotaAllocation().maxSessions());
+                clusterSummary.localQuotaAllocation().maxSessions());
         metric(out, "xuantong_gateway_local_allocated_subscriptions",
-                clusterView.localQuotaAllocation().maxSubscriptions());
+                clusterSummary.localQuotaAllocation().maxSubscriptions());
         metric(out, "xuantong_gateway_local_allocated_tenant_request_rate",
-                clusterView.localQuotaAllocation().tenantRequestRatePerSecond());
+                clusterSummary.localQuotaAllocation().tenantRequestRatePerSecond());
         metric(out, "xuantong_registry_state_enabled",
                 registryStateProperties.isEnabled() ? 1 : 0);
         metric(out, "xuantong_registry_state_running", registryState.available() ? 1 : 0);
@@ -291,18 +330,6 @@ public class MonitoringController {
         context.output(out.toString());
     }
 
-    private boolean registryStateUp() {
-        if (!registryStateProperties.isEnabled()) {
-            return true;
-        }
-        try {
-            registryState.overview();
-            return true;
-        } catch (RuntimeException e) {
-            return false;
-        }
-    }
-
     private RegistryOverview registryOverview() {
         if (!registryState.available()) {
             return null;
@@ -344,4 +371,7 @@ public class MonitoringController {
         metric(out, name + "_count", snapshot.count());
     }
     private void metric(StringBuilder out, String name, Number value) { out.append(name).append(' ').append(value).append('\n'); }
+
+    private record HealthAssessment(boolean up, Map<String, Object> components) {
+    }
 }

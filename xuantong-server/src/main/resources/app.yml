@@ -16,6 +16,11 @@ solon:
     nullArrayAsEmpty: true
     nullAsWriteable: true
     enumAsName: true
+
+xuantong:
+  # standalone：单机生产，不启动 Gateway 数据库协调；cluster：多 Server 集群。
+  deployment: ${XUANTONG_DEPLOYMENT:standalone}
+
 # 玄同 Server 配置
 server:
   # 管理端 HTTP 端口。
@@ -40,7 +45,7 @@ controlPlane:
   maxRequestBudgetMs: ${XUANTONG_MAX_REQUEST_BUDGET_MS:10000}
   maxRequestBytes: ${XUANTONG_MAX_REQUEST_BYTES:1048576}
   maxInFlightRequests: ${XUANTONG_MAX_IN_FLIGHT_REQUESTS:1024}
-  # 开启 cluster.coordinationEnabled 后，以下配额是集群硬上限；Gateway 在内存中执行本地分片。
+  # cluster 部署时，以下配额是集群硬上限；Gateway 在内存中执行本地分片。
   maxSessions: ${XUANTONG_MAX_SESSIONS:20000}
   maxSessionsPerTenant: ${XUANTONG_MAX_SESSIONS_PER_TENANT:10000}
   maxSessionsPerCredential: ${XUANTONG_MAX_SESSIONS_PER_CREDENTIAL:1000}
@@ -64,7 +69,6 @@ controlPlane:
   idleTimeoutMs: ${XUANTONG_CONTROL_IDLE_TIMEOUT_MS:60000}
   drainTimeoutMs: ${XUANTONG_CONTROL_DRAIN_TIMEOUT_MS:5000}
   cluster:
-    coordinationEnabled: ${XUANTONG_CLUSTER_COORDINATION_ENABLED:true}
     snapshotIntervalMs: ${XUANTONG_CLUSTER_SNAPSHOT_INTERVAL_MS:2000}
     leaseTtlMs: ${XUANTONG_CLUSTER_LEASE_TTL_MS:10000}
     staleRetentionMs: ${XUANTONG_CLUSTER_STALE_RETENTION_MS:60000}

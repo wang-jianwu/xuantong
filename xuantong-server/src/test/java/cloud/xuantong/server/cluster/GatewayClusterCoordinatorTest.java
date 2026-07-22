@@ -24,6 +24,59 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GatewayClusterCoordinatorTest {
     @Test
+    void standaloneModeDoesNotStartDatabaseCoordination() throws Exception {
+        GatewayClusterProperties clusterProperties = new GatewayClusterProperties(
+                false, 2_000L, 10_000L, 60_000L, 5_000, 5,
+                100L, 500, 604_800_000L, 3_600_000L);
+        ControlPlaneGatewayProperties gatewayProperties = gatewayProperties(
+                "gateway-standalone");
+        ControlPlaneGatewayRuntime runtime = runtime(gatewayProperties);
+        GatewayClusterStore unexpectedStore = new GatewayClusterStore() {
+            @Override
+            public void publish(
+                    String clusterId, String gatewayId, String runtimeId,
+                    long nowEpochMs, long leaseExpiresAtEpochMs,
+                    GatewayRuntimeSnapshot snapshot) {
+                throw new AssertionError("standalone must not publish cluster snapshots");
+            }
+
+            @Override
+            public List<StoredGatewaySnapshot> findRecent(
+                    String clusterId, long minimumLeaseExpiryEpochMs) {
+                throw new AssertionError("standalone must not query cluster snapshots");
+            }
+
+            @Override
+            public long maxRevocationEventId() {
+                throw new AssertionError("standalone must not query revocation cursor");
+            }
+
+            @Override
+            public List<CredentialRevocation> findRevocationsAfter(
+                    long eventId, int limit) {
+                throw new AssertionError("standalone must not poll revocations");
+            }
+
+            @Override
+            public void cleanup(
+                    long snapshotExpiryCutoffEpochMs, long revocationCutoffEpochMs) {
+                throw new AssertionError("standalone must not clean cluster state");
+            }
+        };
+        GatewayClusterCoordinator coordinator = new GatewayClusterCoordinator(
+                clusterProperties, gatewayProperties, runtime, unexpectedStore, ignored -> 0);
+
+        coordinator.start();
+        try {
+            assertFalse(coordinator.currentSummary().clusterAggregated());
+            assertEquals(1, coordinator.currentSummary().activeGatewayCount());
+            assertTrue(runtime.clusterQuotaAllocation().admissionsEnabled());
+        } finally {
+            coordinator.stop();
+        }
+    }
+
+    @Test
     void waitsForInFlightTickBeforeCompletingShutdown() throws Exception {
         BlockingStore store = new BlockingStore();
         GatewayClusterProperties clusterProperties = new GatewayClusterProperties(

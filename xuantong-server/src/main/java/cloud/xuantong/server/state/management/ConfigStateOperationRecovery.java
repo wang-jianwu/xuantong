@@ -11,6 +11,7 @@ import org.noear.solon.annotation.Inject;
 
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -19,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public final class ConfigStateOperationRecovery {
     private static final int BATCH_SIZE = 100;
+    private static final long MAX_IDLE_INTERVAL_MS = 30_000L;
 
     @Inject
     private ControlStatePlaneRuntime runtime;
@@ -31,6 +33,7 @@ public final class ConfigStateOperationRecovery {
 
     private ScheduledExecutorService executor;
     private volatile boolean running;
+    private volatile long nextDelayMs;
 
     @Init(index = 1_700)
     public void start() {
@@ -47,15 +50,12 @@ public final class ConfigStateOperationRecovery {
             return thread;
         });
         running = true;
-        executor.scheduleWithFixedDelay(
-                this::recoverSafely,
-                recoveryIntervalMs,
-                recoveryIntervalMs,
-                TimeUnit.MILLISECONDS);
+        nextDelayMs = recoveryIntervalMs;
+        scheduleNext(0L);
         log.info("Config State operation recovery started: intervalMs={}", recoveryIntervalMs);
     }
 
-    void recoverOnce() {
+    int recoverOnce() {
         List<ConfigStateOperation> operations = operationRepository
                 .findRecoverable(BATCH_SIZE);
         for (ConfigStateOperation operation : operations) {
@@ -71,16 +71,39 @@ public final class ConfigStateOperationRecovery {
                         operation.getOperationId(), e);
             }
         }
+        return operations.size();
     }
 
     private void recoverSafely() {
+        int recoverable = 0;
         try {
-            recoverOnce();
+            recoverable = recoverOnce();
         } catch (RuntimeException e) {
             if (!running) {
                 return;
             }
             log.warn("Config State operation recovery scan failed; it will retry", e);
+        } finally {
+            if (running) {
+                nextDelayMs = recoverable > 0
+                        ? recoveryIntervalMs
+                        : Math.min(MAX_IDLE_INTERVAL_MS,
+                                Math.max(recoveryIntervalMs, nextDelayMs * 2L));
+                scheduleNext(nextDelayMs);
+            }
+        }
+    }
+
+    private void scheduleNext(long delayMs) {
+        ScheduledExecutorService current = executor;
+        if (running && current != null && !current.isShutdown()) {
+            try {
+                current.schedule(this::recoverSafely, delayMs, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException e) {
+                if (running) {
+                    throw e;
+                }
+            }
         }
     }
 

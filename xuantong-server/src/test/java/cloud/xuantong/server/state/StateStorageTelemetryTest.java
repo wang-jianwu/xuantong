@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 class StateStorageTelemetryTest {
     @TempDir
@@ -33,7 +34,7 @@ class StateStorageTelemetryTest {
         MD5FileUtil.computeAndSaveMd5ForFile(snapshotFile.toFile());
 
         StateStorageTelemetry telemetry = new StateStorageTelemetry(
-                properties(tempDirectory));
+                properties(tempDirectory), 0L);
         StateStorageTelemetry.Snapshot snapshot = telemetry.snapshot();
 
         assertTrue(snapshot.scanComplete());
@@ -57,6 +58,19 @@ class StateStorageTelemetryTest {
         assertEquals(1L, damaged.snapshotChecksumMismatchCount());
         assertEquals(0L, damaged.snapshotChecksumUnverifiedCount());
         assertEquals(1L, damaged.snapshotChecksumFailureTotal());
+    }
+
+    @Test
+    void reusesFilesystemSnapshotWithinCacheWindow() throws Exception {
+        Path current = Files.createDirectories(tempDirectory.resolve("group/current"));
+        Files.write(current.resolve("log_1-2"), new byte[4]);
+        StateStorageTelemetry telemetry = new StateStorageTelemetry(
+                properties(tempDirectory), 15_000L);
+
+        StateStorageTelemetry.Snapshot first = telemetry.snapshot();
+        StateStorageTelemetry.Snapshot second = telemetry.snapshot();
+
+        assertSame(first, second);
     }
 
     @Test
