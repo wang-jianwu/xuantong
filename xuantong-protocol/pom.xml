@@ -3,6 +3,8 @@
     <modelVersion>4.0.0</modelVersion>
     <parent><groupId>cloud.xuantong</groupId><artifactId>xuantong-parent</artifactId><version>2.0.0</version></parent>
     <artifactId>xuantong-protocol</artifactId>
+    <name>Xuantong Protocol</name>
+    <description>Protocol definitions shared by Xuantong clients and the control plane</description>
     <dependencies>
         <dependency>
             <groupId>com.google.protobuf</groupId>

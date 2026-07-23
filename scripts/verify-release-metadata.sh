@@ -59,6 +59,12 @@ for module in "${public_modules[@]}"; do
     echo "Public module parent version differs from $project_version: $pom" >&2
     exit 1
   }
+  for element in name description; do
+    rg -q "<$element(?:>| )" "$pom" || {
+      echo "Public module POM must declare Central metadata explicitly: $pom <$element>" >&2
+      exit 1
+    }
+  done
 done
 
 duplicate_release_plugins="$(
